@@ -134,6 +134,7 @@ enum class TxoutType {
     WITNESS_MWEB_PEGIN, //!< Hash of the peg-in kernel
     WITNESS_MWEB_HOGADDR, //!< HogAddr (first output of HogEx)
     WITNESS_UNKNOWN, //!< Only for Witness versions not already defined above
+    DRIVECHAIN,
 };
 
 class CNoDestination {

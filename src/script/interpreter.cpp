@@ -616,7 +616,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     break;
                 }
 
-                case OP_NOP1: case OP_NOP4: case OP_NOP5:
+                case OP_NOP1: case OP_NOP4:
                 case OP_NOP6: case OP_NOP7: case OP_NOP8: case OP_NOP9: case OP_NOP10:
                 {
                     if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
@@ -1235,6 +1235,20 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         else
                             return set_error(serror, SCRIPT_ERR_CHECKMULTISIGVERIFY);
                     }
+                }
+                break;
+
+                case OP_DRIVECHAIN:
+                {
+                    if (script.size() != 4)
+                        return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+
+                    if (script[0] != OP_DRIVECHAIN)
+                        return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+
+                    stack.push_back(std::vector<unsigned char> {0xDC});
+
+                    pc += 4;
                 }
                 break;
 
