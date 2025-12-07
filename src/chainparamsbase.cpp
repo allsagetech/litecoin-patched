@@ -29,7 +29,6 @@ void SetupChainParamsBaseOptions(ArgsManager& argsman)
     argsman.AddArg("-signetblocktime", "Difficulty adjustment will target a block time of the given amount in seconds " "(only for custom signet networks, must have -signetchallenge set; defaults to 10 minutes)", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-signetseednode", "Specify a seed node for the signet network, in the hostname[:port] format, e.g. sig.net:1234 (may be used multiple times to specify multiple seed nodes; defaults to the global default signet test network seed node(s))", ArgsManager::ALLOW_STRING, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-powtargetspacing", "Override PoW target spacing in seconds (experimental; default 150 for Litecoin mainnet)", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
-    argsman.AddArg("-powtargetspacing","Override PoW target spacing in seconds (experimental; default 150 for Litecoin mainnet)", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
 }
 
 static std::unique_ptr<CBaseChainParams> globalChainBaseParams;

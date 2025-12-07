@@ -10,7 +10,7 @@ on:
 jobs: 
   build-linux: 
     name: Build Linux binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps: 
       - name: install Linux deps
         run: |
@@ -30,7 +30,6 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      # NEW: pin Python to 3.11 so depends/xcb_proto doesn't see 3.12
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -40,13 +39,11 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ./depends
-          # bump the key so we don't reuse any old 3.12-built cache
           key: linux-py311-${{ hashFiles('depends/packages/**') }}
 
       - name: download dependencies
         run: make -C ./depends download-linux
 
-      # CHANGED: pass PYTHON so the whole depends tree uses Python 3.11
       - name: build dependencies
         run: make -C ./depends -j4 PYTHON=python3.11
 
@@ -90,6 +87,63 @@ jobs:
             artifacts/litecoin-cli
             artifacts/litecoin-tx
             artifacts/qt/litecoin-qt
+
+      # -------------------------------
+      # NEW: Create GitHub Release
+      # -------------------------------
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ env.LITECOIN_CORE_VERSION }}
+          release_name: "Litecoin Core v${{ env.LITECOIN_CORE_VERSION }} (Linux x86_64)"
+          draft: false
+          prerelease: false
+
+      # -------------------------------
+      # NEW: Upload release assets
+      # -------------------------------
+      - name: Upload litecoind
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/litecoind
+          asset_name: litecoind-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_content_type: application/octet-stream
+
+      - name: Upload litecoin-cli
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/litecoin-cli
+          asset_name: litecoin-cli-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_content_type: application/octet-stream
+
+      - name: Upload litecoin-tx
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/litecoin-tx
+          asset_name: litecoin-tx-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_content_type: application/octet-stream
+
+      - name: Upload litecoin-qt
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/qt/litecoin-qt
+          asset_name: litecoin-qt-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_content_type: application/octet-stream
 
   # # cribbed from upstream Bitcoin/Litecoin Core 
   # # https://github.com/bitcoin/bitcoin/blob/master/.github/workflows/ci.yml
