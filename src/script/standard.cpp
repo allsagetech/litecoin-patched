@@ -59,6 +59,7 @@ std::string GetTxnOutputType(TxoutType t)
     case TxoutType::WITNESS_MWEB_PEGIN: return "witness_mweb_pegin";
     case TxoutType::WITNESS_MWEB_HOGADDR: return "witness_mweb_hogaddr";
     case TxoutType::WITNESS_UNKNOWN: return "witness_unknown";
+    case TxoutType::DRIVECHAIN: return "drivechain";
     } // no default case, so the compiler can warn about missing cases
     assert(false);
 }
@@ -112,6 +113,10 @@ static bool MatchMultisig(const CScript& script, unsigned int& required, std::ve
 TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned char>>& vSolutionsRet)
 {
     vSolutionsRet.clear();
+
+    if (scriptPubKey.IsDrivechain()) {
+        return TxoutType::DRIVECHAIN;
+    }
 
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:
     // it is always OP_HASH160 20 [20 byte hash] OP_EQUAL

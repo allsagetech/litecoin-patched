@@ -26,7 +26,10 @@ void SetupChainParamsBaseOptions(ArgsManager& argsman)
     argsman.AddArg("-vbparams=deployment:start:end[:start_height:end_height]", "Use given start/end times and start/end block heights for specified version bits deployment (regtest-only)", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-signet", "Use the signet chain. Equivalent to -chain=signet. Note that the network is defined by the -signetchallenge parameter", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-signetchallenge", "Blocks must satisfy the given script to be considered valid (only for signet networks; defaults to the global default signet test network challenge)", ArgsManager::ALLOW_STRING, OptionsCategory::CHAINPARAMS);
+    argsman.AddArg("-signetblocktime", "Difficulty adjustment will target a block time of the given amount in seconds " "(only for custom signet networks, must have -signetchallenge set; defaults to 10 minutes)", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
     argsman.AddArg("-signetseednode", "Specify a seed node for the signet network, in the hostname[:port] format, e.g. sig.net:1234 (may be used multiple times to specify multiple seed nodes; defaults to the global default signet test network seed node(s))", ArgsManager::ALLOW_STRING, OptionsCategory::CHAINPARAMS);
+    argsman.AddArg("-powtargetspacing", "Override PoW target spacing in seconds (experimental; default 150 for Litecoin mainnet)", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
+    argsman.AddArg("-powtargetspacing","Override PoW target spacing in seconds (experimental; default 150 for Litecoin mainnet)", ArgsManager::ALLOW_ANY, OptionsCategory::CHAINPARAMS);
 }
 
 static std::unique_ptr<CBaseChainParams> globalChainBaseParams;

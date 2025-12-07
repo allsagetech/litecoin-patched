@@ -52,6 +52,10 @@ struct ChainTxData {
 class CChainParams
 {
 public:
+    struct Options {
+        int64_t pow_target_spacing = 0;
+    };
+
     enum Base58Type {
         PUBKEY_ADDRESS,
         SCRIPT_ADDRESS,

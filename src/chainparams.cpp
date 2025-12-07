@@ -57,12 +57,39 @@ static CBlock CreateGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits
     return CreateGenesisBlock(pszTimestamp, genesisOutputScript, nTime, nNonce, nBits, nVersion, genesisReward);
 }
 
+static CChainParams::Options BuildChainOptions(const ArgsManager& args, const std::string& chain)
+{
+    CChainParams::Options options;
+
+    if (chain == CBaseChainParams::MAIN) {
+        options.pow_target_spacing = 2.5 * 60; // 2.5 minutes
+    } else if (chain == CBaseChainParams::TESTNET) {
+        options.pow_target_spacing = 2.5 * 60; // testnet same as mainnet
+    } else if (chain == CBaseChainParams::REGTEST) {
+        options.pow_target_spacing = 2.5 * 60; // regtest default
+    } else {
+        // Fallback, should not happen for known chains.
+        options.pow_target_spacing = 2.5 * 60;
+    }
+
+    if (args.IsArgSet("-powtargetspacing")) {
+        int64_t spacing = args.GetArg("-powtargetspacing", options.pow_target_spacing);
+        if (spacing <= 0 || spacing > 24 * 60 * 60) {
+            throw std::runtime_error(strprintf(
+                "Invalid -powtargetspacing value %ld (must be between 1 and 86400 seconds)", spacing));
+        }
+        options.pow_target_spacing = spacing;
+    }
+
+    return options;
+}
+
 /**
  * Main network
  */
 class CMainParams : public CChainParams {
 public:
-    CMainParams() {
+    explicit CMainParams(const Options& options) {
         strNetworkID = CBaseChainParams::MAIN;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
@@ -77,7 +104,7 @@ public:
         consensus.MinBIP9WarningHeight = 1209600; // segwit activation height + miner confirmation window
         consensus.powLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.nPowTargetTimespan = 3.5 * 24 * 60 * 60; // 3.5 days
-        consensus.nPowTargetSpacing = 2.5 * 60;
+        consensus.nPowTargetSpacing = options.pow_target_spacing;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 6048; // 75% of 8064
@@ -181,7 +208,7 @@ public:
  */
 class CTestNetParams : public CChainParams {
 public:
-    CTestNetParams() {
+     explicit CTestNetParams(const CChainParams::Options& options) {
         strNetworkID = CBaseChainParams::TESTNET;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
@@ -196,7 +223,7 @@ public:
         consensus.MinBIP9WarningHeight = 8064; // segwit activation height + miner confirmation window
         consensus.powLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.nPowTargetTimespan = 3.5 * 24 * 60 * 60; // 3.5 days
-        consensus.nPowTargetSpacing = 2.5 * 60;
+        consensus.nPowTargetSpacing = options.pow_target_spacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
@@ -278,7 +305,7 @@ public:
  */
 class CRegTestParams : public CChainParams {
 public:
-    explicit CRegTestParams(const ArgsManager& args) {
+    explicit CRegTestParams(const ArgsManager& args, const CChainParams::Options& options) {
         strNetworkID =  CBaseChainParams::REGTEST;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
@@ -293,7 +320,7 @@ public:
         consensus.MinBIP9WarningHeight = 0;
         consensus.powLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.nPowTargetTimespan = 3.5 * 24 * 60 * 60; // 3.5 days
-        consensus.nPowTargetSpacing = 2.5 * 60;
+        consensus.nPowTargetSpacing = options.pow_target_spacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowNoRetargeting = true;
         consensus.nRuleChangeActivationThreshold = 108; // 75% for testchains
@@ -433,14 +460,21 @@ const CChainParams &Params() {
 
 std::unique_ptr<const CChainParams> CreateChainParams(const ArgsManager& args, const std::string& chain)
 {
+    CChainParams::Options options = BuildChainOptions(args, chain);
+
     if (chain == CBaseChainParams::MAIN) {
-        return std::unique_ptr<CChainParams>(new CMainParams());
+        return std::unique_ptr<CChainParams>(new CMainParams(options));
     } else if (chain == CBaseChainParams::TESTNET) {
-        return std::unique_ptr<CChainParams>(new CTestNetParams());
+        return std::unique_ptr<CChainParams>(new CTestNetParams(options));
     } else if (chain == CBaseChainParams::SIGNET) {
-        return std::unique_ptr<CChainParams>(new CTestNetParams()); // TODO: Support SigNet
+        // For now you’re mapping SigNet -> TestNet; still pass options so the spacing matches.
+        return std::unique_ptr<CChainParams>(new CTestNetParams(options)); // TODO: Support SigNet
     } else if (chain == CBaseChainParams::REGTEST) {
-        return std::unique_ptr<CChainParams>(new CRegTestParams(args));
+        // If you updated CRegTestParams to take Options too:
+        // return std::unique_ptr<CChainParams>(new CRegTestParams(args, options));
+
+        // Otherwise (if you left it as just ArgsManager):
+        return std::unique_ptr<CChainParams>(new CRegTestParams(args, options));
     }
     throw std::runtime_error(strprintf("%s: Unknown chain %s.", __func__, chain));
 }

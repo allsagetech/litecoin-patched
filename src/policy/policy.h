@@ -21,7 +21,7 @@ static const unsigned int DEFAULT_BLOCK_MAX_WEIGHT = MAX_BLOCK_WEIGHT - 4000;
 /** Default for -blockmintxfee, which sets the minimum feerate for a transaction in blocks created by mining code **/
 static const unsigned int DEFAULT_BLOCK_MIN_TX_FEE = 1000;
 /** The maximum weight for transactions we're willing to relay/mine */
-static const unsigned int MAX_STANDARD_TX_WEIGHT = 400000;
+static const unsigned int MAX_STANDARD_TX_WEIGHT = DEFAULT_BLOCK_MAX_WEIGHT;
 /** The minimum non-witness size for transactions we're willing to relay/mine (1 segwit input + 1 P2WPKH output = 82 bytes) */
 static const unsigned int MIN_STANDARD_TX_NONWITNESS_SIZE = 82;
 /** Maximum number of signature check operations in an IsStandard() P2SH script */
@@ -50,6 +50,11 @@ static const unsigned int MAX_STANDARD_P2WSH_SCRIPT_SIZE = 3600;
  * only increase the dust limit after prior releases were already not creating
  * outputs below the new threshold */
 static const unsigned int DUST_RELAY_TX_FEE = 30'000;
+/** Default setting for -datacarriersize. */
+// MAX_OP_RETURN_RELAY is declared in script/standard.h as the maximum size
+// (in bytes) we relay for OP_RETURN outputs. Do not redefine it here; use the
+// existing declaration instead.
+// static const unsigned int MAX_OP_RETURN_RELAY = DEFAULT_BLOCK_MAX_WEIGHT;
 /**
  * Standard script verification flags that standard transactions will comply
  * with. However scripts violating these flags may still be present in valid

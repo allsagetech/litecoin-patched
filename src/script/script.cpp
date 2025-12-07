@@ -199,6 +199,11 @@ unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
     return subscript.GetSigOpCount(true);
 }
 
+bool CScript::IsDrivechain() const
+{
+    return (this->size() == 4 && (*this)[0] == OP_DRIVECHAIN);
+}
+
 bool CScript::IsPayToScriptHash() const
 {
     // Extra-fast test for pay-to-script-hash CScripts:

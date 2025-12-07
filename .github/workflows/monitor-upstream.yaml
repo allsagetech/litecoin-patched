@@ -1,0 +1,19 @@
+name: Monitor Litecoin Core Upstream Branch
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs daily at 00:00
+  workflow_dispatch:
+
+jobs:
+  check-litecoin-core:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Attempt rebase on Litecoin Core master
+        run: |
+          git remote add litecoin-core https://github.com/litecoin-project/litecoin.git
+          git fetch litecoin-core master
+          git rebase litecoin-core/master

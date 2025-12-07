@@ -1,0 +1,233 @@
+name: Build and Release Litecoin Core 
+
+on: 
+  pull_request: 
+  push: 
+    branches:
+      - "master"
+  workflow_dispatch:
+
+jobs: 
+  build-linux: 
+    name: Build Linux binaries
+    runs-on: ubuntu-latest
+    steps: 
+      - name: install Linux deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libtool \
+            autotools-dev \
+            automake \
+            pkg-config \
+            bsdmainutils \
+            curl \
+            libevent-dev \
+            libboost-dev \
+            qtbase5-dev qttools5-dev qttools5-dev-tools qtwayland5 \
+            python3
+
+      - uses: actions/checkout@v4
+
+      # NEW: pin Python to 3.11 so depends/xcb_proto doesn't see 3.12
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+    
+      - name: Restore cached dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: ./depends
+          # bump the key so we don't reuse any old 3.12-built cache
+          key: linux-py311-${{ hashFiles('depends/packages/**') }}
+
+      - name: download dependencies
+        run: make -C ./depends download-linux
+
+      # CHANGED: pass PYTHON so the whole depends tree uses Python 3.11
+      - name: build dependencies
+        run: make -C ./depends -j4 PYTHON=python3.11
+
+      - name: Cache dependencies
+        uses: actions/cache/save@v4
+        with:
+          path: ./depends
+          key: linux-py311-${{ hashFiles('depends/packages/**') }}
+
+      - name: autogen
+        run: ./autogen.sh
+
+      - name: configure
+        run: |
+          CONFIG_SITE=$PWD/depends/x86_64-pc-linux-gnu/share/config.site \
+          ./configure --with-gui=qt5 --disable-bench --disable-tests
+
+      - name: build
+        run: make -j4
+
+      - name: 'Set environment variables: version number'
+        shell: bash
+        run: |
+          LITECOIN_CORE_VERSION=$(grep -E '^AC_INIT' configure.ac | sed -E 's/.*\[[^]]*\], \[([^]]*)\].*/\1/')
+          echo "LITECOIN_CORE_VERSION=$LITECOIN_CORE_VERSION" >> "$GITHUB_ENV"
+
+      - name: Rename artifacts before upload
+        run: |
+          mkdir -p artifacts/qt
+          cp src/litecoind artifacts/
+          cp src/litecoin-cli artifacts/
+          cp src/litecoin-tx artifacts/
+          cp src/qt/litecoin-qt artifacts/qt/
+
+      - uses: actions/upload-artifact@v4
+        with: 
+          name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          if-no-files-found: error
+          path: |
+            artifacts/litecoind
+            artifacts/litecoin-cli
+            artifacts/litecoin-tx
+            artifacts/qt/litecoin-qt
+
+  # # cribbed from upstream Bitcoin/Litecoin Core 
+  # # https://github.com/bitcoin/bitcoin/blob/master/.github/workflows/ci.yml
+  # build-windows:
+  #   name: 'Win64 native, VS 2022'
+  #   # Use latest image, but hardcode version to avoid silent upgrades (and breaks).
+  #   # See: https://github.com/actions/runner-images#available-images.
+  #   runs-on: windows-2022
+  #   timeout-minutes: 360 # windows takes a looooong as time to build
+
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+
+  #     - name: Set up Python 3.11
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.11'
+
+  #     - name: Configure Developer Command Prompt for Microsoft Visual C++
+  #       # Using microsoft/setup-msbuild is not enough.
+  #       uses: ilammy/msvc-dev-cmd@v1
+  #       with:
+  #         arch: x64
+
+  #     - name: Get tool information
+  #       shell: pwsh
+  #       run: |
+  #         msbuild -version | Tee-Object -FilePath "msbuild_version"
+  #         $env:VCToolsVersion | Tee-Object -FilePath "toolset_version"
+  #         py -3 --version
+  #         Write-Host "PowerShell version $($PSVersionTable.PSVersion.ToString())"
+
+  #     # Ensure the destination directory for libsecp256k1-config.h exists
+  #     - name: Ensure secp256k1 config directory exists
+  #       shell: pwsh
+  #       run: |
+  #         New-Item -ItemType Directory -Path src\secp256k1\src -Force
+
+  #     # Use the existing build_msvc flow instead of CMake (no CMakeLists.txt at repo root)
+  #     - name: Generate MSVC solution
+  #       working-directory: build_msvc
+  #       shell: pwsh
+  #       run: py -3 msvc-autogen.py
+
+  #     - name: Build
+  #       working-directory: build_msvc
+  #       shell: pwsh
+  #       run: msbuild bitcoin.sln /m /p:Configuration=Release /p:Platform=x64
+
+  #     - name: 'Set environment variables: version number'
+  #       shell: bash
+  #       run: |
+  #         LITECOIN_CORE_VERSION=$(grep -E '^AC_INIT' configure.ac | sed -E 's/.*\[[^]]*\], \[([^]]*)\].*/\1/')
+  #         echo "LITECOIN_CORE_VERSION=$LITECOIN_CORE_VERSION" >> "$GITHUB_ENV"
+
+  #     - name: Rename artifacts before upload
+  #       working-directory: build_msvc
+  #       shell: pwsh
+  #       run: |
+  #         mkdir artifacts
+  #         cp x64/Release/litecoind.exe artifacts/
+  #         cp x64/Release/litecoin-cli.exe artifacts/
+  #         cp x64/Release/litecoin-tx.exe artifacts/
+
+  #     - uses: actions/upload-artifact@v4
+  #       with: 
+  #         name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-x86_64-w64-msvc
+  #         if-no-files-found: error
+  #         path: |
+  #           build_msvc/artifacts/litecoind.exe
+  #           build_msvc/artifacts/litecoin-cli.exe
+  #           build_msvc/artifacts/litecoin-tx.exe
+
+  # build-macos: 
+  #   name: Build macOS binaries
+  #   runs-on: macos-13
+  #   steps: 
+  #     - uses: actions/checkout@v4
+    
+  #     - name: install deps
+  #       run: |
+  #         # GNU grep is required, as BSD grep does not support perl regexes
+  #         brew update
+  #         brew install boost cmake grep libevent pkg-config qrencode qt@5 python \
+  #                      autoconf automake libtool
+  #         python3 -m pip install --upgrade pip
+  #         python3 -m pip install setuptools
+
+  #     - name: Restore cached dependencies
+  #       uses: actions/cache/restore@v4
+  #       with:
+  #         path: ./depends
+  #         key: macos-${{ hashFiles('depends/packages/**') }}    
+      
+  #     - name: download dependencies
+  #       run: make -C ./depends download-osx
+
+  #     - name: build dependencies
+  #       run: make -C ./depends -j4 PYTHON=python3.11
+
+  #     - name: Cache dependencies
+  #       uses: actions/cache/save@v4
+  #       with:
+  #         path: ./depends
+  #         key: macos-${{ hashFiles('depends/packages/**') }}
+
+  #     - name: autogen
+  #       run: ./autogen.sh
+
+  #     - name: configure
+  #       run: |
+  #         CONFIG_SITE=$PWD/depends/x86_64-apple-darwin*/share/config.site \
+  #         ./configure --with-gui=qt5 --disable-bench --disable-tests
+
+  #     - name: build
+  #       run: make -j4
+
+  #     - name: 'Set environment variables: version number'
+  #       shell: bash
+  #       run: |
+  #         LITECOIN_CORE_VERSION=$(ggrep -E '^AC_INIT' configure.ac | sed -E 's/.*\[[^]]*\], \[([^]]*)\].*/\1/')
+  #         echo "LITECOIN_CORE_VERSION=$LITECOIN_CORE_VERSION" >> "$GITHUB_ENV"
+
+  #     - name: Rename artifacts before upload
+  #       run: |
+  #         mkdir -p artifacts/qt
+  #         cp src/litecoind artifacts/
+  #         cp src/litecoin-cli artifacts/
+  #         cp src/litecoin-tx artifacts/
+  #         cp src/qt/litecoin-qt artifacts/qt/
+
+  #     - uses: actions/upload-artifact@v4
+  #       with: 
+  #         name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-x86_64-apple-darwin
+  #         if-no-files-found: error
+  #         path: |
+  #           artifacts/litecoind
+  #           artifacts/litecoin-cli
+  #           artifacts/litecoin-tx
+  #           artifacts/qt/litecoin-qt
