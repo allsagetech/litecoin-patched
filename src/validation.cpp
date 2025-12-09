@@ -581,6 +581,12 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "mweb-before-activation");
     }
 
+    // Drivechain: Don't accept drivechain scripts before activation.
+    if (tx.HasDrivechainStuff() &&
+        !IsDrivechainEnabled(::ChainActive().Tip(), args.m_chainparams.GetConsensus())) {
+        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-before-activation");
+    }
+
     // MWEB: Check MWEB tx
     if (!MWEB::Node::CheckTransaction(tx, state)) {
         return false; // state filled in by CheckTransaction
@@ -1970,6 +1976,10 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
     // Start enforcing Taproot using versionbits logic.
     if (VersionBitsState(pindex->pprev, consensusparams, Consensus::DEPLOYMENT_TAPROOT, versionbitscache) == ThresholdState::ACTIVE) {
         flags |= SCRIPT_VERIFY_TAPROOT;
+    }
+
+    if (VersionBitsState(pindex->pprev, consensusparams, Consensus::DEPLOYMENT_DRIVECHAIN, versionbitscache) == ThresholdState::ACTIVE) {
+        flags |= SCRIPT_VERIFY_DRIVECHAIN;
     }
 
     // Start enforcing BIP147 NULLDUMMY (activated simultaneously with segwit)
@@ -3559,6 +3569,16 @@ bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& param
 {
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_MWEB, versionbitscache) == ThresholdState::ACTIVE);
+}
+
+bool IsDrivechainEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    return (VersionBitsState(
+                pindexPrev,
+                params,
+                Consensus::DEPLOYMENT_DRIVECHAIN,
+                versionbitscache) == ThresholdState::ACTIVE);
 }
 
 void UpdateUncommittedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams)

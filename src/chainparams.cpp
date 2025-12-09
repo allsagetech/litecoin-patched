@@ -123,6 +123,14 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartHeight = 2217600; // End Feb 2022
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = 2427264; // 364 days later
 
+        // Deployment of Drivechain (LIP-DRIVECHAIN-OPCODE-WHATEVER)
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout   = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight   = 3200000;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = 3400000;
+
+
         consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000146878abee06fa883e0a");
         consensus.defaultAssumeValid = uint256S("0x80cdb35c080484df5bf384b311fde3c4694d3405765bc0f596e9eb369ff286e5"); // 2772730
 
@@ -242,6 +250,14 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartHeight = 2209536; // Jan/Feb 2022
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = 2419200; // 364 days later
 
+        // Deployment of Drivechain (testnet)
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout   = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight   = 2360000;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = 2560000;
+
+
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000000004260a1758f04aa");
         consensus.defaultAssumeValid = uint256S("0x4a280c0e150e3b74ebe19618e6394548c8a39d5549fd9941b9c431c73822fbd5"); // 1737876
 
@@ -338,6 +354,13 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].bit = 4;
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartTime = 1601450001; // September 30, 2020
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // Deployment of Drivechain
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout   = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight   = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = std::numeric_limits<int>::max();
 
         consensus.nMinimumChainWork = uint256{};
         consensus.defaultAssumeValid = uint256{};

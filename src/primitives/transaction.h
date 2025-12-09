@@ -471,6 +471,8 @@ public:
     bool HasMWEBTx() const noexcept { return !mweb_tx.IsNull(); }
     bool IsHogEx() const noexcept { return m_hogEx; }
 
+    bool HasDrivechainStuff() const noexcept;
+
     /// <summary>
     /// Determines whether the transaction is strictly MWEB-to-MWEB, with no canonical transaction data.
     /// </summary>
