@@ -1246,15 +1246,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         }
                         break;
                     }
-                    if (script.size() != 4)
-                        return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
-
-                    if (script[0] != OP_DRIVECHAIN)
-                        return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
-
                     stack.push_back(std::vector<unsigned char>{0xDC});
-
-                    pc += 4;
                 }
                 break;
 

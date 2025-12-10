@@ -210,6 +210,8 @@ BITCOIN_CORE_H = \
   mweb/mweb_policy.h \
   mweb/mweb_transact.h \
   mweb/mweb_wallet.h \
+  drivechain/script.h \
+  drivechain/state.h \
   net.h \
   net_permissions.h \
   net_processing.h \
@@ -390,6 +392,7 @@ libbitcoin_server_a_SOURCES = \
   txrequest.cpp \
   txmempool.cpp \
   validation.cpp \
+  drivechain/state.cpp \
   validationinterface.cpp \
   versionbits.cpp \
   $(BITCOIN_CORE_H)
@@ -539,6 +542,8 @@ libbitcoin_consensus_a_SOURCES = \
   script/script.h \
   script/script_error.cpp \
   script/script_error.h \
+  drivechain/script.cpp \
+  drivechain/script.h \
   serialize.h \
   span.h \
   tinyformat.h \

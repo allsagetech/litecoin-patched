@@ -12,6 +12,7 @@
 #include <coins.h>
 #include <consensus/validation.h>
 #include <core_io.h>
+#include <drivechain/state.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
 #include <node/coinstats.h>
@@ -1547,6 +1548,62 @@ RPCHelpMan getblockchaininfo()
     };
 }
 
+static RPCHelpMan getdrivechaininfo()
+{
+    return RPCHelpMan{
+        "getdrivechaininfo",
+        "Returns basic information about drivechains tracked by this node.\n",
+        {},
+        RPCResults{},
+        RPCExamples{
+            HelpExampleCli("getdrivechaininfo", "") +
+            HelpExampleRpc("getdrivechaininfo", "")
+        }
+    };
+}
+
+static UniValue getdrivechaininfo(const JSONRPCRequest& request)
+{
+    const RPCHelpMan& help = getdrivechaininfo();
+    help.Check(request);
+
+    UniValue result(UniValue::VOBJ);
+    UniValue scs(UniValue::VARR);
+
+    {
+        LOCK(cs_main);
+        for (const auto& it : g_drivechain_state.sidechains) {
+            const uint8_t id = it.first;
+            const Sidechain& sc = it.second;
+
+            UniValue o(UniValue::VOBJ);
+            o.pushKV("id", (int)id);
+            o.pushKV("escrow_balance", sc.escrow_balance);
+            o.pushKV("creation_height", sc.creation_height);
+            o.pushKV("is_active", sc.is_active);
+
+            UniValue bundles(UniValue::VARR);
+            for (const auto& b_it : sc.bundles) {
+                const uint256& hash_key = b_it.first;
+                const Bundle& bundle = b_it.second;
+
+                UniValue b(UniValue::VOBJ);
+                b.pushKV("hash", hash_key.GetHex());
+                b.pushKV("yes_votes", bundle.yes_votes);
+                b.pushKV("approved", bundle.approved);
+                b.pushKV("executed", bundle.executed);
+                bundles.push_back(b);
+            }
+            o.pushKV("bundles", bundles);
+
+            scs.push_back(o);
+        }
+    }
+
+    result.pushKV("sidechains", scs);
+    return result;
+}
+
 /** Comparison function for sorting the getchaintips heads.  */
 struct CompareBlocksByHeight
 {
@@ -2651,6 +2708,7 @@ static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         argNames
   //  --------------------- ------------------------  -----------------------  ----------
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      {} },
+    { "blockchain",         "getdrivechaininfo",      &getdrivechaininfo,      {} },
     { "blockchain",         "getchaintxstats",        &getchaintxstats,        {"nblocks", "blockhash"} },
     { "blockchain",         "getblockstats",          &getblockstats,          {"hash_or_height", "stats"} },
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       {} },
