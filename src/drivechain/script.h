@@ -11,6 +11,7 @@ struct DrivechainScriptInfo
         DEPOSIT       = 0,
         BUNDLE_COMMIT = 1,
         VOTE_YES      = 2,
+        EXECUTE       = 3,
         UNKNOWN       = 255,
     };
 

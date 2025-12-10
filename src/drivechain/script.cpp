@@ -45,8 +45,10 @@ std::optional<DrivechainScriptInfo> DecodeDrivechainScript(const CScript& script
         case 0x00: info.kind = DrivechainScriptInfo::Kind::DEPOSIT;       break;
         case 0x01: info.kind = DrivechainScriptInfo::Kind::BUNDLE_COMMIT; break;
         case 0x02: info.kind = DrivechainScriptInfo::Kind::VOTE_YES;      break;
+        case 0x03: info.kind = DrivechainScriptInfo::Kind::EXECUTE;       break;
         default:   info.kind = DrivechainScriptInfo::Kind::UNKNOWN;       break;
     }
+
 
     if (info.kind == DrivechainScriptInfo::Kind::UNKNOWN) {
         return std::nullopt;

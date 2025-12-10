@@ -339,6 +339,21 @@ static bool CheckDrivechainBlock(
     const CBlockIndex* pindex,
     BlockValidationState& state)
 {
+
+    for (size_t tx_index = 0; tx_index < block.vtx.size(); ++tx_index) {
+        const auto& tx = block.vtx[tx_index];
+        const bool is_coinbase = (tx_index == 0);
+
+        for (const auto& txout : tx->vout) {
+            auto info = DecodeDrivechainScript(txout.scriptPubKey);
+            if (!info) continue;
+
+            if (info->kind == DrivechainScriptInfo::Kind::VOTE_YES && !is_coinbase) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-not-coinbase");
+            }
+        }
+    }
+
     return true;
 }
 
