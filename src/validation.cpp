@@ -88,6 +88,15 @@ const std::vector<std::string> CHECKLEVEL_DOC {
     "each level includes the checks of the previous levels",
 };
 
+static const Bundle* GetDrivechainBundle(uint8_t sidechain_id, const uint256& hash)
+{
+    const Sidechain* sc = g_drivechain_state.GetSidechain(sidechain_id);
+    if (!sc) return nullptr;
+    auto it = sc->bundles.find(hash);
+    if (it == sc->bundles.end()) return nullptr;
+    return &it->second;
+}
+
 bool CBlockIndexWorkComparator::operator()(const CBlockIndex *pa, const CBlockIndex *pb) const {
     // First sort by most total work, ...
     if (pa->nChainWork > pb->nChainWork) return false;
@@ -339,7 +348,6 @@ static bool CheckDrivechainBlock(
     const CBlockIndex* pindex,
     BlockValidationState& state)
 {
-
     for (size_t tx_index = 0; tx_index < block.vtx.size(); ++tx_index) {
         const auto& tx = block.vtx[tx_index];
         const bool is_coinbase = (tx_index == 0);
@@ -348,8 +356,30 @@ static bool CheckDrivechainBlock(
             auto info = DecodeDrivechainScript(txout.scriptPubKey);
             if (!info) continue;
 
-            if (info->kind == DrivechainScriptInfo::Kind::VOTE_YES && !is_coinbase) {
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-not-coinbase");
+            switch (info->kind) {
+                case DrivechainScriptInfo::Kind::VOTE_YES: {
+                    if (!is_coinbase) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-not-coinbase");
+                    }
+                    break;
+                }
+
+                case DrivechainScriptInfo::Kind::EXECUTE: {
+                    const Bundle* bundle = GetDrivechainBundle(info->sidechain_id, info->payload);
+                    if (!bundle) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-unknown-bundle");
+                    }
+                    if (!bundle->approved) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-not-approved");
+                    }
+                    if (bundle->executed) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-already-executed");
+                    }
+                    break;
+                }
+
+                default:
+                    break;
             }
         }
     }

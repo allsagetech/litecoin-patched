@@ -83,8 +83,12 @@ void DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pinde
                     break;
                 }
 
-                case DrivechainScriptInfo::Kind::EXECUTE:
+                case DrivechainScriptInfo::Kind::EXECUTE: {
+                    auto& sc = GetOrCreateSidechain(info->sidechain_id, height);
+                    auto& bundle = GetOrCreateBundle(sc, info->payload, height);
+                    bundle.executed = true;
                     break;
+                }
 
                 case DrivechainScriptInfo::Kind::UNKNOWN:
                 default:
@@ -146,8 +150,14 @@ void DrivechainState::DisconnectBlock(const CBlock& block, const CBlockIndex* pi
                     break;
                 }
 
-                case DrivechainScriptInfo::Kind::EXECUTE:
+                case DrivechainScriptInfo::Kind::EXECUTE: {
+                    auto b_it = sc.bundles.find(info->payload);
+                    if (b_it != sc.bundles.end()) {
+                        Bundle& bundle = b_it->second;
+                        bundle.executed = false;
+                    }
                     break;
+                }
 
                 case DrivechainScriptInfo::Kind::UNKNOWN:
                 default:
