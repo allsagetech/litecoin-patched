@@ -1240,13 +1240,19 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
 
                 case OP_DRIVECHAIN:
                 {
+                    if (!(flags & SCRIPT_VERIFY_DRIVECHAIN)) {
+                        if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) {
+                            return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+                        }
+                        break;
+                    }
                     if (script.size() != 4)
                         return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
 
                     if (script[0] != OP_DRIVECHAIN)
                         return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
 
-                    stack.push_back(std::vector<unsigned char> {0xDC});
+                    stack.push_back(std::vector<unsigned char>{0xDC});
 
                     pc += 4;
                 }

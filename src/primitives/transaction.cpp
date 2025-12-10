@@ -114,6 +114,16 @@ unsigned int CTransaction::GetTotalSize() const
     return ::GetSerializeSize(*this, PROTOCOL_VERSION);
 }
 
+bool CTransaction::HasDrivechainStuff() const noexcept
+{
+    for (const auto& tx_out : vout) {
+        if (tx_out.scriptPubKey.IsDrivechain()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string CTransaction::ToString() const
 {
     std::string str;
