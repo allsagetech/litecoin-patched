@@ -348,15 +348,35 @@ static bool CheckDrivechainBlock(
     const CBlockIndex* pindex,
     BlockValidationState& state)
 {
+    // Enforce basic drivechain rules at block level:
+    //  - VOTE_YES outputs are only allowed in coinbase.
+    //  - EXECUTE markers must reference an approved, not-yet-executed bundle.
+    //  - For each sidechain, total EXECUTE value in this block must not exceed
+    //    (escrow_before + deposits_in_block).
+
+    // Track per-sidechain deposits and executes in this block.
+    std::map<uint8_t, CAmount> deposits_in_block;
+    std::map<uint8_t, CAmount> executes_in_block;
     for (size_t tx_index = 0; tx_index < block.vtx.size(); ++tx_index) {
         const auto& tx = block.vtx[tx_index];
         const bool is_coinbase = (tx_index == 0);
 
         for (const auto& txout : tx->vout) {
-            auto info = DecodeDrivechainScript(txout.scriptPubKey);
-            if (!info) continue;
+            DrivechainScriptInfo info;
+            if (!DecodeDrivechainScript(txout.scriptPubKey, info)) {
+                continue;
+            }
 
-            switch (info->kind) {
+            switch (info.kind) {
+                case DrivechainScriptInfo::Kind::DEPOSIT: {
+                    deposits_in_block[info.sidechain_id] += txout.nValue;
+                    break;
+                }
+
+                case DrivechainScriptInfo::Kind::BUNDLE_COMMIT: {
+                    break;
+                }
+
                 case DrivechainScriptInfo::Kind::VOTE_YES: {
                     if (!is_coinbase) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-not-coinbase");
@@ -365,7 +385,8 @@ static bool CheckDrivechainBlock(
                 }
 
                 case DrivechainScriptInfo::Kind::EXECUTE: {
-                    const Bundle* bundle = GetDrivechainBundle(info->sidechain_id, info->payload);
+
+                    const Bundle* bundle = GetDrivechainBundle(info.sidechain_id, info.payload);
                     if (!bundle) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-unknown-bundle");
                     }
@@ -375,12 +396,35 @@ static bool CheckDrivechainBlock(
                     if (bundle->executed) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-already-executed");
                     }
+
+                    executes_in_block[info.sidechain_id] += txout.nValue;
                     break;
                 }
 
+                case DrivechainScriptInfo::Kind::UNKNOWN:
                 default:
                     break;
             }
+        }
+    }
+
+    for (const auto& kv : executes_in_block) {
+        uint8_t sc_id = kv.first;
+        CAmount exec_sum = kv.second;
+
+        CAmount esc_before = 0;
+        if (const Sidechain* sc = g_drivechain_state.GetSidechain(sc_id)) {
+            esc_before = sc->escrow_balance;
+        }
+
+        CAmount dep_sum = 0;
+        auto it_dep = deposits_in_block.find(sc_id);
+        if (it_dep != deposits_in_block.end()) {
+            dep_sum = it_dep->second;
+        }
+
+        if (esc_before + dep_sum < exec_sum) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-exceeds-escrow");
         }
     }
 
@@ -1707,8 +1751,6 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState &state, const C
     }
 
     if (cacheFullScriptStore && !pvChecks) {
-        // We executed all of the provided scripts, and were told to
-        // cache the result. Do so now.
         g_scriptExecutionCache.insert(hashCacheEntry);
     }
 

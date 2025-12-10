@@ -202,7 +202,8 @@ unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
 
 bool CScript::IsDrivechain() const
 {
-    return DecodeDrivechainScript(*this).has_value();
+    DrivechainScriptInfo info;
+    return DecodeDrivechainScript(*this, info);
 }
 
 bool CScript::IsPayToScriptHash() const

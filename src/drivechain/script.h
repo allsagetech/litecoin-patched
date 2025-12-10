@@ -3,7 +3,6 @@
 
 #include <uint256.h>
 #include <script/script.h>
-#include <optional>
 
 struct DrivechainScriptInfo
 {
@@ -20,6 +19,6 @@ struct DrivechainScriptInfo
     uint256 payload;
 };
 
-std::optional<DrivechainScriptInfo> DecodeDrivechainScript(const CScript& scriptPubKey);
+bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info);
 
 #endif

@@ -1,39 +1,38 @@
 #include <drivechain/script.h>
 #include <script/script.h>
 #include <script/script_error.h>
+#include <algorithm>
 
-std::optional<DrivechainScriptInfo> DecodeDrivechainScript(const CScript& scriptPubKey)
+bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info)
 {
     // Expected layout:
     // [0]: OP_DRIVECHAIN
-    // [1]: PUSHDATA(1) -> sidechain_id
-    // [3]: PUSHDATA(32) -> payload
-    // [..]: PUSHDATA(1) -> kind_tag
+    // [1]: PUSHDATA(1)  -> sidechain_id
+    // [2]: PUSHDATA(32) -> payload
+    // [3]: PUSHDATA(1)  -> kind_tag
 
     CScript::const_iterator pc = scriptPubKey.begin();
     opcodetype opcode;
 
     if (!scriptPubKey.GetOp(pc, opcode) || opcode != OP_DRIVECHAIN) {
-        return std::nullopt;
+        return false;
     }
 
     std::vector<unsigned char> vch;
 
     if (!scriptPubKey.GetOp(pc, opcode, vch) || vch.size() != 1) {
-        return std::nullopt;
+        return false;
     }
     uint8_t sidechain_id = vch[0];
 
     if (!scriptPubKey.GetOp(pc, opcode, vch) || vch.size() != 32) {
-        return std::nullopt;
+        return false;
     }
     uint256 payload;
-    if (vch.size() == 32) {
-        payload = uint256(std::span<const unsigned char>(vch).data());
-    }
+    std::copy(vch.begin(), vch.end(), payload.begin());
 
     if (!scriptPubKey.GetOp(pc, opcode, vch) || vch.size() != 1) {
-        return std::nullopt;
+        return false;
     }
     uint8_t tag = vch[0];
 
@@ -49,14 +48,14 @@ std::optional<DrivechainScriptInfo> DecodeDrivechainScript(const CScript& script
         default:   info.kind = DrivechainScriptInfo::Kind::UNKNOWN;       break;
     }
 
-
     if (info.kind == DrivechainScriptInfo::Kind::UNKNOWN) {
-        return std::nullopt;
+        return false;
     }
 
     if (pc != scriptPubKey.end()) {
-        return std::nullopt;
+        return false;
     }
 
-    return info;
+    out_info = info;
+    return true;
 }

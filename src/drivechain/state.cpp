@@ -3,6 +3,7 @@
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <script/standard.h>
+#include <chain.h>
 
 DrivechainState g_drivechain_state;
 
@@ -48,19 +49,21 @@ void DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pinde
         const bool is_coinbase = (tx_index == 0);
 
         for (const auto& txout : tx->vout) {
-            auto info = DecodeDrivechainScript(txout.scriptPubKey);
-            if (!info) continue;
+            DrivechainScriptInfo info;
+            if (!DecodeDrivechainScript(txout.scriptPubKey, info)) {
+                continue;
+            }
 
-            switch (info->kind) {
+            switch (info.kind) {
                 case DrivechainScriptInfo::Kind::DEPOSIT: {
-                    auto& sc = GetOrCreateSidechain(info->sidechain_id, height);
+                    auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
                     sc.escrow_balance += txout.nValue;
                     break;
                 }
 
                 case DrivechainScriptInfo::Kind::BUNDLE_COMMIT: {
-                    auto& sc = GetOrCreateSidechain(info->sidechain_id, height);
-                    auto& bundle = GetOrCreateBundle(sc, info->payload, height);
+                    auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
+                    auto& bundle = GetOrCreateBundle(sc, info.payload, height);
                     (void)bundle;
                     break;
                 }
@@ -70,8 +73,8 @@ void DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pinde
                         break;
                     }
 
-                    auto& sc = GetOrCreateSidechain(info->sidechain_id, height);
-                    auto& bundle = GetOrCreateBundle(sc, info->payload, height);
+                    auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
+                    auto& bundle = GetOrCreateBundle(sc, info.payload, height);
 
                     if (height - bundle.first_seen_height <= DRIVECHAIN_VOTE_WINDOW) {
                         ++bundle.yes_votes;
@@ -84,8 +87,9 @@ void DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pinde
                 }
 
                 case DrivechainScriptInfo::Kind::EXECUTE: {
-                    auto& sc = GetOrCreateSidechain(info->sidechain_id, height);
-                    auto& bundle = GetOrCreateBundle(sc, info->payload, height);
+                    auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
+                    auto& bundle = GetOrCreateBundle(sc, info.payload, height);
+                    sc.escrow_balance -= txout.nValue;
                     bundle.executed = true;
                     break;
                 }
@@ -107,21 +111,23 @@ void DrivechainState::DisconnectBlock(const CBlock& block, const CBlockIndex* pi
         const bool is_coinbase = (tx_index == 0);
 
         for (const auto& txout : tx->vout) {
-            auto info = DecodeDrivechainScript(txout.scriptPubKey);
-            if (!info) continue;
+            DrivechainScriptInfo info;
+            if (!DecodeDrivechainScript(txout.scriptPubKey, info)) {
+                continue;
+            }
 
-            auto sc_it = sidechains.find(info->sidechain_id);
+            auto sc_it = sidechains.find(info.sidechain_id);
             if (sc_it == sidechains.end()) continue;
             auto& sc = sc_it->second;
 
-            switch (info->kind) {
+            switch (info.kind) {
                 case DrivechainScriptInfo::Kind::DEPOSIT: {
                     sc.escrow_balance -= txout.nValue;
                     break;
                 }
 
                 case DrivechainScriptInfo::Kind::BUNDLE_COMMIT: {
-                    auto b_it = sc.bundles.find(info->payload);
+                    auto b_it = sc.bundles.find(info.payload);
                     if (b_it != sc.bundles.end()) {
                         if (b_it->second.first_seen_height == height) {
                             sc.bundles.erase(b_it);
@@ -134,7 +140,7 @@ void DrivechainState::DisconnectBlock(const CBlock& block, const CBlockIndex* pi
                     if (!is_coinbase) {
                         break;
                     }
-                    auto b_it = sc.bundles.find(info->payload);
+                    auto b_it = sc.bundles.find(info.payload);
                     if (b_it != sc.bundles.end()) {
                         Bundle& bundle = b_it->second;
 
@@ -151,11 +157,12 @@ void DrivechainState::DisconnectBlock(const CBlock& block, const CBlockIndex* pi
                 }
 
                 case DrivechainScriptInfo::Kind::EXECUTE: {
-                    auto b_it = sc.bundles.find(info->payload);
+                    auto b_it = sc.bundles.find(info.payload);
                     if (b_it != sc.bundles.end()) {
                         Bundle& bundle = b_it->second;
                         bundle.executed = false;
                     }
+                    sc.escrow_balance += txout.nValue;
                     break;
                 }
 

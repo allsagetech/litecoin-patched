@@ -12,6 +12,7 @@
 #include <util/system.h>
 #include <util/strencodings.h>
 #include <versionbitsinfo.h>
+#include <limits>
 
 #include <assert.h>
 

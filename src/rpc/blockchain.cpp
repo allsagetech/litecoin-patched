@@ -1548,71 +1548,59 @@ RPCHelpMan getblockchaininfo()
     };
 }
 
-static UniValue getdrivechaininfo(const JSONRPCRequest& request)
+static RPCHelpMan getdrivechaininfo()
 {
-    RPCHelpMan{"getdrivechaininfo",
-        "\nReturn current drivechain state, including sidechains and bundles.\n",
+    return RPCHelpMan{
+        "getdrivechaininfo",
+        "Returns basic information about drivechains tracked by this node.\n",
         {},
-        RPCResult{
-R"({
-  "sidechains": [
-    {
-      "id": 1,
-      "escrow_balance": 123456789,
-      "creation_height": 200,
-      "is_active": true,
-      "bundles": [
-        {
-          "hash": "0123abcd...",
-          "first_seen_height": 210,
-          "yes_votes": 5,
-          "approved": false,
-          "executed": false
-        }
-      ]
-    }
-  ]
-})"
-        },
+        RPCResults{},
         RPCExamples{
             HelpExampleCli("getdrivechaininfo", "") +
             HelpExampleRpc("getdrivechaininfo", "")
         }
-    }.Check(request);
+    };
+}
 
-    LOCK(cs_main);
+static UniValue getdrivechaininfo(const JSONRPCRequest& request)
+{
+    const RPCHelpMan& help = getdrivechaininfo();
+    help.Check(request);
 
     UniValue result(UniValue::VOBJ);
-    UniValue sidechains_arr(UniValue::VARR);
+    UniValue scs(UniValue::VARR);
 
-    for (const auto& sc_pair : g_drivechain_state.sidechains) {
-        const auto& sc = sc_pair.second;
+    {
+        LOCK(cs_main);
+        for (const auto& it : g_drivechain_state.sidechains) {
+            const uint8_t id = it.first;
+            const Sidechain& sc = it.second;
 
-        UniValue sc_obj(UniValue::VOBJ);
-        sc_obj.pushKV("id", static_cast<int>(sc.id));
-        sc_obj.pushKV("escrow_balance", sc.escrow_balance);
-        sc_obj.pushKV("creation_height", sc.creation_height);
-        sc_obj.pushKV("is_active", sc.is_active);
+            UniValue o(UniValue::VOBJ);
+            o.pushKV("id", (int)id);
+            o.pushKV("escrow_balance", sc.escrow_balance);
+            o.pushKV("creation_height", sc.creation_height);
+            o.pushKV("is_active", sc.is_active);
 
-        UniValue bundles_arr(UniValue::VARR);
-        for (const auto& b_pair : sc.bundles) {
-            const auto& b = b_pair.second;
+            UniValue bundles(UniValue::VARR);
+            for (const auto& b_it : sc.bundles) {
+                const uint256& hash_key = b_it.first;
+                const Bundle& bundle = b_it.second;
 
-            UniValue b_obj(UniValue::VOBJ);
-            b_obj.pushKV("hash", b.hash.GetHex());
-            b_obj.pushKV("first_seen_height", b.first_seen_height);
-            b_obj.pushKV("yes_votes", b.yes_votes);
-            b_obj.pushKV("approved", b.approved);
-            b_obj.pushKV("executed", b.executed);
+                UniValue b(UniValue::VOBJ);
+                b.pushKV("hash", hash_key.GetHex());
+                b.pushKV("yes_votes", bundle.yes_votes);
+                b.pushKV("approved", bundle.approved);
+                b.pushKV("executed", bundle.executed);
+                bundles.push_back(b);
+            }
+            o.pushKV("bundles", bundles);
 
-            bundles_arr.push_back(b_obj);
+            scs.push_back(o);
         }
-
-        sc_obj.pushKV("bundles", bundles_arr);
-        sidechains_arr.push_back(sc_obj);
     }
 
-    result.pushKV("sidechains", sidechains_arr);
+    result.pushKV("sidechains", scs);
     return result;
 }
 
