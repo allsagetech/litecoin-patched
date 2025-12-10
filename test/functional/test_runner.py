@@ -240,6 +240,7 @@ BASE_SCRIPTS = [
     'wallet_listsinceblock.py',
     'wallet_listsinceblock.py --descriptors',
     'p2p_leak.py',
+    'feature_drivechain_state.py',
     'wallet_encryption.py',
     'wallet_encryption.py --descriptors',
     'wallet_scriptaddress2.py',

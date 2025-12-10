@@ -12,6 +12,7 @@
 #include <coins.h>
 #include <consensus/validation.h>
 #include <core_io.h>
+#include <drivechain/state.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
 #include <node/coinstats.h>
@@ -1547,6 +1548,74 @@ RPCHelpMan getblockchaininfo()
     };
 }
 
+static UniValue getdrivechaininfo(const JSONRPCRequest& request)
+{
+    RPCHelpMan{"getdrivechaininfo",
+        "\nReturn current drivechain state, including sidechains and bundles.\n",
+        {},
+        RPCResult{
+R"({
+  "sidechains": [
+    {
+      "id": 1,
+      "escrow_balance": 123456789,
+      "creation_height": 200,
+      "is_active": true,
+      "bundles": [
+        {
+          "hash": "0123abcd...",
+          "first_seen_height": 210,
+          "yes_votes": 5,
+          "approved": false,
+          "executed": false
+        }
+      ]
+    }
+  ]
+})"
+        },
+        RPCExamples{
+            HelpExampleCli("getdrivechaininfo", "") +
+            HelpExampleRpc("getdrivechaininfo", "")
+        }
+    }.Check(request);
+
+    LOCK(cs_main);
+
+    UniValue result(UniValue::VOBJ);
+    UniValue sidechains_arr(UniValue::VARR);
+
+    for (const auto& sc_pair : g_drivechain_state.sidechains) {
+        const auto& sc = sc_pair.second;
+
+        UniValue sc_obj(UniValue::VOBJ);
+        sc_obj.pushKV("id", static_cast<int>(sc.id));
+        sc_obj.pushKV("escrow_balance", sc.escrow_balance);
+        sc_obj.pushKV("creation_height", sc.creation_height);
+        sc_obj.pushKV("is_active", sc.is_active);
+
+        UniValue bundles_arr(UniValue::VARR);
+        for (const auto& b_pair : sc.bundles) {
+            const auto& b = b_pair.second;
+
+            UniValue b_obj(UniValue::VOBJ);
+            b_obj.pushKV("hash", b.hash.GetHex());
+            b_obj.pushKV("first_seen_height", b.first_seen_height);
+            b_obj.pushKV("yes_votes", b.yes_votes);
+            b_obj.pushKV("approved", b.approved);
+            b_obj.pushKV("executed", b.executed);
+
+            bundles_arr.push_back(b_obj);
+        }
+
+        sc_obj.pushKV("bundles", bundles_arr);
+        sidechains_arr.push_back(sc_obj);
+    }
+
+    result.pushKV("sidechains", sidechains_arr);
+    return result;
+}
+
 /** Comparison function for sorting the getchaintips heads.  */
 struct CompareBlocksByHeight
 {
@@ -2651,6 +2720,7 @@ static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         argNames
   //  --------------------- ------------------------  -----------------------  ----------
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      {} },
+    { "blockchain",         "getdrivechaininfo",      &getdrivechaininfo,      {} },
     { "blockchain",         "getchaintxstats",        &getchaintxstats,        {"nblocks", "blockhash"} },
     { "blockchain",         "getblockstats",          &getblockstats,          {"hash_or_height", "stats"} },
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       {} },
