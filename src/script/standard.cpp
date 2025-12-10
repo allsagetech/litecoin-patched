@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <script/standard.h>
+#include <drivechain/script.h>
 
 #include <crypto/sha256.h>
 #include <pubkey.h>
@@ -114,7 +115,11 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
 {
     vSolutionsRet.clear();
 
-    if (scriptPubKey.IsDrivechain()) {
+    if (auto info = DecodeDrivechainScript(scriptPubKey)) {
+        vSolutionsRet.resize(3);
+        vSolutionsRet[0] = std::vector<unsigned char>{static_cast<unsigned char>(info->kind)};
+        vSolutionsRet[1] = std::vector<unsigned char>{info->sidechain_id};
+        vSolutionsRet[2].assign(info->payload.begin(), info->payload.end());
         return TxoutType::DRIVECHAIN;
     }
 

@@ -15,6 +15,8 @@
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <cuckoocache.h>
+#include <drivechain/script.h>
+#include <drivechain/state.h>
 #include <flatfile.h>
 #include <hash.h>
 #include <index/txindex.h>
@@ -330,6 +332,15 @@ bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flag
 
 // Returns the script flags which should be checked for a given block
 static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consensus::Params& chainparams);
+
+static bool CheckDrivechainBlock(
+    const CBlock& block,
+    const CChainParams& chainparams,
+    const CBlockIndex* pindex,
+    BlockValidationState& state)
+{
+    return true;
+}
 
 static void LimitMempoolSize(CTxMemPool& pool, size_t limit, std::chrono::seconds age)
     EXCLUSIVE_LOCKS_REQUIRED(pool.cs, ::cs_main)
@@ -1843,6 +1854,8 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
+    g_drivechain_state.DisconnectBlock(block, pindex);
+
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
 }
 
@@ -1978,14 +1991,14 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consens
         flags |= SCRIPT_VERIFY_TAPROOT;
     }
 
-    if (VersionBitsState(pindex->pprev, consensusparams, Consensus::DEPLOYMENT_DRIVECHAIN, versionbitscache) == ThresholdState::ACTIVE) {
-        flags |= SCRIPT_VERIFY_DRIVECHAIN;
-    }
-
     // Start enforcing BIP147 NULLDUMMY (activated simultaneously with segwit)
     if (IsWitnessEnabled(pindex->pprev, consensusparams)) {
         flags |= SCRIPT_VERIFY_WITNESS;
         flags |= SCRIPT_VERIFY_NULLDUMMY;
+    }
+
+    if (IsDrivechainEnabled(pindex->pprev, consensusparams)) {
+        flags |= SCRIPT_VERIFY_DRIVECHAIN;
     }
 
     return flags;
@@ -2291,6 +2304,10 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
         return false;
     }
 
+    if (!CheckDrivechainBlock(block, chainparams, pindex, state)) {
+        return false;
+    }
+
     if (fJustCheck)
         return true;
 
@@ -2317,6 +2334,8 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     assert(pindex->phashBlock);
     // add this block to the view's block chain
     view.SetBestBlock(pindex->GetBlockHash());
+
+    g_drivechain_state.ConnectBlock(block, pindex);
 
     int64_t nTime5 = GetTimeMicros(); nTimeIndex += nTime5 - nTime4;
     LogPrint(BCLog::BENCH, "    - Index writing: %.2fms [%.2fs (%.2fms/blk)]\n", MILLI * (nTime5 - nTime4), nTimeIndex * MICRO, nTimeIndex * MILLI / nBlocksTotal);
