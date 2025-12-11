@@ -5,6 +5,7 @@
 
 #include <amount.h>
 #include <core_io.h>
+#include <drivechain/script.h>
 #include <interfaces/chain.h>
 #include <key_io.h>
 #include <node/context.h>
@@ -215,6 +216,41 @@ static std::string LabelFromValue(const UniValue& value)
     return label;
 }
 
+static std::string SendToDrivechainScript(CWallet& wallet, const CScript& script, const CAmount amount, CCoinControl& coin_control, bool subtract_fee_from_amount)
+{
+    std::vector<CRecipient> recipients;
+    CRecipient recipient{script, amount, subtract_fee_from_amount};
+    recipients.push_back(recipient);
+
+    CTransactionRef tx;
+    CAmount fee;
+    int change_pos_ret = -1;
+    bilingual_str error;
+    std::vector<uint256> coins_to_remove;
+
+    {
+        auto locked_chain = wallet.chain().lock();
+        LOCK(wallet.cs_wallet);
+
+        if (!wallet.CreateTransaction(*locked_chain,
+                                      recipients,
+                                      tx,
+                                      fee,
+                                      change_pos_ret,
+                                      error,
+                                      coin_control,
+                                      /*sign=*/true)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, error.original);
+        }
+
+        if (!wallet.CommitTransaction(tx, {}, coins_to_remove)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Transaction commit failed");
+        }
+    }
+
+    return tx->GetHash().GetHex();
+}
+
 /**
  * Update coin control with fee estimation based on the given parameters
  *
@@ -357,6 +393,65 @@ static RPCHelpMan getrawchangeaddress()
     };
 }
 
+static RPCHelpMan senddrivechaindeposit()
+{
+    return RPCHelpMan{
+        "senddrivechaindeposit",
+        "Create, fund, sign and broadcast a drivechain DEPOSIT transaction.\n"
+        "This locks LTC into sidechain escrow tracked by getdrivechaininfo.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"payload",      RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload hex (sidechain-defined)"},
+            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Amount in LTC to deposit"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+        },
+        RPCResult{
+            RPCResult::Type::STR_HEX, "txid", "The transaction id"
+        },
+        RPCExamples{
+            HelpExampleCli("senddrivechaindeposit",
+                           "1 0000000000000000000000000000000000000000000000000000000000000000 1.0") +
+            HelpExampleRpc("senddrivechaindeposit",
+                           "1, \"0000...0000\", 1.0")
+        }
+    };
+}
+
+static RPCHelpMan senddrivechainbundle()
+{
+    return RPCHelpMan{
+        "senddrivechainbundle",
+        "Create, fund, sign and broadcast a drivechain BUNDLE_COMMIT transaction.\n"
+        "This publishes a bundle hash for a sidechain.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
+            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Dummy amount to attach to commit output"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+        },
+        RPCResult{
+            RPCResult::Type::STR_HEX, "txid", "The transaction id"
+        }
+    };
+}
+
+static RPCHelpMan senddrivechainexecute()
+{
+    return RPCHelpMan{
+        "senddrivechainexecute",
+        "Create, fund, sign and broadcast a drivechain EXECUTE marker transaction.\n"
+        "This marks a bundle as executed and spends escrow (must be consistent with consensus rules).\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
+            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Total withdrawal amount attached to EXECUTE output"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+        },
+        RPCResult{
+            RPCResult::Type::STR_HEX, "txid", "The transaction id"
+        }
+    };
+}
 
 static RPCHelpMan setlabel()
 {
@@ -458,6 +553,111 @@ UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std
         return entry;
     }
     return tx->GetHash().GetHex();
+}
+
+static UniValue senddrivechaindeposit(const JSONRPCRequest& request)
+{
+    std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
+    CWallet& wallet = *pwallet;
+
+    const RPCHelpMan& help = ::senddrivechaindeposit();
+    if (request.fHelp || request.params.size() < 3 || request.params.size() > 4) {
+        throw std::runtime_error(help.ToString());
+    }
+    help.Check(request);
+
+    int sc_id_int = request.params[0].get_int();
+    if (sc_id_int < 0 || sc_id_int > 255) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
+    }
+    uint8_t sidechain_id = static_cast<uint8_t>(sc_id_int);
+
+    uint256 payload = ParseHashV(request.params[1], "payload");
+    CAmount amount = AmountFromValue(request.params[2]);
+
+    bool subtract_fee_from_amount = false;
+    if (!request.params[3].isNull()) {
+        subtract_fee_from_amount = request.params[3].get_bool();
+    }
+
+    CCoinControl coin_control;
+
+    CScript script = MakeDrivechainScript(sidechain_id, payload, DrivechainScriptInfo::Kind::DEPOSIT);
+    std::string txid = SendToDrivechainScript(wallet, script, amount, coin_control, subtract_fee_from_amount);
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("txid", txid);
+    return result;
+}
+
+static UniValue senddrivechainbundle(const JSONRPCRequest& request)
+{
+    std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
+    CWallet& wallet = *pwallet;
+
+    const RPCHelpMan& help = ::senddrivechainbundle();
+    if (request.fHelp || request.params.size() < 3 || request.params.size() > 4) {
+        throw std::runtime_error(help.ToString());
+    }
+    help.Check(request);
+
+    int sc_id_int = request.params[0].get_int();
+    if (sc_id_int < 0 || sc_id_int > 255) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
+    }
+    uint8_t sidechain_id = static_cast<uint8_t>(sc_id_int);
+
+    uint256 bundle_hash = ParseHashV(request.params[1], "bundle_hash");
+    CAmount amount = AmountFromValue(request.params[2]);
+
+    bool subtract_fee_from_amount = false;
+    if (!request.params[3].isNull()) {
+        subtract_fee_from_amount = request.params[3].get_bool();
+    }
+
+    CCoinControl coin_control;
+
+    CScript script = MakeDrivechainScript(sidechain_id, bundle_hash, DrivechainScriptInfo::Kind::BUNDLE_COMMIT);
+    std::string txid = SendToDrivechainScript(wallet, script, amount, coin_control, subtract_fee_from_amount);
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("txid", txid);
+    return result;
+}
+
+static UniValue senddrivechainexecute(const JSONRPCRequest& request)
+{
+    std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
+    CWallet& wallet = *pwallet;
+
+    const RPCHelpMan& help = ::senddrivechainexecute();
+    if (request.fHelp || request.params.size() < 3 || request.params.size() > 4) {
+        throw std::runtime_error(help.ToString());
+    }
+    help.Check(request);
+
+    int sc_id_int = request.params[0].get_int();
+    if (sc_id_int < 0 || sc_id_int > 255) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
+    }
+    uint8_t sidechain_id = static_cast<uint8_t>(sc_id_int);
+
+    uint256 bundle_hash = ParseHashV(request.params[1], "bundle_hash");
+    CAmount amount = AmountFromValue(request.params[2]);
+
+    bool subtract_fee_from_amount = false;
+    if (!request.params[3].isNull()) {
+        subtract_fee_from_amount = request.params[3].get_bool();
+    }
+
+    CCoinControl coin_control;
+
+    CScript script = MakeDrivechainScript(sidechain_id, bundle_hash, DrivechainScriptInfo::Kind::EXECUTE);
+    std::string txid = SendToDrivechainScript(wallet, script, amount, coin_control, subtract_fee_from_amount);
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("txid", txid);
+    return result;
 }
 
 static RPCHelpMan sendtoaddress()
@@ -4792,6 +4992,9 @@ static const CRPCCommand commands[] =
     { "wallet",             "send",                             &send,                          {"outputs","conf_target","estimate_mode","fee_rate","options"} },
     { "wallet",             "sendmany",                         &sendmany,                      {"dummy","amounts","minconf","comment","subtractfeefrom","replaceable","conf_target","estimate_mode","fee_rate","verbose"} },
     { "wallet",             "sendtoaddress",                    &sendtoaddress,                 {"address","amount","comment","comment_to","subtractfeefromamount","replaceable","conf_target","estimate_mode","avoid_reuse","fee_rate","verbose"} },
+    { "wallet",             "senddrivechaindeposit",            &senddrivechaindeposit,         {"sidechain_id","payload","amount","subtractfeefromamount"} },
+    { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id","bundle_hash","amount","subtractfeefromamount"} },
+    { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id","bundle_hash","amount","subtractfeefromamount"} },
     { "wallet",             "sethdseed",                        &sethdseed,                     {"newkeypool","seed"} },
     { "wallet",             "setlabel",                         &setlabel,                      {"address","label"} },
     { "wallet",             "settxfee",                         &settxfee,                      {"amount"} },
