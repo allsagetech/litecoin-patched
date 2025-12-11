@@ -357,7 +357,6 @@ static RPCHelpMan getrawchangeaddress()
     };
 }
 
-
 static RPCHelpMan setlabel()
 {
     return RPCHelpMan{"setlabel",
@@ -458,6 +457,92 @@ UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std
         return entry;
     }
     return tx->GetHash().GetHex();
+}
+
+static std::string SendToDrivechainScript(CWallet& wallet, const CScript& script, const CAmount amount, CCoinControl& coin_control, bool subtract_fee_from_amount)
+{
+    std::vector<CRecipient> recipients;
+    recipients.push_back({script, amount, subtract_fee_from_amount});
+
+    // No wallet.chain().lock() here; just reuse SendMoney, which already
+    // handles locking and CommitTransaction correctly in this codebase.
+    mapValue_t map_value;
+    UniValue res = SendMoney(&wallet, coin_control, recipients, map_value, /*broadcast=*/true);
+
+    // In this tree SendMoney returns the txid as a JSON string.
+    return res.get_str();
+}
+
+static RPCHelpMan senddrivechaindeposit()
+{
+    return RPCHelpMan{
+        "senddrivechaindeposit",
+        "Create, fund, sign and broadcast a drivechain DEPOSIT transaction.\n"
+        "This locks LTC into sidechain escrow tracked by getdrivechaininfo.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"payload",      RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload hex (sidechain-defined)"},
+            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Amount in LTC to deposit"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+        },
+        RPCResult{
+            RPCResult::Type::STR_HEX, "txid", "The transaction id"
+        },
+        RPCExamples{
+            HelpExampleCli("senddrivechaindeposit",
+                           "1 0000000000000000000000000000000000000000000000000000000000000000 1.0") +
+            HelpExampleRpc("senddrivechaindeposit",
+                           "1, \"0000...0000\", 1.0")
+        }
+    };
+}
+
+static RPCHelpMan senddrivechainbundle()
+{
+    return RPCHelpMan{
+        "senddrivechainbundle",
+        "Create, fund, sign and broadcast a drivechain BUNDLE_COMMIT transaction.\n"
+        "This publishes a bundle hash for a sidechain.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
+            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Dummy amount to attach to commit output"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+        },
+        RPCResult{
+            RPCResult::Type::STR_HEX, "txid", "The transaction id"
+        },
+        RPCExamples{
+            HelpExampleCli("senddrivechainbundle",
+                           "1 0000000000000000000000000000000000000000000000000000000000000000 0.1") +
+            HelpExampleRpc("senddrivechainbundle",
+                           "1, \"0000...0000\", 0.1")
+        }
+    };
+}
+
+static RPCHelpMan senddrivechainexecute()
+{
+    return RPCHelpMan{
+        "senddrivechainexecute",
+        "Create, fund, sign and broadcast a drivechain EXECUTE marker transaction.\n"
+        "This marks a bundle as executed and spends escrow (must be consistent with consensus rules).\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
+            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Total withdrawal amount attached to EXECUTE output"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+        },
+        RPCResult{
+            RPCResult::Type::STR_HEX, "txid", "The transaction id"
+        },
+        RPCExamples{
+            HelpExampleCli("senddrivechainexecute",
+                           "1 1111111111111111111111111111111111111111111111111111111111111111 1.0") +
+            HelpExampleRpc("senddrivechainexecute",
+                           "1, \"1111...1111\", 1.0")
+        }
+    };
 }
 
 static RPCHelpMan sendtoaddress()
@@ -726,7 +811,6 @@ static CAmount GetReceived(const CWallet& wallet, const UniValue& params, bool b
     return amount;
 }
 
-
 static RPCHelpMan getreceivedbyaddress()
 {
     return RPCHelpMan{"getreceivedbyaddress",
@@ -765,7 +849,6 @@ static RPCHelpMan getreceivedbyaddress()
     };
 }
 
-
 static RPCHelpMan getreceivedbylabel()
 {
     return RPCHelpMan{"getreceivedbylabel",
@@ -803,7 +886,6 @@ static RPCHelpMan getreceivedbylabel()
 },
     };
 }
-
 
 static RPCHelpMan getbalance()
 {
@@ -884,7 +966,6 @@ static RPCHelpMan getunconfirmedbalance()
 },
     };
 }
-
 
 static RPCHelpMan sendmany()
 {
@@ -979,7 +1060,6 @@ static RPCHelpMan sendmany()
 },
     };
 }
-
 
 static RPCHelpMan addmultisigaddress()
 {
@@ -4798,6 +4878,9 @@ static const CRPCCommand commands[] =
     { "wallet",             "setwalletflag",                    &setwalletflag,                 {"flag","value"} },
     { "wallet",             "signmessage",                      &signmessage,                   {"address","message"} },
     { "wallet",             "signrawtransactionwithwallet",     &signrawtransactionwithwallet,  {"hexstring","prevtxs","sighashtype"} },
+    { "wallet",             "senddrivechaindeposit",            &senddrivechaindeposit,         {"sidechain_id", "payload", "amount", "subtractfeefromamount"} },
+    { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "amount", "subtractfeefromamount"} },
+    { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id", "bundle_hash", "amount", "subtractfeefromamount"} },
     { "wallet",             "unloadwallet",                     &unloadwallet,                  {"wallet_name", "load_on_startup"} },
     { "wallet",             "upgradewallet",                    &upgradewallet,                 {"version"} },
     { "wallet",             "walletcreatefundedpsbt",           &walletcreatefundedpsbt,        {"inputs","outputs","locktime","options","bip32derivs"} },
