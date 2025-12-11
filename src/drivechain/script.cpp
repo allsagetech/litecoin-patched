@@ -2,6 +2,7 @@
 #include <script/script.h>
 #include <script/script_error.h>
 #include <algorithm>
+#include <vector>
 
 bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info)
 {
@@ -58,4 +59,40 @@ bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& o
 
     out_info = info;
     return true;
+}
+
+CScript MakeDrivechainScript(uint8_t sidechain_id,
+                             const uint256& payload,
+                             DrivechainScriptInfo::Kind kind)
+{
+    uint8_t tag;
+    switch (kind) {
+        case DrivechainScriptInfo::Kind::DEPOSIT:
+            tag = 0x00;
+            break;
+        case DrivechainScriptInfo::Kind::BUNDLE_COMMIT:
+            tag = 0x01;
+            break;
+        case DrivechainScriptInfo::Kind::VOTE_YES:
+            tag = 0x02;
+            break;
+        case DrivechainScriptInfo::Kind::EXECUTE:
+            tag = 0x03;
+            break;
+        default:
+            // You *could* throw here; for now just use UNKNOWN → invalid script.
+            tag = 0xff;
+            break;
+    }
+
+    std::vector<unsigned char> sc_id_vec{sidechain_id};
+    std::vector<unsigned char> payload_vec(payload.begin(), payload.end());
+    std::vector<unsigned char> tag_vec{tag};
+
+    CScript script;
+    script << OP_DRIVECHAIN;
+    script << sc_id_vec;
+    script << payload_vec;
+    script << tag_vec;
+    return script;
 }

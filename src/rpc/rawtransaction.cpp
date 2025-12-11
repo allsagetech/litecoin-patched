@@ -7,6 +7,7 @@
 #include <coins.h>
 #include <consensus/validation.h>
 #include <core_io.h>
+#include <drivechain/script.h>
 #include <index/txindex.h>
 #include <key_io.h>
 #include <merkleblock.h>
@@ -525,6 +526,74 @@ static RPCHelpMan decoderawtransaction()
     return result;
 },
     };
+}
+
+static RPCHelpMan builddrivechainscript()
+{
+    return RPCHelpMan{
+        "builddrivechainscript",
+        "Build a drivechain script for DEPOSIT / BUNDLE_COMMIT / VOTE_YES / EXECUTE.\n"
+        "\nResulting script can be used as the 'scriptPubKey' in createrawtransaction.\n"
+        "\nArguments:\n"
+        "1. sidechain_id   (numeric, required)  The sidechain id (0-255)\n"
+        "2. payload        (hex, required)      32-byte payload hash\n"
+        "3. kind           (string, required)   One of: \"deposit\", \"bundle_commit\", \"vote_yes\", \"execute\"\n"
+        "\nResult:\n"
+        "{\n"
+        "  \"script\": \"hex\"  (string) drivechain scriptPubKey in hex\n"
+        "}\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"payload",      RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload as hex string"},
+            {"kind",         RPCArg::Type::STR, RPCArg::Optional::NO, "Operation: deposit, bundle_commit, vote_yes, execute"},
+        },
+        RPCResults{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "script", "Drivechain scriptPubKey in hex"},
+            }
+        },
+        RPCExamples{
+            HelpExampleCli("builddrivechainscript", "1 0000000000000000000000000000000000000000000000000000000000000000 deposit") +
+            HelpExampleRpc("builddrivechainscript", "1, \"0000...0000\", \"deposit\"")
+        }
+    };
+}
+
+static UniValue builddrivechainscript(const JSONRPCRequest& request)
+{
+    const RPCHelpMan& help = ::builddrivechainscript();
+    if (request.fHelp || request.params.size() != 3) {
+        throw std::runtime_error(help.ToString());
+    }
+    help.Check(request);
+
+    int sc_id_int = request.params[0].get_int();
+    if (sc_id_int < 0 || sc_id_int > 255) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
+    }
+    uint8_t sidechain_id = static_cast<uint8_t>(sc_id_int);
+
+    uint256 payload = ParseHashV(request.params[1], "payload");
+
+    std::string kind_str = request.params[2].get_str();
+    DrivechainScriptInfo::Kind kind;
+    if (kind_str == "deposit") {
+        kind = DrivechainScriptInfo::Kind::DEPOSIT;
+    } else if (kind_str == "bundle_commit") {
+        kind = DrivechainScriptInfo::Kind::BUNDLE_COMMIT;
+    } else if (kind_str == "vote_yes") {
+        kind = DrivechainScriptInfo::Kind::VOTE_YES;
+    } else if (kind_str == "execute") {
+        kind = DrivechainScriptInfo::Kind::EXECUTE;
+    } else {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "kind must be one of: deposit, bundle_commit, vote_yes, execute");
+    }
+
+    CScript script = MakeDrivechainScript(sidechain_id, payload, kind);
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("script", HexStr(script));
+    return result;
 }
 
 static std::string GetAllOutputTypes()
@@ -1863,6 +1932,7 @@ static const CRPCCommand commands[] =
   //  --------------------- ------------------------        -----------------------     ----------
     { "rawtransactions",    "getrawtransaction",            &getrawtransaction,         {"txid","verbose","blockhash"} },
     { "rawtransactions",    "createrawtransaction",         &createrawtransaction,      {"inputs","outputs","locktime","replaceable"} },
+    { "rawtransactions",    "builddrivechainscript",        &builddrivechainscript,     {"sidechain_id","payload","kind"} },
     { "rawtransactions",    "decoderawtransaction",         &decoderawtransaction,      {"hexstring","iswitness"} },
     { "rawtransactions",    "decodescript",                 &decodescript,              {"hexstring"} },
     { "rawtransactions",    "sendrawtransaction",           &sendrawtransaction,        {"hexstring","maxfeerate"} },

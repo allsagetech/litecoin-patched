@@ -21,4 +21,6 @@ struct DrivechainScriptInfo
 
 bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info);
 
+CScript MakeDrivechainScript(uint8_t sidechain_id, const uint256& payload, DrivechainScriptInfo::Kind kind);
+
 #endif
