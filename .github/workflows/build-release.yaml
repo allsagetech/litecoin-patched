@@ -1,17 +1,82 @@
-name: Build and Release Litecoin Core 
+name: Build and Release Litecoin Core
 
-on: 
-  pull_request: 
-  push: 
+on:
+  pull_request:
+  push:
     branches:
-      - "master"
+      - "**"
   workflow_dispatch:
 
-jobs: 
-  build-linux: 
+concurrency:
+  group: build-release-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------
+  # 1) Drivechain functional tests (Option C: everything but master)
+  # ------------------------------------------------------------
+  drivechain-functional-tests:
+    name: Drivechain functional tests (non-master only)
+    if: >
+      (github.event_name == 'push' && github.ref_name != 'master') ||
+      (github.event_name == 'pull_request' && github.base_ref != 'master')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Linux deps (tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libtool \
+            autotools-dev \
+            automake \
+            pkg-config \
+            bsdmainutils \
+            curl \
+            libevent-dev \
+            libboost-dev \
+            python3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: autogen
+        run: ./autogen.sh
+
+      - name: configure (no GUI needed for functional tests)
+        run: |
+          ./configure --without-gui --disable-bench
+
+      - name: build
+        run: make -j4
+
+      - name: Run drivechain functional tests
+        env:
+          LC_ALL: C
+        run: |
+          test/functional/test_runner.py \
+            feature_drivechain_activation.py \
+            feature_drivechain_state.py
+
+  # ------------------------------------------------------------
+  # 2) Build Linux binaries (keeps your known-good depends flow)
+  #    Release only when merged into master
+  # ------------------------------------------------------------
+  build-linux:
     name: Build Linux binaries
     runs-on: ubuntu-22.04
-    steps: 
+    timeout-minutes: 90
+
+    steps:
       - name: install Linux deps
         run: |
           sudo apt-get update
@@ -34,7 +99,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-    
+
       - name: Restore cached dependencies
         uses: actions/cache/restore@v4
         with:
@@ -69,6 +134,7 @@ jobs:
         run: |
           LITECOIN_CORE_VERSION=$(grep -E '^AC_INIT' configure.ac | sed -E 's/.*\[[^]]*\], \[([^]]*)\].*/\1/')
           echo "LITECOIN_CORE_VERSION=$LITECOIN_CORE_VERSION" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${GITHUB_SHA::12}" >> "$GITHUB_ENV"
 
       - name: Rename artifacts before upload
         run: |
@@ -79,8 +145,8 @@ jobs:
           cp src/qt/litecoin-qt artifacts/qt/
 
       - uses: actions/upload-artifact@v4
-        with: 
-          name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+        with:
+          name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
           if-no-files-found: error
           path: |
             artifacts/litecoind
@@ -88,200 +154,62 @@ jobs:
             artifacts/litecoin-tx
             artifacts/qt/litecoin-qt
 
-      # -------------------------------
-      # NEW: Create GitHub Release
-      # -------------------------------
+      # ------------------------------------------------------------
+      # Release only on pushes to master (i.e., after merge)
+      # ------------------------------------------------------------
       - name: Create GitHub Release
+        if: github.event_name == 'push' && github.ref_name == 'master'
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ env.LITECOIN_CORE_VERSION }}
-          release_name: "Litecoin Core v${{ env.LITECOIN_CORE_VERSION }} (Linux x86_64)"
+          # Unique tag per merge so it never collides
+          tag_name: v${{ env.LITECOIN_CORE_VERSION }}-master-${{ env.SHORT_SHA }}
+          release_name: "Litecoin Core v${{ env.LITECOIN_CORE_VERSION }} (Linux x86_64) - master ${{ env.SHORT_SHA }}"
           draft: false
-          prerelease: false
+          prerelease: true
 
-      # -------------------------------
-      # NEW: Upload release assets
-      # -------------------------------
       - name: Upload litecoind
+        if: github.event_name == 'push' && github.ref_name == 'master'
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/litecoind
-          asset_name: litecoind-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_name: litecoind-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
           asset_content_type: application/octet-stream
 
       - name: Upload litecoin-cli
+        if: github.event_name == 'push' && github.ref_name == 'master'
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/litecoin-cli
-          asset_name: litecoin-cli-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_name: litecoin-cli-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
           asset_content_type: application/octet-stream
 
       - name: Upload litecoin-tx
+        if: github.event_name == 'push' && github.ref_name == 'master'
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/litecoin-tx
-          asset_name: litecoin-tx-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_name: litecoin-tx-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
           asset_content_type: application/octet-stream
 
       - name: Upload litecoin-qt
+        if: github.event_name == 'push' && github.ref_name == 'master'
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/qt/litecoin-qt
-          asset_name: litecoin-qt-v${{ env.LITECOIN_CORE_VERSION }}-x86_64-unknown-linux-gnu
+          asset_name: litecoin-qt-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
           asset_content_type: application/octet-stream
-
-  # # cribbed from upstream Bitcoin/Litecoin Core 
-  # # https://github.com/bitcoin/bitcoin/blob/master/.github/workflows/ci.yml
-  # build-windows:
-  #   name: 'Win64 native, VS 2022'
-  #   # Use latest image, but hardcode version to avoid silent upgrades (and breaks).
-  #   # See: https://github.com/actions/runner-images#available-images.
-  #   runs-on: windows-2022
-  #   timeout-minutes: 360 # windows takes a looooong as time to build
-
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-
-  #     - name: Set up Python 3.11
-  #       uses: actions/setup-python@v5
-  #       with:
-  #         python-version: '3.11'
-
-  #     - name: Configure Developer Command Prompt for Microsoft Visual C++
-  #       # Using microsoft/setup-msbuild is not enough.
-  #       uses: ilammy/msvc-dev-cmd@v1
-  #       with:
-  #         arch: x64
-
-  #     - name: Get tool information
-  #       shell: pwsh
-  #       run: |
-  #         msbuild -version | Tee-Object -FilePath "msbuild_version"
-  #         $env:VCToolsVersion | Tee-Object -FilePath "toolset_version"
-  #         py -3 --version
-  #         Write-Host "PowerShell version $($PSVersionTable.PSVersion.ToString())"
-
-  #     # Ensure the destination directory for libsecp256k1-config.h exists
-  #     - name: Ensure secp256k1 config directory exists
-  #       shell: pwsh
-  #       run: |
-  #         New-Item -ItemType Directory -Path src\secp256k1\src -Force
-
-  #     # Use the existing build_msvc flow instead of CMake (no CMakeLists.txt at repo root)
-  #     - name: Generate MSVC solution
-  #       working-directory: build_msvc
-  #       shell: pwsh
-  #       run: py -3 msvc-autogen.py
-
-  #     - name: Build
-  #       working-directory: build_msvc
-  #       shell: pwsh
-  #       run: msbuild bitcoin.sln /m /p:Configuration=Release /p:Platform=x64
-
-  #     - name: 'Set environment variables: version number'
-  #       shell: bash
-  #       run: |
-  #         LITECOIN_CORE_VERSION=$(grep -E '^AC_INIT' configure.ac | sed -E 's/.*\[[^]]*\], \[([^]]*)\].*/\1/')
-  #         echo "LITECOIN_CORE_VERSION=$LITECOIN_CORE_VERSION" >> "$GITHUB_ENV"
-
-  #     - name: Rename artifacts before upload
-  #       working-directory: build_msvc
-  #       shell: pwsh
-  #       run: |
-  #         mkdir artifacts
-  #         cp x64/Release/litecoind.exe artifacts/
-  #         cp x64/Release/litecoin-cli.exe artifacts/
-  #         cp x64/Release/litecoin-tx.exe artifacts/
-
-  #     - uses: actions/upload-artifact@v4
-  #       with: 
-  #         name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-x86_64-w64-msvc
-  #         if-no-files-found: error
-  #         path: |
-  #           build_msvc/artifacts/litecoind.exe
-  #           build_msvc/artifacts/litecoin-cli.exe
-  #           build_msvc/artifacts/litecoin-tx.exe
-
-  # build-macos: 
-  #   name: Build macOS binaries
-  #   runs-on: macos-13
-  #   steps: 
-  #     - uses: actions/checkout@v4
-    
-  #     - name: install deps
-  #       run: |
-  #         # GNU grep is required, as BSD grep does not support perl regexes
-  #         brew update
-  #         brew install boost cmake grep libevent pkg-config qrencode qt@5 python \
-  #                      autoconf automake libtool
-  #         python3 -m pip install --upgrade pip
-  #         python3 -m pip install setuptools
-
-  #     - name: Restore cached dependencies
-  #       uses: actions/cache/restore@v4
-  #       with:
-  #         path: ./depends
-  #         key: macos-${{ hashFiles('depends/packages/**') }}    
-      
-  #     - name: download dependencies
-  #       run: make -C ./depends download-osx
-
-  #     - name: build dependencies
-  #       run: make -C ./depends -j4 PYTHON=python3.11
-
-  #     - name: Cache dependencies
-  #       uses: actions/cache/save@v4
-  #       with:
-  #         path: ./depends
-  #         key: macos-${{ hashFiles('depends/packages/**') }}
-
-  #     - name: autogen
-  #       run: ./autogen.sh
-
-  #     - name: configure
-  #       run: |
-  #         CONFIG_SITE=$PWD/depends/x86_64-apple-darwin*/share/config.site \
-  #         ./configure --with-gui=qt5 --disable-bench --disable-tests
-
-  #     - name: build
-  #       run: make -j4
-
-  #     - name: 'Set environment variables: version number'
-  #       shell: bash
-  #       run: |
-  #         LITECOIN_CORE_VERSION=$(ggrep -E '^AC_INIT' configure.ac | sed -E 's/.*\[[^]]*\], \[([^]]*)\].*/\1/')
-  #         echo "LITECOIN_CORE_VERSION=$LITECOIN_CORE_VERSION" >> "$GITHUB_ENV"
-
-  #     - name: Rename artifacts before upload
-  #       run: |
-  #         mkdir -p artifacts/qt
-  #         cp src/litecoind artifacts/
-  #         cp src/litecoin-cli artifacts/
-  #         cp src/litecoin-tx artifacts/
-  #         cp src/qt/litecoin-qt artifacts/qt/
-
-  #     - uses: actions/upload-artifact@v4
-  #       with: 
-  #         name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-x86_64-apple-darwin
-  #         if-no-files-found: error
-  #         path: |
-  #           artifacts/litecoind
-  #           artifacts/litecoin-cli
-  #           artifacts/litecoin-tx
-  #           artifacts/qt/litecoin-qt
