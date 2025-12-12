@@ -8,7 +8,7 @@
 class CBlock;
 class CBlockIndex;
 class CTransaction;
-class CValidationState;
+class BlockValidationState;
 
 struct Bundle
 {
@@ -34,7 +34,7 @@ class DrivechainState
 public:
     std::map<uint8_t, Sidechain> sidechains;
 
-    bool ConnectBlock(const CBlock& block, const CBlockIndex* pindex, CValidationState& state);
+    bool ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state);
     void DisconnectBlock(const CBlock& block, const CBlockIndex* pindex);
 
     const Sidechain* GetSidechain(uint8_t id) const;

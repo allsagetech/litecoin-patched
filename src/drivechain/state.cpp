@@ -85,7 +85,7 @@ const Sidechain* DrivechainState::GetSidechain(uint8_t id) const
     return &it->second;
 }
 
-bool DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pindex, CValidationState& state)
+bool DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state)
 {
     const int height = pindex->nHeight;
 
@@ -95,63 +95,64 @@ bool DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pinde
         const bool is_coinbase = (tx_index == 0);
 
         for (const auto& txout : tx->vout) {
-        int execute_marker_index = -1;
-        DrivechainScriptInfo execute_info;
+            int execute_marker_index = -1;
+            DrivechainScriptInfo execute_info;
 
-        for (size_t out_i = 0; out_i < tx->vout.size(); ++out_i) {
-            const auto& txout = tx->vout[out_i];
-            DrivechainScriptInfo info;
-            if (!DecodeDrivechainScript(txout.scriptPubKey, info)) {
-                continue;
-            }
-
-            switch (info.kind) {
-                case DrivechainScriptInfo::Kind::DEPOSIT: {
-                    auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
-                    sc.escrow_balance += txout.nValue;
-                    break;
+            for (size_t out_i = 0; out_i < tx->vout.size(); ++out_i) {
+                const auto& txout = tx->vout[out_i];
+                DrivechainScriptInfo info;
+                if (!DecodeDrivechainScript(txout.scriptPubKey, info)) {
+                    continue;
                 }
 
-                case DrivechainScriptInfo::Kind::BUNDLE_COMMIT: {
-                    auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
-                    auto& bundle = GetOrCreateBundle(sc, info.payload, height);
-                    (void)bundle;
-                    break;
-                }
-
-                case DrivechainScriptInfo::Kind::VOTE_YES: {
-                    if (!is_coinbase) {
+                switch (info.kind) {
+                    case DrivechainScriptInfo::Kind::DEPOSIT: {
+                        auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
+                        sc.escrow_balance += txout.nValue;
                         break;
                     }
 
-                    auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
-                    auto& bundle = GetOrCreateBundle(sc, info.payload, height);
+                    case DrivechainScriptInfo::Kind::BUNDLE_COMMIT: {
+                        auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
+                        auto& bundle = GetOrCreateBundle(sc, info.payload, height);
+                        (void)bundle;
+                        break;
+                    }
 
-                    if (height - bundle.first_seen_height <= DRIVECHAIN_VOTE_WINDOW) {
-                        ++bundle.yes_votes;
-
-                        if (!bundle.approved && bundle.yes_votes >= DRIVECHAIN_VOTE_THRESHOLD) {
-                            bundle.approved = true;
+                    case DrivechainScriptInfo::Kind::VOTE_YES: {
+                        if (!is_coinbase) {
+                            break;
                         }
-                    }
-                    break;
-                }
 
-                case DrivechainScriptInfo::Kind::EXECUTE: {
-                    if (execute_marker_index != -1) {
-                        return state.Invalid(false, REJECT_INVALID, "drivechain-multi-execute");
-                    }
-                    if (info.n_withdrawals == 0) {
-                        return state.Invalid(false, REJECT_INVALID, "drivechain-zero-withdrawals");
-                    }
-                    execute_marker_index = (int)out_i;
-                    execute_info = info;
-                    break;
-                }
+                        auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
+                        auto& bundle = GetOrCreateBundle(sc, info.payload, height);
 
-                case DrivechainScriptInfo::Kind::UNKNOWN:
-                default:
-                    break;
+                        if (height - bundle.first_seen_height <= DRIVECHAIN_VOTE_WINDOW) {
+                            ++bundle.yes_votes;
+
+                            if (!bundle.approved && bundle.yes_votes >= DRIVECHAIN_VOTE_THRESHOLD) {
+                                bundle.approved = true;
+                            }
+                        }
+                        break;
+                    }
+
+                    case DrivechainScriptInfo::Kind::EXECUTE: {
+                        if (execute_marker_index != -1) {
+                            return state.Invalid(false, REJECT_INVALID, "drivechain-multi-execute");
+                        }
+                        if (info.n_withdrawals == 0) {
+                            return state.Invalid(false, REJECT_INVALID, "drivechain-zero-withdrawals");
+                        }
+                        execute_marker_index = (int)out_i;
+                        execute_info = info;
+                        break;
+                    }
+
+                    case DrivechainScriptInfo::Kind::UNKNOWN:
+                    default:
+                        break;
+                }
             }
         }
         // Enforce EXECUTE consensus rules (marker + N ordered withdrawals + optional change).
@@ -212,7 +213,7 @@ bool DrivechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pinde
             sc.escrow_balance -= withdraw_sum;
             bundle.executed = true;
         }
-     }
+    }
 
     return true;
     
