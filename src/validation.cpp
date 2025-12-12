@@ -37,6 +37,7 @@
 #include <reverse_iterator.h>
 #include <script/script.h>
 #include <script/sigcache.h>
+#include <serialize.h>
 #include <shutdown.h>
 #include <signet.h>
 #include <timedata.h>
@@ -342,6 +343,110 @@ bool CheckSequenceLocks(const CTxMemPool& pool, const CTransaction& tx, int flag
 // Returns the script flags which should be checked for a given block
 static unsigned int GetBlockScriptFlags(const CBlockIndex* pindex, const Consensus::Params& chainparams);
 
+static void WriteLE32(CHashWriter& hw, uint32_t v)
+{
+    unsigned char buf[4];
+    buf[0] = (v >> 0) & 0xff;
+    buf[1] = (v >> 8) & 0xff;
+    buf[2] = (v >> 16) & 0xff;
+    buf[3] = (v >> 24) & 0xff;
+    hw.write((const char*)buf, 4);
+}
+
+static void WriteLE64(CHashWriter& hw, uint64_t v)
+{
+    unsigned char buf[8];
+    buf[0] = (v >> 0) & 0xff;
+    buf[1] = (v >> 8) & 0xff;
+    buf[2] = (v >> 16) & 0xff;
+    buf[3] = (v >> 24) & 0xff;
+    buf[4] = (v >> 32) & 0xff;
+    buf[5] = (v >> 40) & 0xff;
+    buf[6] = (v >> 48) & 0xff;
+    buf[7] = (v >> 56) & 0xff;
+    hw.write((const char*)buf, 8);
+}
+
+static bool IsDrivechainMarkerOut(const CTxOut& out)
+{
+    return out.scriptPubKey.IsDrivechain();
+}
+
+// Recompute bundle hash from tx outputs using the rule:
+// - exactly one EXECUTE marker output
+// - all other outputs are withdrawals (non-drivechain)
+// - hash = SHA256d(scid || count || entries)
+static bool ComputeExecuteBundleHashAndSum(
+    const CTransaction& tx,
+    uint8_t sidechain_id,
+    size_t exec_marker_vout,
+    uint256& out_hash,
+    CAmount& out_withdraw_sum,
+    TxValidationState& state)
+{
+    // Build withdrawal list: all outputs except marker, and must not be drivechain.
+    std::vector<const CTxOut*> withdrawals;
+    withdrawals.reserve(tx.vout.size());
+
+    for (size_t i = 0; i < tx.vout.size(); ++i) {
+        if (i == exec_marker_vout) continue;
+
+        const CTxOut& o = tx.vout[i];
+
+        // Forbid any other drivechain outputs in an EXECUTE tx (avoids ambiguity).
+        if (IsDrivechainMarkerOut(o)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "dc-exec-extra-marker");
+        }
+
+        // 1-byte script length in hash encoding (your LIP draft uses 1 byte).
+        if (o.scriptPubKey.size() > 255) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "dc-exec-script-too-long");
+        }
+
+        if (o.nValue < 0) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "dc-exec-negative-out");
+        }
+
+        withdrawals.push_back(&o);
+    }
+
+    // Must actually pay something (optional, but good hygiene).
+    if (withdrawals.empty()) {
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "dc-exec-no-withdrawals");
+    }
+
+    // Sum withdrawals.
+    CAmount sum{0};
+    for (const CTxOut* o : withdrawals) {
+        if (!MoneyRange(o->nValue)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "dc-exec-withdraw-out-of-range");
+        }
+        sum += o->nValue;
+        if (!MoneyRange(sum)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "dc-exec-withdraw-sum-out-of-range");
+        }
+    }
+    out_withdraw_sum = sum;
+
+    // Hash encoding: scid (1), count (4 LE), entries.
+    CHashWriter hw(SER_GETHASH, 0);
+    hw << sidechain_id;
+
+    uint32_t count = (uint32_t)withdrawals.size();
+    WriteLE32(hw, count);
+
+    for (const CTxOut* o : withdrawals) {
+        WriteLE64(hw, (uint64_t)o->nValue);
+
+        uint8_t slen = (uint8_t)o->scriptPubKey.size();
+        hw << slen;
+        hw.write((const char*)o->scriptPubKey.data(), slen);
+    }
+
+    out_hash = hw.GetHash(); // SHA256d
+    return true;
+}
+
 static bool CheckDrivechainBlock(
     const CBlock& block,
     const CChainParams& chainparams,
@@ -361,7 +466,9 @@ static bool CheckDrivechainBlock(
         const auto& tx = block.vtx[tx_index];
         const bool is_coinbase = (tx_index == 0);
 
-        for (const auto& txout : tx->vout) {
+        for (size_t out_i = 0; out_i < tx->vout.size(); ++out_i) {
+            const auto& txout = tx->vout[out_i];
+
             DrivechainScriptInfo info;
             if (!DecodeDrivechainScript(txout.scriptPubKey, info)) {
                 continue;
@@ -385,7 +492,6 @@ static bool CheckDrivechainBlock(
                 }
 
                 case DrivechainScriptInfo::Kind::EXECUTE: {
-
                     const Bundle* bundle = GetDrivechainBundle(info.sidechain_id, info.payload);
                     if (!bundle) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-unknown-bundle");
@@ -397,11 +503,28 @@ static bool CheckDrivechainBlock(
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-already-executed");
                     }
 
+                    // Enforce "exact payouts match committed bundle hash".
+                    uint256 computed;
+                    CAmount withdraw_sum{0};
+                    TxValidationState tx_state; // local tx validation state for helper
+                    if (!ComputeExecuteBundleHashAndSum(*tx, info.sidechain_id, out_i, computed, withdraw_sum, tx_state)) {
+                        // Map tx_state to block invalid (consensus).
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason());
+                    }
+
+                    if (computed != info.payload) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-withdrawals-hash-mismatch");
+                    }
+
+                    // Marker nValue must equal sum of withdrawals (so escrow debit matches).
+                    if (txout.nValue != withdraw_sum) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-marker-value-mismatch");
+                    }
+
                     executes_in_block[info.sidechain_id] += txout.nValue;
                     break;
                 }
 
-                case DrivechainScriptInfo::Kind::UNKNOWN:
                 default:
                     break;
             }
@@ -2422,7 +2545,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     // add this block to the view's block chain
     view.SetBestBlock(pindex->GetBlockHash());
 
-    g_drivechain_state.ConnectBlock(block, pindex);
+    if (!g_drivechain_state.ConnectBlock(block, pindex, state)) return false;
 
     int64_t nTime5 = GetTimeMicros(); nTimeIndex += nTime5 - nTime4;
     LogPrint(BCLog::BENCH, "    - Index writing: %.2fms [%.2fs (%.2fms/blk)]\n", MILLI * (nTime5 - nTime4), nTimeIndex * MICRO, nTimeIndex * MILLI / nBlocksTotal);
