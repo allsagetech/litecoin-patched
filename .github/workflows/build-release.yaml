@@ -15,9 +15,6 @@ permissions:
   contents: read
 
 jobs:
-  # ------------------------------------------------------------
-  # 1) Drivechain functional tests (everything but master)
-  # ------------------------------------------------------------
   drivechain-functional-tests:
     name: Drivechain functional tests (non-master only)
     if: >
@@ -74,13 +71,16 @@ jobs:
       - name: autogen
         run: ./autogen.sh
 
-      - name: configure (wallet enabled for RPCs like getnewaddress)
+      - name: configure (wallet enabled; allow non-4.8 BDB on CI)
         env:
           CXXFLAGS: "-pthread"
           LDFLAGS: "-pthread"
           LIBS: "-pthread"
         run: |
-          ./configure --without-gui --disable-bench
+          ./configure \
+            --without-gui \
+            --disable-bench \
+            --with-incompatible-bdb
 
       - name: build
         run: make -j4
@@ -92,14 +92,9 @@ jobs:
           python3 test/functional/feature_drivechain_activation.py
           python3 test/functional/feature_drivechain_state.py
 
-  # ------------------------------------------------------------
-  # 2) Build Linux binaries (depends flow)
-  #    Release only when merged into master
-  # ------------------------------------------------------------
   build-linux:
     name: Build Linux binaries
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
 
     permissions:
       contents: write
