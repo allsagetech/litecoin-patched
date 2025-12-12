@@ -13,6 +13,18 @@ from test_framework.util import (
 from test_framework.messages import CTransaction, CTxOut
 from test_framework.script import CScript
 
+COIN = 100_000_000
+
+def fund_and_sign_script_tx(node, script, amount):
+    """
+    IMPORTANT: Litecoin does NOT support createrawtransaction() for custom script outputs.
+    Build tx locally, then fund + sign via wallet.
+    """
+    tx = CTransaction()
+    tx.vin = []
+    tx.vout = [CTxOut(int(amount * COIN), script)]
+    funded = node.fundrawtransaction(tx.serialize().hex())["hex"]
+    return node.signrawtransactionwithwallet(funded)["hex"]
 
 class DrivechainActivationTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -42,25 +54,8 @@ class DrivechainActivationTest(BitcoinTestFramework):
         return CScript(bytes([0xB4, 0x01, sidechain_id, 0x20]) + payload + bytes([0x01, tag]))
 
     def _create_drivechain_tx(self, node, amount: Decimal = Decimal("1.0")) -> str:
-        """Create, fund, and sign a tx with a single drivechain DEPOSIT output.
-
-        IMPORTANT: On Litecoin, createrawtransaction() does not accept a dict output with
-        {"scriptPubKey": ..., "amount": ...} (it expects address->amount style), which causes:
-          - (-8) "key-value pair must contain exactly one key"
-          - (-5) "Invalid Litecoin address: script"
-
-        So we build the raw tx locally, then fundrawtransaction() adds inputs + change.
-        """
-        tx = CTransaction()
-        tx.vin = []
         script = self._make_drivechain_script(sidechain_id=1, payload_hex="00" * 32, tag=0x00)
-        n_value = int(amount * 100_000_000)  # satoshis
-        tx.vout = [CTxOut(n_value, script)]
-        raw_hex = tx.serialize().hex()
-
-        funded = node.fundrawtransaction(raw_hex)["hex"]
-        signed = node.signrawtransactionwithwallet(funded)["hex"]
-        return signed
+        return fund_and_sign_script_tx(node, script, amount)
 
     def _get_drivechain_status(self, node) -> str:
         """Find drivechain activation status across Litecoin/Bitcoin Core schema variants."""
