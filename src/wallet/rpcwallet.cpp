@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <amount.h>
+#include <set>
 #include <core_io.h>
 #include <interfaces/chain.h>
 #include <key_io.h>
@@ -426,6 +427,117 @@ void ParseRecipients(const UniValue& address_amounts, const UniValue& subtract_f
     }
 }
 
+static void ParseOutputsArray(const UniValue& outputs_in, std::vector<CRecipient>& recipients)
+{
+    RPCTypeCheckArgument(outputs_in, UniValue::VARR);
+
+    std::set<CTxDestination> dests_seen;
+    std::set<CScript> scripts_seen;
+
+    for (size_t i = 0; i < outputs_in.size(); ++i) {
+        const UniValue& out = outputs_in[i];
+        RPCTypeCheckArgument(out, UniValue::VOBJ);
+
+        // Require amount
+        if (!out.exists("amount")) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Output %u missing 'amount'", (unsigned)i));
+        }
+        const CAmount amount = AmountFromValue(out["amount"]);
+
+        // Optional subtract_fee (default false)
+        bool subtract_fee = false;
+        if (out.exists("subtract_fee") && !out["subtract_fee"].isNull()) {
+            subtract_fee = out["subtract_fee"].get_bool();
+        }
+
+        const bool has_addr = out.exists("address") && !out["address"].isNull();
+        const bool has_script = out.exists("script") && !out["script"].isNull();
+        if (has_addr == has_script) {
+            throw JSONRPCError(
+                RPC_INVALID_PARAMETER,
+                strprintf("Output %u must contain exactly one of 'address' or 'script'", (unsigned)i));
+        }
+
+        if (has_addr) {
+            const std::string addr_str = out["address"].get_str();
+            const CTxDestination dest = DecodeDestination(addr_str);
+            if (!IsValidDestination(dest)) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Litecoin address: " + addr_str);
+            }
+            if (dests_seen.count(dest)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Duplicate address in outputs: " + addr_str);
+            }
+            dests_seen.insert(dest);
+
+            DestinationAddr recipient_addr(dest);
+            recipients.push_back({recipient_addr, amount, subtract_fee});
+        } else {
+            const std::string script_hex = out["script"].get_str();
+            if (!IsHex(script_hex)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Output %u 'script' is not hex", (unsigned)i));
+            }
+            const CScript script = CScript(ParseHex(script_hex).begin(), ParseHex(script_hex).end());
+            if (scripts_seen.count(script)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Duplicate script in outputs at index %u", (unsigned)i));
+            }
+            scripts_seen.insert(script);
+
+            recipients.push_back({script, amount, subtract_fee});
+        }
+    }
+
+    if (recipients.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "outputs array must not be empty");
+    }
+}
+
+static void ParseDepositAmounts( const UniValue& amounts_in, const UniValue& subtract_fee_in, const CScript& deposit_script, std::vector<CRecipient>& recipients)
+{
+    RPCTypeCheckArgument(amounts_in, UniValue::VARR);
+    if (amounts_in.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "amounts array must not be empty");
+    }
+
+    std::set<size_t> subtract_indices;
+    bool subtract_all = false;
+
+    if (!subtract_fee_in.isNull()) {
+        if (subtract_fee_in.isBool()) {
+            subtract_all = subtract_fee_in.get_bool();
+        } else if (subtract_fee_in.isArray()) {
+            for (size_t i = 0; i < subtract_fee_in.size(); ++i) {
+                const int idx = subtract_fee_in[i].get_int();
+                if (idx < 0 || (size_t)idx >= amounts_in.size()) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER,
+                        strprintf("subtract_fee index %d out of range", idx));
+                }
+                subtract_indices.insert((size_t)idx);
+            }
+        } else {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "subtract_fee must be bool or array of indices");
+        }
+    }
+
+    recipients.clear();
+    recipients.reserve(amounts_in.size());
+
+    for (size_t i = 0; i < amounts_in.size(); ++i) {
+        const CAmount amt = AmountFromValue(amounts_in[i]);
+        if (amt <= 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("amounts[%u] must be > 0", (unsigned)i));
+        }
+        if (!MoneyRange(amt)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("amounts[%u] out of range", (unsigned)i));
+        }
+
+        const bool subtract = subtract_all || subtract_indices.count(i) != 0;
+        recipients.push_back({deposit_script, amt, subtract});
+    }
+}
+
 UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std::vector<CRecipient> &recipients, mapValue_t map_value, bool verbose)
 {
     EnsureWalletIsUnlocked(pwallet);
@@ -459,88 +571,79 @@ UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std
     return tx->GetHash().GetHex();
 }
 
-static std::string SendToDrivechainScript(CWallet& wallet, const CScript& script, const CAmount amount, CCoinControl& coin_control, bool subtract_fee_from_amount)
+static std::string SendToDrivechainOutputs( CWallet& wallet, std::vector<CRecipient>& recipients, CCoinControl& coin_control)
 {
-    std::vector<CRecipient> recipients;
-    recipients.push_back({script, amount, subtract_fee_from_amount});
-
-    // No wallet.chain().lock() here; just reuse SendMoney, which already
-    // handles locking and CommitTransaction correctly in this codebase.
+    // Reuse SendMoney path (CreateTransaction + CommitTransaction)
     mapValue_t map_value;
-    UniValue res = SendMoney(&wallet, coin_control, recipients, map_value, /*broadcast=*/true);
-
-    // In this tree SendMoney returns the txid as a JSON string.
-    return res.get_str();
+    UniValue res = SendMoney(&wallet, coin_control, recipients, map_value, /*verbose=*/true);
+    // If you want just txid, pass verbose=false and return res.get_str().
+    // With verbose=true, return object containing txid + fee_reason.
+    return res.isStr() ? res.get_str() : res["txid"].get_str();
 }
 
 static RPCHelpMan senddrivechaindeposit()
 {
     return RPCHelpMan{
         "senddrivechaindeposit",
-        "Create, fund, sign and broadcast a drivechain DEPOSIT transaction.\n"
-        "This locks LTC into sidechain escrow tracked by getdrivechaininfo.\n",
+        "Create, fund, sign and broadcast a Drivechain DEPOSIT transaction.\n"
+        "This RPC only creates drivechain deposit outputs (script generated internally).\n"
+        "You may specify multiple deposit outputs in one transaction.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
-            {"payload",      RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload hex (sidechain-defined)"},
-            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Amount in LTC to deposit"},
-            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+            {"payload", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload hex (64 hex chars)"},
+            {"amounts", RPCArg::Type::ARR, RPCArg::Optional::NO, "Array of deposit amounts (LTC)",
+                {
+                    {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Deposit amount"}
+                }
+            },
+            {"subtract_fee", RPCArg::Type::ANY, RPCArg::Optional::OMITTED,
+             "Subtract fee from deposits. If true, subtract from all outputs. If array, subtract from the outputs at those indices (e.g. [0,2])."},
         },
-        RPCResult{
-            RPCResult::Type::STR_HEX, "txid", "The transaction id"
-        },
+        RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id"},
         RPCExamples{
             HelpExampleCli("senddrivechaindeposit",
-                           "1 0000000000000000000000000000000000000000000000000000000000000000 1.0") +
-            HelpExampleRpc("senddrivechaindeposit",
-                           "1, \"0000...0000\", 1.0")
+                "1 0000000000000000000000000000000000000000000000000000000000000000 \"[0.5, 1.25]\"") +
+            HelpExampleCli("senddrivechaindeposit",
+                "1 0000000000000000000000000000000000000000000000000000000000000000 \"[0.5, 1.25]\" true") +
+            HelpExampleCli("senddrivechaindeposit",
+                "1 0000000000000000000000000000000000000000000000000000000000000000 \"[0.5, 1.25]\" \"[0]\"")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-            if (!wallet) {
-                return NullUniValue;
-            }
+            if (!wallet) return NullUniValue;
             CWallet* const pwallet = wallet.get();
 
-            if (request.params.size() < 3) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
-            }
-
-            int sidechain_id_int = request.params[0].get_int();
-            if (sidechain_id_int < 0 || sidechain_id_int > 255) {
+            const int scid_i = request.params[0].get_int();
+            if (scid_i < 0 || scid_i > 255) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
             }
-            uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
+            const uint8_t scid = static_cast<uint8_t>(scid_i);
 
-            std::string payload_hex = request.params[1].get_str();
+            const std::string payload_hex = request.params[1].get_str();
             if (!IsHex(payload_hex) || payload_hex.size() != 64) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "payload must be 32 bytes (64 hex chars)");
             }
-            std::vector<unsigned char> payload_vec = ParseHex(payload_hex);
+            const std::vector<unsigned char> payload = ParseHex(payload_hex);
 
-            CAmount amount = AmountFromValue(request.params[2]);
+            CScript deposit_script;
+            deposit_script << OP_DRIVECHAIN
+                           << std::vector<unsigned char>{scid}
+                           << payload
+                           << std::vector<unsigned char>{0x00}; // tag for DEPOSIT
 
-            bool subtract_fee_from_amount = false;
-            if (request.params.size() > 3 && !request.params[3].isNull()) {
-                subtract_fee_from_amount = request.params[3].get_bool();
-            }
+            const UniValue subtract_fee =
+                request.params.size() > 3 ? request.params[3] : UniValue();
 
-            // Build the drivechain script:
-            // OP_DRIVECHAIN
-            // PUSHDATA(1)  sidechain_id
-            // PUSHDATA(32) payload
-            // PUSHDATA(1)  tag = 0x00 (DEPOSIT)
-            CScript script;
-            script << OP_DRIVECHAIN
-                   << std::vector<unsigned char>{ sidechain_id }
-                   << payload_vec
-                   << std::vector<unsigned char>{ 0x00 };
+            std::vector<CRecipient> recipients;
+            ParseDepositAmounts(request.params[2], subtract_fee, deposit_script, recipients);
 
             CCoinControl coin_control;
+            mapValue_t map_value;
 
             LOCK(pwallet->cs_wallet);
-            std::string txid = SendToDrivechainScript(*pwallet, script, amount, coin_control, subtract_fee_from_amount);
 
-            return txid;
+            UniValue res = SendMoney(pwallet, coin_control, recipients, map_value, /*verbose=*/false);
+            return res;
         },
     };
 }
