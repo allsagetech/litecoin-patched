@@ -11,6 +11,7 @@ concurrency:
   group: build-release-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# Keep default read-only, but allow releases on master pushes.
 permissions:
   contents: read
 
@@ -33,10 +34,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libboost-program-options-dev \
-            libboost-all-dev \
-            libevent-dev \
-            libfmt-dev \
             build-essential \
             libtool \
             autotools-dev \
@@ -44,8 +41,10 @@ jobs:
             pkg-config \
             bsdmainutils \
             curl \
-            libevent-dev \
             python3 \
+            libevent-dev \
+            libfmt-dev \
+            libboost-program-options-dev \
             libboost-system-dev \
             libboost-filesystem-dev \
             libboost-thread-dev \
@@ -54,19 +53,14 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: autogen
         run: ./autogen.sh
 
       - name: configure (no GUI needed for functional tests)
         run: |
-          export CXXFLAGS="${CXXFLAGS:-} -pthread"
-          export LDFLAGS="${LDFLAGS:-} -pthread"
-          export LIBS="${LIBS:-} -lpthread"
           ./configure --without-gui --disable-bench --disable-wallet
-
-
 
       - name: build
         run: make -j4
@@ -87,6 +81,10 @@ jobs:
     name: Build Linux binaries
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+
+    # This job needs to create a release on master pushes.
+    permissions:
+      contents: write
 
     steps:
       - name: install Linux deps
@@ -110,7 +108,7 @@ jobs:
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Restore cached dependencies
         uses: actions/cache/restore@v4
@@ -141,7 +139,7 @@ jobs:
       - name: build
         run: make -j4
 
-      - name: 'Set environment variables: version number'
+      - name: "Set environment variables: version number"
         shell: bash
         run: |
           LITECOIN_CORE_VERSION=$(grep -E '^AC_INIT' configure.ac | sed -E 's/.*\[[^]]*\], \[([^]]*)\].*/\1/')
@@ -176,7 +174,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Unique tag per merge so it never collides
           tag_name: v${{ env.LITECOIN_CORE_VERSION }}-master-${{ env.SHORT_SHA }}
           release_name: "Litecoin Core v${{ env.LITECOIN_CORE_VERSION }} (Linux x86_64) - master ${{ env.SHORT_SHA }}"
           draft: false
