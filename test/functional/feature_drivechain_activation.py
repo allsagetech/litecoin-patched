@@ -50,7 +50,7 @@ class DrivechainActivationTest(BitcoinTestFramework):
 
         raw = node.createrawtransaction(
             inputs=[],
-            outputs=[{"scriptPubKey": dc_script, "amount": amount}],
+            outputs=[{"script": {"hex": dc_script, "amount": amount}}],
         )
         funded = node.fundrawtransaction(raw)["hex"]
         signed = node.signrawtransactionwithwallet(funded)["hex"]

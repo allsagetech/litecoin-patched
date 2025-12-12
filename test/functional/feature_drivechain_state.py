@@ -55,7 +55,7 @@ class DrivechainStateTest(BitcoinTestFramework):
         amount = Decimal("1.0")
         raw = node.createrawtransaction(
             inputs=[],
-            outputs=[{"scriptPubKey": deposit_script, "amount": amount}],
+            outputs=[{"script": {"hex": deposit_script, "amount": amount}}],
         )
         funded = node.fundrawtransaction(raw)["hex"]
         signed = node.signrawtransactionwithwallet(funded)["hex"]
@@ -80,7 +80,7 @@ class DrivechainStateTest(BitcoinTestFramework):
         self.log.info("Creating drivechain BUNDLE_COMMIT output...")
         raw2 = node.createrawtransaction(
             inputs=[],
-            outputs=[{"scriptPubKey": bundle_script, "amount": Decimal("0.1")}],
+            outputs=[{"script": {"hex": bundle_script, "amount": Decimal("0.1")}}],
         )
         funded2 = node.fundrawtransaction(raw2)["hex"]
         signed2 = node.signrawtransactionwithwallet(funded2)["hex"]
