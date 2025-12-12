@@ -57,10 +57,13 @@ jobs:
             libboost-test-dev \
             libdb++-dev
 
-      - name: Install Python deps for functional tests (litecoin_scrypt)
+      - name: Install Python deps for functional tests
         run: |
           python3 -m pip install --upgrade pip
-          # Prefer in-tree module if present; fallback to PyPI if available
+          # Needed by test_framework/messages.py
+          python3 -m pip install blake3
+
+          # litecoin_scrypt: prefer in-tree module if present, else PyPI
           if [ -d "test/functional/litecoin_scrypt" ] || [ -f "test/functional/litecoin_scrypt/setup.py" ] || [ -f "test/functional/litecoin_scrypt/pyproject.toml" ]; then
             python3 -m pip install ./test/functional/litecoin_scrypt
           elif [ -d "test/functional/test_framework/litecoin_scrypt" ] || [ -f "test/functional/test_framework/litecoin_scrypt/setup.py" ] || [ -f "test/functional/test_framework/litecoin_scrypt/pyproject.toml" ]; then
@@ -87,7 +90,6 @@ jobs:
         env:
           LC_ALL: C
         run: |
-          # Run directly so it doesn't depend on test_runner's internal allowlist
           python3 test/functional/feature_drivechain_activation.py
           python3 test/functional/feature_drivechain_state.py
 
@@ -98,7 +100,6 @@ jobs:
   build-linux:
     name: Build Linux binaries
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
 
     permissions:
       contents: write
