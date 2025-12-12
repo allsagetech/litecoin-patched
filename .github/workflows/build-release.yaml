@@ -15,6 +15,9 @@ permissions:
   contents: read
 
 jobs:
+  # ------------------------------------------------------------
+  # 1) Drivechain functional tests (everything but master)
+  # ------------------------------------------------------------
   drivechain-functional-tests:
     name: Drivechain functional tests (non-master only)
     if: >
@@ -89,12 +92,48 @@ jobs:
         env:
           LC_ALL: C
         run: |
-          python3 test/functional/feature_drivechain_activation.py
-          python3 test/functional/feature_drivechain_state.py
+          set -euo pipefail
 
+          run_one () {
+            local t="$1"
+            echo "=== Running ${t} ==="
+            python3 "test/functional/${t}" --loglevel=debug --nocleanup || {
+              echo ""
+              echo "=== ${t} FAILED: dumping logs ==="
+              TD="$(ls -dt /tmp/litecoin_func_test_* 2>/dev/null | head -n1 || true)"
+              echo "Temp dir: ${TD:-<none>}"
+
+              if [ -n "${TD:-}" ] && [ -f "test/functional/combine_logs.py" ]; then
+                python3 test/functional/combine_logs.py "${TD}" || true
+              fi
+
+              if [ -n "${TD:-}" ]; then
+                echo ""
+                echo "--- test_framework.log ---"
+                sed -n '1,200p' "${TD}/test_framework.log" 2>/dev/null || true
+                echo ""
+                echo "--- node0 debug.log (tail) ---"
+                tail -n 200 "${TD}/node0/regtest/debug.log" 2>/dev/null || true
+                echo ""
+                echo "--- node1 debug.log (tail) ---"
+                tail -n 200 "${TD}/node1/regtest/debug.log" 2>/dev/null || true
+              fi
+
+              exit 1
+            }
+          }
+
+          run_one feature_drivechain_activation.py
+          run_one feature_drivechain_state.py
+
+  # ------------------------------------------------------------
+  # 2) Build Linux binaries (depends flow)
+  #    Release only when merged into master
+  # ------------------------------------------------------------
   build-linux:
     name: Build Linux binaries
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
 
     permissions:
       contents: write
