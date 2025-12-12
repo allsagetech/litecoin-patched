@@ -36,7 +36,7 @@ jobs:
             libboost-program-options-dev \
             libboost-all-dev \
             libevent-dev \
-            libfmt \
+            libfmt-dev \
             build-essential \
             libtool \
             autotools-dev \
