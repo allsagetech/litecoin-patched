@@ -1,3 +1,5 @@
+name: Build Docker image (DISABLED)
+on: []
 # name: Build Docker image
 
 # on:
