@@ -34,6 +34,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libboost-program-options-dev \
+            libboost-all-dev \
+            libevent-dev \
             build-essential \
             libtool \
             autotools-dev \
@@ -58,9 +60,11 @@ jobs:
 
       - name: configure (no GUI needed for functional tests)
         run: |
-          export LDFLAGS="-pthread"
-          export CXXFLAGS="-pthread"
+          export CXXFLAGS="${CXXFLAGS:-} -pthread"
+          export LDFLAGS="${LDFLAGS:-} -pthread"
+          export LIBS="${LIBS:-} -lpthread"
           ./configure --without-gui --disable-bench --disable-wallet
+
 
 
       - name: build
