@@ -53,7 +53,8 @@ jobs:
             libboost-filesystem-dev \
             libboost-thread-dev \
             libboost-chrono-dev \
-            libboost-test-dev
+            libboost-test-dev \
+            libdb++-dev
 
       - name: autogen
         run: ./autogen.sh
