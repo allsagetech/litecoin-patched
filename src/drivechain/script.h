@@ -17,6 +17,7 @@ struct DrivechainScriptInfo
     Kind kind{Kind::UNKNOWN};
     uint8_t sidechain_id{0};
     uint256 payload;
+    uint32_t n_withdrawals{0};
 };
 
 bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info);

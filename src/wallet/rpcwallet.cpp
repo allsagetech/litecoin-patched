@@ -491,31 +491,34 @@ static void ParseOutputsArray(const UniValue& outputs_in, std::vector<CRecipient
     }
 }
 
-static void ParseDepositAmounts( const UniValue& amounts_in, const UniValue& subtract_fee_in, const CScript& deposit_script, std::vector<CRecipient>& recipients)
+static void ParseDepositAmounts(const UniValue& amounts_in, const UniValue& subtract_fee_in, const CScript& deposit_script, std::vector<CRecipient>& recipients)
 {
     RPCTypeCheckArgument(amounts_in, UniValue::VARR);
     if (amounts_in.empty()) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "amounts array must not be empty");
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "amounts must be a non-empty array");
     }
 
-    std::set<size_t> subtract_indices;
+    // Decide which outputs subtract fee
     bool subtract_all = false;
+    std::set<size_t> subtract_indices;
 
     if (!subtract_fee_in.isNull()) {
         if (subtract_fee_in.isBool()) {
             subtract_all = subtract_fee_in.get_bool();
         } else if (subtract_fee_in.isArray()) {
             for (size_t i = 0; i < subtract_fee_in.size(); ++i) {
-                const int idx = subtract_fee_in[i].get_int();
-                if (idx < 0 || (size_t)idx >= amounts_in.size()) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER,
-                        strprintf("subtract_fee index %d out of range", idx));
+                const UniValue& v = subtract_fee_in[i];
+                if (!v.isNum()) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee array must contain numeric indices");
+                }
+                const int idx = v.get_int();
+                if (idx < 0) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee indices must be >= 0");
                 }
                 subtract_indices.insert((size_t)idx);
             }
         } else {
-            throw JSONRPCError(RPC_INVALID_PARAMETER,
-                "subtract_fee must be bool or array of indices");
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee must be a boolean or an array of indices");
         }
     }
 
@@ -523,19 +526,86 @@ static void ParseDepositAmounts( const UniValue& amounts_in, const UniValue& sub
     recipients.reserve(amounts_in.size());
 
     for (size_t i = 0; i < amounts_in.size(); ++i) {
-        const CAmount amt = AmountFromValue(amounts_in[i]);
-        if (amt <= 0) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER,
-                strprintf("amounts[%u] must be > 0", (unsigned)i));
-        }
-        if (!MoneyRange(amt)) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER,
-                strprintf("amounts[%u] out of range", (unsigned)i));
+        const CAmount amount = AmountFromValue(amounts_in[i]);
+        if (amount <= 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "deposit amounts must be > 0");
         }
 
-        const bool subtract = subtract_all || subtract_indices.count(i) != 0;
-        recipients.push_back({deposit_script, amt, subtract});
+        const bool subtract_here = subtract_all || subtract_indices.count(i) > 0;
+        recipients.push_back(CRecipient{deposit_script, amount, subtract_here});
     }
+
+    // Validate indices in subtract_fee array (must be in-range)
+    for (size_t idx : subtract_indices) {
+        if (idx >= recipients.size()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee index out of range for amounts array");
+        }
+    }
+}
+
+static void ParseWithdrawalsArray( const UniValue& arr, std::vector<CRecipient>& out_recipients, CAmount& out_sum)
+{
+    RPCTypeCheckArgument(arr, UniValue::VARR);
+    if (arr.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawals array must not be empty");
+    }
+
+    out_recipients.clear();
+    out_recipients.reserve(arr.size());
+
+    CAmount sum{0};
+
+    for (size_t i = 0; i < arr.size(); ++i) {
+        const UniValue& o = arr[i];
+        RPCTypeCheckArgument(o, UniValue::VOBJ);
+
+        if (!o.exists("amount")) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("withdrawals[%u] missing amount", (unsigned)i));
+        }
+        const CAmount amt = AmountFromValue(o["amount"]);
+        if (amt <= 0 || !MoneyRange(amt)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("withdrawals[%u] invalid amount", (unsigned)i));
+        }
+
+        const bool has_addr = o.exists("address") && !o["address"].isNull();
+        const bool has_script = o.exists("script") && !o["script"].isNull();
+        if (has_addr == has_script) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("withdrawals[%u] must contain exactly one of address or script", (unsigned)i));
+        }
+
+        CScript spk;
+        if (has_addr) {
+            const std::string addr = o["address"].get_str();
+            const CTxDestination dest = DecodeDestination(addr);
+            if (!IsValidDestination(dest)) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid address: " + addr);
+            }
+            spk = GetScriptForDestination(dest);
+        } else {
+            const std::string hex = o["script"].get_str();
+            if (!IsHex(hex)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("withdrawals[%u] script is not hex", (unsigned)i));
+            }
+            const std::vector<unsigned char> bytes = ParseHex(hex);
+            spk = CScript(bytes.begin(), bytes.end());
+        }
+
+        if (spk.size() > 255) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("withdrawals[%u] scriptPubKey too long (max 255 bytes)", (unsigned)i));
+        }
+
+        // Never subtract fee from withdrawals.
+        out_recipients.push_back({spk, amt, /*fSubtractFeeFromAmount=*/false});
+
+        sum += amt;
+        if (!MoneyRange(sum)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawal sum out of range");
+        }
+    }
+
+    out_sum = sum;
 }
 
 UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std::vector<CRecipient> &recipients, mapValue_t map_value, bool verbose)
@@ -562,6 +632,39 @@ UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, error.original);
     }
     pwallet->CommitTransaction(tx, std::move(map_value), {} /* orderForm */);
+    if (verbose) {
+        UniValue entry(UniValue::VOBJ);
+        entry.pushKV("txid", tx->GetHash().GetHex());
+        entry.pushKV("fee_reason", StringForFeeReason(fee_calc_out.reason));
+        return entry;
+    }
+    return tx->GetHash().GetHex();
+}
+
+static UniValue SendMoneyNoShuffle( CWallet* const pwallet, const CCoinControl& coin_control, std::vector<CRecipient>& recipients, mapValue_t map_value, bool verbose)
+{
+    EnsureWalletIsUnlocked(pwallet);
+    if (pwallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Error: Private keys are disabled for this wallet");
+    }
+
+    // IMPORTANT: no shuffle here
+
+    CAmount nFeeRequired = 0;
+    int nChangePosRet = -1;
+    bilingual_str error;
+    CTransactionRef tx;
+    FeeCalculation fee_calc_out;
+
+    const bool fCreated = pwallet->CreateTransaction(
+        recipients, tx, nFeeRequired, nChangePosRet, error, coin_control, fee_calc_out, /*sign=*/true);
+
+    if (!fCreated) {
+        throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, error.original);
+    }
+
+    pwallet->CommitTransaction(tx, std::move(map_value), {});
+
     if (verbose) {
         UniValue entry(UniValue::VOBJ);
         entry.pushKV("txid", tx->GetHash().GetHex());
@@ -718,64 +821,66 @@ static RPCHelpMan senddrivechainexecute()
 {
     return RPCHelpMan{
         "senddrivechainexecute",
-        "Create, fund, sign and broadcast a drivechain EXECUTE marker transaction.\n"
-        "This marks a bundle as executed and spends escrow (must be consistent with consensus rules).\n",
+        "Create, fund, sign and broadcast a Drivechain EXECUTE transaction paying exact withdrawals.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
-            {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
-            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Total withdrawal amount attached to EXECUTE output"},
-            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+            {"bundle_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Committed bundle hash (32 bytes hex)"},
+            {"withdrawals", RPCArg::Type::ARR, RPCArg::Optional::NO, "Array of withdrawals",
+                {
+                    {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
+                        {
+                            {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Destination address (exactly one of address/script)"},
+                            {"script",  RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw scriptPubKey hex (exactly one of address/script)"},
+                            {"amount",  RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Amount in LTC"},
+                        }
+                    }
+                }
+            },
         },
-        RPCResult{
-            RPCResult::Type::STR_HEX, "txid", "The transaction id"
-        },
+        RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id"},
         RPCExamples{
             HelpExampleCli("senddrivechainexecute",
-                           "1 1111111111111111111111111111111111111111111111111111111111111111 1.0") +
-            HelpExampleRpc("senddrivechainexecute",
-                           "1, \"1111...1111\", 1.0")
+                "1 0000000000000000000000000000000000000000000000000000000000000000 "
+                "'[{\"address\":\"ltc1q...\",\"amount\":1.0},{\"script\":\"0014...\",\"amount\":0.5}]'")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
             if (!wallet) return NullUniValue;
             CWallet* const pwallet = wallet.get();
 
-            if (request.params.size() < 3) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
-            }
-
-            int sidechain_id_int = request.params[0].get_int();
-            if (sidechain_id_int < 0 || sidechain_id_int > 255) {
+            const int scid_i = request.params[0].get_int();
+            if (scid_i < 0 || scid_i > 255) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
             }
-            uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
+            const uint8_t scid = static_cast<uint8_t>(scid_i);
 
-            std::string bundle_hex = request.params[1].get_str();
-            if (!IsHex(bundle_hex) || bundle_hex.size() != 64) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "bundle_hash must be 32 bytes (64 hex chars)");
-            }
-            std::vector<unsigned char> bundle_vec = ParseHex(bundle_hex);
+            const uint256 bundle_hash = ParseHashV(request.params[1], "bundle_hash");
 
-            CAmount amount = AmountFromValue(request.params[2]);
+            // Parse withdrawals
+            std::vector<CRecipient> withdrawal_recipients;
+            CAmount withdraw_sum{0};
+            ParseWithdrawalsArray(request.params[2], withdrawal_recipients, withdraw_sum);
 
-            bool subtract_fee_from_amount = false;
-            if (request.params.size() > 3 && !request.params[3].isNull()) {
-                subtract_fee_from_amount = request.params[3].get_bool();
-            }
+            // Build marker script with nWithdrawals
+            const uint32_t n_withdrawals = (uint32_t)withdrawal_recipients.size();
+            const CScript exec_script = BuildDrivechainExecuteScript(scid, bundle_hash, n_withdrawals);
 
-            // Build drivechain script:
-            // OP_DRIVECHAIN <sidechain_id> <bundle_hash> <tag=0x03>
-            CScript script;
-            script << OP_DRIVECHAIN
-                   << std::vector<unsigned char>{ sidechain_id }
-                   << bundle_vec
-                   << std::vector<unsigned char>{ 0x03 }; // EXECUTE tag
+            // Recipients must be in consensus order:
+            // [0] marker (value 0)
+            // [1..n] withdrawals
+            std::vector<CRecipient> recipients;
+            recipients.reserve(1 + withdrawal_recipients.size());
+
+            recipients.push_back({exec_script, /*nAmount=*/0, /*subtract_fee=*/false});
+            recipients.insert(recipients.end(), withdrawal_recipients.begin(), withdrawal_recipients.end());
 
             CCoinControl coin_control;
-
+            mapValue_t map_value;
             LOCK(pwallet->cs_wallet);
-            std::string txid = SendToDrivechainScript(*pwallet, script, amount, coin_control, subtract_fee_from_amount);
-            return txid;
+
+            // IMPORTANT: no shuffle
+            UniValue res = SendMoneyNoShuffle(pwallet, coin_control, recipients, map_value, /*verbose=*/false);
+            return res;
         },
     };
 }
