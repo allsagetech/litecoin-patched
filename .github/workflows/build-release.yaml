@@ -1,14 +1,13 @@
 name: Build and Release Litecoin Core
 
 on:
-  pull_request:
   push:
     branches:
       - "**"
   workflow_dispatch:
 
 concurrency:
-  group: build-release-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: build-release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -20,9 +19,7 @@ jobs:
   # ------------------------------------------------------------
   drivechain-functional-tests:
     name: Drivechain functional tests (non-master only)
-    if: >
-      (github.event_name == 'push' && github.ref_name != 'master') ||
-      (github.event_name == 'pull_request' && github.base_ref != 'master')
+    if: github.event_name == 'push' && github.ref_name != 'master'
     runs-on: ubuntu-22.04
     timeout-minutes: 45
 
@@ -127,8 +124,8 @@ jobs:
           run_one feature_drivechain_state.py
 
   # ------------------------------------------------------------
-  # 2) Build Linux binaries (depends flow)
-  #    Release only when merged into master
+  # 2) Build Linux binaries
+  #    Release only when pushed to master
   # ------------------------------------------------------------
   build-linux:
     name: Build Linux binaries
@@ -208,7 +205,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
+          name: litecoin-core-${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-linux-gnu
           if-no-files-found: error
           path: |
             artifacts/litecoind
@@ -236,7 +233,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/litecoind
-          asset_name: litecoind-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
+          asset_name: litecoind-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-linux-gnu
           asset_content_type: application/octet-stream
 
       - name: Upload litecoin-cli
@@ -247,7 +244,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/litecoin-cli
-          asset_name: litecoin-cli-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
+          asset_name: litecoin-cli-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-linux-gnu
           asset_content_type: application/octet-stream
 
       - name: Upload litecoin-tx
@@ -258,7 +255,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/litecoin-tx
-          asset_name: litecoin-tx-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
+          asset_name: litecoin-tx-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-linux-gnu
           asset_content_type: application/octet-stream
 
       - name: Upload litecoin-qt
@@ -269,5 +266,5 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./artifacts/qt/litecoin-qt
-          asset_name: litecoin-qt-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-unknown-linux-gnu
+          asset_name: litecoin-qt-v${{ env.LITECOIN_CORE_VERSION }}-${{ env.SHORT_SHA }}-x86_64-linux-gnu
           asset_content_type: application/octet-stream

@@ -2,14 +2,7 @@
 #include <script/script.h>
 #include <script/script_error.h>
 #include <algorithm>
-
-static uint32_t ReadLE32(const unsigned char* p)
-{
-    return ((uint32_t)p[0]) |
-           ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) |
-           ((uint32_t)p[3] << 24);
-}
+#include <crypto/common.h>
 
 bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info)
 {

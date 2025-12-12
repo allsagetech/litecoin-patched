@@ -39,6 +39,8 @@
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 #include <wallet/walletutil.h>
+#include <drivechain/script.h>
+#include <wallet/fees.h>
 
 #include <stdint.h>
 
@@ -674,14 +676,27 @@ static UniValue SendMoneyNoShuffle( CWallet* const pwallet, const CCoinControl& 
     return tx->GetHash().GetHex();
 }
 
-static std::string SendToDrivechainOutputs( CWallet& wallet, std::vector<CRecipient>& recipients, CCoinControl& coin_control)
+static std::string SendToDrivechainOutputs(CWallet& wallet, std::vector<CRecipient>& recipients, CCoinControl& coin_control)
 {
-    // Reuse SendMoney path (CreateTransaction + CommitTransaction)
-    mapValue_t map_value;
-    UniValue res = SendMoney(&wallet, coin_control, recipients, map_value, /*verbose=*/true);
-    // If you want just txid, pass verbose=false and return res.get_str().
-    // With verbose=true, return object containing txid + fee_reason.
-    return res.isStr() ? res.get_str() : res["txid"].get_str();
+    CTransactionRef tx;
+    CAmount fee_ret = 0;
+    int change_pos = -1;
+    bilingual_str error;
+    FeeCalculation fee_calc;
+
+    if (!wallet.CreateTransaction(recipients, tx, fee_ret, change_pos, error, coin_control, fee_calc, /*sign=*/true)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, error.original);
+    }
+
+    wallet.CommitTransaction(tx, /*mapValue=*/{}, /*orderForm=*/{});
+    return tx->GetHash().GetHex();
+}
+
+static std::string SendToDrivechainScript(CWallet& wallet, const CScript& script, CAmount amount, CCoinControl& coin_control, bool subtract_fee_from_amount)
+{
+    std::vector<CRecipient> recipients;
+    recipients.push_back(CRecipient{script, amount, subtract_fee_from_amount});
+    return SendToDrivechainOutputs(wallet, recipients, coin_control);
 }
 
 static RPCHelpMan senddrivechaindeposit()
@@ -691,7 +706,7 @@ static RPCHelpMan senddrivechaindeposit()
         "Create, fund, sign and broadcast a Drivechain DEPOSIT transaction.\n"
         "This RPC only creates drivechain deposit outputs (script generated internally).\n"
         "You may specify multiple deposit outputs in one transaction.\n",
-        {
+        std::vector<RPCArg>{
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"payload", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload hex (64 hex chars)"},
             {"amounts", RPCArg::Type::ARR, RPCArg::Optional::NO, "Array of deposit amounts (LTC)",
@@ -699,8 +714,7 @@ static RPCHelpMan senddrivechaindeposit()
                     {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Deposit amount"}
                 }
             },
-            {"subtract_fee", RPCArg::Type::ANY, RPCArg::Optional::OMITTED,
-             "Subtract fee from deposits. If true, subtract from all outputs. If array, subtract from the outputs at those indices (e.g. [0,2])."},
+            {"subtract_fee", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from all deposit outputs (default: false)."},
         },
         RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id"},
         RPCExamples{
@@ -5218,9 +5232,9 @@ static const CRPCCommand commands[] =
     { "wallet",             "setwalletflag",                    &setwalletflag,                 {"flag","value"} },
     { "wallet",             "signmessage",                      &signmessage,                   {"address","message"} },
     { "wallet",             "signrawtransactionwithwallet",     &signrawtransactionwithwallet,  {"hexstring","prevtxs","sighashtype"} },
-    { "wallet",             "senddrivechaindeposit",            &senddrivechaindeposit,         {"sidechain_id", "payload", "amount", "subtractfeefromamount"} },
+    { "wallet",             "senddrivechaindeposit",            &senddrivechaindeposit,         {"sidechain_id", "payload", "amounts", "subtract_fee"} },
     { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "amount", "subtractfeefromamount"} },
-    { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id", "bundle_hash", "amount", "subtractfeefromamount"} },
+    { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id", "bundle_hash", "withdrawals"} },
     { "wallet",             "unloadwallet",                     &unloadwallet,                  {"wallet_name", "load_on_startup"} },
     { "wallet",             "upgradewallet",                    &upgradewallet,                 {"version"} },
     { "wallet",             "walletcreatefundedpsbt",           &walletcreatefundedpsbt,        {"inputs","outputs","locktime","options","bip32derivs"} },
