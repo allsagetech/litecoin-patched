@@ -4,31 +4,43 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 from decimal import Decimal
-import os
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
 )
 
-# Helper to build a drivechain script matching DecodeDrivechainScript:
-#
-#   OP_DRIVECHAIN
-#   PUSHDATA(1)  -> sidechain_id
-#   PUSHDATA(32) -> payload hash
-#   PUSHDATA(1)  -> tag
-#
-# Encoded as:
-#   b4 01 <sidechain_id> 20 <32-byte hex payload> 01 <tag>
-#
-def make_drivechain_script(sidechain_id: int, payload_hex: str, tag: int) -> str:
+from test_framework.messages import CTransaction, CTxOut
+from test_framework.script import CScript
+
+
+def make_drivechain_script(sidechain_id: int, payload_hex: str, tag: int) -> CScript:
+    """Build a drivechain script matching DecodeDrivechainScript.
+
+    Layout:
+        OP_DRIVECHAIN
+        PUSHDATA(1)  -> sidechain_id
+        PUSHDATA(32) -> payload hash
+        PUSHDATA(1)  -> tag
+    """
     assert 0 <= sidechain_id <= 255
     assert len(payload_hex) == 64
+    assert 0 <= tag <= 255
 
-    sidechain_hex = f"{sidechain_id:02x}"
-    tag_hex = f"{tag:02x}"
+    OP_DRIVECHAIN = 0xB4
+    payload = bytes.fromhex(payload_hex)
+    return CScript([OP_DRIVECHAIN, bytes([sidechain_id]), payload, bytes([tag])])
 
-    return "b4" + "01" + sidechain_hex + "20" + payload_hex + "01" + tag_hex
+
+def _build_raw_tx_with_output(script: CScript, amount: Decimal) -> str:
+    """Create a raw tx (no inputs) with one custom-script output.
+
+    Avoid createrawtransaction() here; Litecoin treats unknown keys as addresses.
+    """
+    tx = CTransaction()
+    tx.vin = []
+    tx.vout = [CTxOut(int(amount * 100_000_000), script)]
+    return tx.serialize().hex()
 
 
 class DrivechainStateTest(BitcoinTestFramework):
@@ -51,12 +63,9 @@ class DrivechainStateTest(BitcoinTestFramework):
         DEPOSIT_TAG = 0x00
         deposit_script = make_drivechain_script(sidechain_id, deposit_payload, DEPOSIT_TAG)
 
-        self.log.info("Creating drivechain DEPOSIT output...")
+        self.log.info("Creating drivechain DEPOSIT output.")
         amount = Decimal("1.0")
-        raw = node.createrawtransaction(
-            inputs=[],
-            outputs=[{"script": {"hex": deposit_script, "amount": amount}}],
-        )
+        raw = _build_raw_tx_with_output(deposit_script, amount)
         funded = node.fundrawtransaction(raw)["hex"]
         signed = node.signrawtransactionwithwallet(funded)["hex"]
         txid = node.sendrawtransaction(signed)
@@ -77,11 +86,8 @@ class DrivechainStateTest(BitcoinTestFramework):
         bundle_payload = "11" * 32
         bundle_script = make_drivechain_script(sidechain_id, bundle_payload, BUNDLE_COMMIT_TAG)
 
-        self.log.info("Creating drivechain BUNDLE_COMMIT output...")
-        raw2 = node.createrawtransaction(
-            inputs=[],
-            outputs=[{"script": {"hex": bundle_script, "amount": Decimal("0.1")}}],
-        )
+        self.log.info("Creating drivechain BUNDLE_COMMIT output.")
+        raw2 = _build_raw_tx_with_output(bundle_script, Decimal("0.1"))
         funded2 = node.fundrawtransaction(raw2)["hex"]
         signed2 = node.signrawtransactionwithwallet(funded2)["hex"]
         txid2 = node.sendrawtransaction(signed2)

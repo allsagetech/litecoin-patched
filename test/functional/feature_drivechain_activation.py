@@ -11,6 +11,10 @@ from test_framework.util import (
     assert_raises_rpc_error,
 )
 
+from test_framework.messages import CTransaction, CTxOut
+from test_framework.script import CScript
+
+
 class DrivechainActivationTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
@@ -20,50 +24,50 @@ class DrivechainActivationTest(BitcoinTestFramework):
     def skip_test_if_missing_module(self):
         pass
 
-    def _create_drivechain_tx(self, node, amount=Decimal("1.0")):
-        """
-        Create, fund, and sign a transaction with a single drivechain DEPOSIT output.
+    @staticmethod
+    def _make_drivechain_script(sidechain_id: int = 1, payload_hex: str | None = None, tag: int = 0x00) -> CScript:
+        """Build a drivechain script matching DecodeDrivechainScript.
 
-        Our C++ DecodeDrivechainScript expects:
-
+        Layout:
             OP_DRIVECHAIN
             PUSHDATA(1)  -> sidechain_id
             PUSHDATA(32) -> payload hash
             PUSHDATA(1)  -> tag (0x00 = DEPOSIT)
-
-         We'll use:
-            sidechain_id = 0x01
-            payload      = 32 bytes of 0x00
-            tag          = 0x00 (DEPOSIT)
-        Script hex:
-            b4 01 01 20 00..00 01 00
         """
-        sidechain_id = "01"
-        payload      = "00" * 32  # 32 zero bytes
-        tag          = "00"       # deposit
+        if payload_hex is None:
+            payload = b"\x00" * 32
+        else:
+            if len(payload_hex) != 64:
+                raise ValueError("payload_hex must be 64 hex chars (32 bytes)")
+            payload = bytes.fromhex(payload_hex)
 
-        # OP_DRIVECHAIN (b4)
-        # PUSH1 (01) + sidechain_id
-        # PUSH32 (20) + payload
-        # PUSH1 (01) + tag
-        dc_script = "b4" + "01" + sidechain_id + "20" + payload + "01" + tag
+        if not (0 <= sidechain_id <= 255):
+            raise ValueError("sidechain_id must fit in 1 byte")
+        if not (0 <= tag <= 255):
+            raise ValueError("tag must fit in 1 byte")
 
-        raw = node.createrawtransaction(
-            inputs=[],
-            outputs=[{"script": {"hex": dc_script, "amount": amount}}],
-        )
-        funded = node.fundrawtransaction(raw)["hex"]
+        OP_DRIVECHAIN = 0xB4  # matches your patched opcode value used in the other test
+        return CScript([OP_DRIVECHAIN, bytes([sidechain_id]), payload, bytes([tag])])
+
+    def _create_drivechain_tx(self, node, amount: Decimal = Decimal("1.0")) -> str:
+        """Create, fund, and sign a tx with a single drivechain DEPOSIT output.
+
+        NOTE: Do *not* use createrawtransaction() for custom scripts on Litecoin.
+        Build the raw tx locally, then fundrawtransaction() adds inputs + change.
+        """
+        tx = CTransaction()
+        tx.vin = []
+        script = self._make_drivechain_script(sidechain_id=1, payload_hex="00" * 32, tag=0x00)
+        n_value = int(amount * 100_000_000)  # satoshis
+        tx.vout = [CTxOut(n_value, script)]
+        raw_hex = tx.serialize().hex()
+
+        funded = node.fundrawtransaction(raw_hex)["hex"]
         signed = node.signrawtransactionwithwallet(funded)["hex"]
         return signed
 
-    def _get_drivechain_status(self, node):
-        """
-        Litecoin/Bitcoin Core variants differ across versions:
-          - older: info["bip9_softforks"][name]["status"]
-          - newer: info["softforks"][name]["bip9"]["status"] or ["active"]
-          - some forks: info["softforks"] may be a list of objects with "id"
-        This tries all known shapes and falls back safely on regtest.
-        """
+    def _get_drivechain_status(self, node) -> str:
+        """Find drivechain activation status across Litecoin/Bitcoin Core schema variants."""
         info = node.getblockchaininfo()
 
         # Legacy (very old) shape
@@ -109,6 +113,7 @@ class DrivechainActivationTest(BitcoinTestFramework):
                 if "active" in entry:
                     return "active" if entry["active"] else "inactive"
 
+        # Fallback on regtest: if the RPC exists, assume active.
         try:
             node.getdrivechaininfo()
             return "active"
@@ -148,5 +153,6 @@ class DrivechainActivationTest(BitcoinTestFramework):
 
         self.log.info("Drivechain activation test passed.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     DrivechainActivationTest().main()
