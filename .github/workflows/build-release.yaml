@@ -11,13 +11,12 @@ concurrency:
   group: build-release-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-# Keep default read-only, but allow releases on master pushes.
 permissions:
   contents: read
 
 jobs:
   # ------------------------------------------------------------
-  # 1) Drivechain functional tests (Option C: everything but master)
+  # 1) Drivechain functional tests (everything but master)
   # ------------------------------------------------------------
   drivechain-functional-tests:
     name: Drivechain functional tests (non-master only)
@@ -29,6 +28,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: install Linux deps (tests)
         run: |
@@ -48,17 +52,17 @@ jobs:
             libboost-system-dev \
             libboost-filesystem-dev \
             libboost-thread-dev \
-            libboost-chrono-dev
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+            libboost-chrono-dev \
+            libboost-test-dev
 
       - name: autogen
         run: ./autogen.sh
 
       - name: configure (no GUI needed for functional tests)
+        env:
+          CXXFLAGS: "-pthread"
+          LDFLAGS: "-pthread"
+          LIBS: "-pthread"
         run: |
           ./configure --without-gui --disable-bench --disable-wallet
 
@@ -74,7 +78,7 @@ jobs:
             feature_drivechain_state.py
 
   # ------------------------------------------------------------
-  # 2) Build Linux binaries (keeps your known-good depends flow)
+  # 2) Build Linux binaries (depends flow)
   #    Release only when merged into master
   # ------------------------------------------------------------
   build-linux:
@@ -82,7 +86,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 90
 
-    # This job needs to create a release on master pushes.
     permissions:
       contents: write
 
@@ -164,9 +167,6 @@ jobs:
             artifacts/litecoin-tx
             artifacts/qt/litecoin-qt
 
-      # ------------------------------------------------------------
-      # Release only on pushes to master (i.e., after merge)
-      # ------------------------------------------------------------
       - name: Create GitHub Release
         if: github.event_name == 'push' && github.ref_name == 'master'
         id: create_release
