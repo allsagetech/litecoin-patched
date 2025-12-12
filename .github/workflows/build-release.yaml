@@ -60,7 +60,6 @@ jobs:
       - name: Install Python deps for functional tests
         run: |
           python3 -m pip install --upgrade pip
-          # Needed by test_framework/messages.py
           python3 -m pip install blake3
 
           # litecoin_scrypt: prefer in-tree module if present, else PyPI
@@ -75,13 +74,13 @@ jobs:
       - name: autogen
         run: ./autogen.sh
 
-      - name: configure (no GUI needed for functional tests)
+      - name: configure (wallet enabled for RPCs like getnewaddress)
         env:
           CXXFLAGS: "-pthread"
           LDFLAGS: "-pthread"
           LIBS: "-pthread"
         run: |
-          ./configure --without-gui --disable-bench --disable-wallet
+          ./configure --without-gui --disable-bench
 
       - name: build
         run: make -j4
@@ -100,6 +99,7 @@ jobs:
   build-linux:
     name: Build Linux binaries
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
 
     permissions:
       contents: write
