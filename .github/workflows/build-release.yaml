@@ -33,6 +33,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            libboost-program-options-dev \
             build-essential \
             libtool \
             autotools-dev \
@@ -57,7 +58,10 @@ jobs:
 
       - name: configure (no GUI needed for functional tests)
         run: |
+          export LDFLAGS="-pthread"
+          export CXXFLAGS="-pthread"
           ./configure --without-gui --disable-bench --disable-wallet
+
 
       - name: build
         run: make -j4
