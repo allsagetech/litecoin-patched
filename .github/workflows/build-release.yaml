@@ -54,7 +54,7 @@ jobs:
 
       - name: configure (no GUI needed for functional tests)
         run: |
-          ./configure --without-gui --disable-bench
+          ./configure --without-gui --disable-bench --disable-wallet
 
       - name: build
         run: make -j4
