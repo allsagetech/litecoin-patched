@@ -493,7 +493,55 @@ static RPCHelpMan senddrivechaindeposit()
                            "1 0000000000000000000000000000000000000000000000000000000000000000 1.0") +
             HelpExampleRpc("senddrivechaindeposit",
                            "1, \"0000...0000\", 1.0")
-        }
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) {
+                return NullUniValue;
+            }
+            CWallet* const pwallet = wallet.get();
+
+            if (request.params.size() < 3) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
+            }
+
+            int sidechain_id_int = request.params[0].get_int();
+            if (sidechain_id_int < 0 || sidechain_id_int > 255) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
+            }
+            uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
+
+            std::string payload_hex = request.params[1].get_str();
+            if (!IsHex(payload_hex) || payload_hex.size() != 64) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "payload must be 32 bytes (64 hex chars)");
+            }
+            std::vector<unsigned char> payload_vec = ParseHex(payload_hex);
+
+            CAmount amount = AmountFromValue(request.params[2]);
+
+            bool subtract_fee_from_amount = false;
+            if (request.params.size() > 3 && !request.params[3].isNull()) {
+                subtract_fee_from_amount = request.params[3].get_bool();
+            }
+
+            // Build the drivechain script:
+            // OP_DRIVECHAIN
+            // PUSHDATA(1)  sidechain_id
+            // PUSHDATA(32) payload
+            // PUSHDATA(1)  tag = 0x00 (DEPOSIT)
+            CScript script;
+            script << OP_DRIVECHAIN
+                   << std::vector<unsigned char>{ sidechain_id }
+                   << payload_vec
+                   << std::vector<unsigned char>{ 0x00 };
+
+            CCoinControl coin_control;
+
+            LOCK(pwallet->cs_wallet);
+            std::string txid = SendToDrivechainScript(*pwallet, script, amount, coin_control, subtract_fee_from_amount);
+
+            return txid;
+        },
     };
 }
 
@@ -517,7 +565,49 @@ static RPCHelpMan senddrivechainbundle()
                            "1 0000000000000000000000000000000000000000000000000000000000000000 0.1") +
             HelpExampleRpc("senddrivechainbundle",
                            "1, \"0000...0000\", 0.1")
-        }
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            if (request.params.size() < 3) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
+            }
+
+            int sidechain_id_int = request.params[0].get_int();
+            if (sidechain_id_int < 0 || sidechain_id_int > 255) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
+            }
+            uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
+
+            std::string bundle_hex = request.params[1].get_str();
+            if (!IsHex(bundle_hex) || bundle_hex.size() != 64) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "bundle_hash must be 32 bytes (64 hex chars)");
+            }
+            std::vector<unsigned char> bundle_vec = ParseHex(bundle_hex);
+
+            CAmount amount = AmountFromValue(request.params[2]);
+
+            bool subtract_fee_from_amount = false;
+            if (request.params.size() > 3 && !request.params[3].isNull()) {
+                subtract_fee_from_amount = request.params[3].get_bool();
+            }
+
+            // Build drivechain script:
+            // OP_DRIVECHAIN <sidechain_id> <bundle_hash> <tag=0x01>
+            CScript script;
+            script << OP_DRIVECHAIN
+                   << std::vector<unsigned char>{ sidechain_id }
+                   << bundle_vec
+                   << std::vector<unsigned char>{ 0x01 }; // BUNDLE_COMMIT tag
+
+            CCoinControl coin_control;
+
+            LOCK(pwallet->cs_wallet);
+            std::string txid = SendToDrivechainScript(*pwallet, script, amount, coin_control, subtract_fee_from_amount);
+            return txid;
+        },
     };
 }
 
@@ -541,7 +631,49 @@ static RPCHelpMan senddrivechainexecute()
                            "1 1111111111111111111111111111111111111111111111111111111111111111 1.0") +
             HelpExampleRpc("senddrivechainexecute",
                            "1, \"1111...1111\", 1.0")
-        }
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            if (request.params.size() < 3) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
+            }
+
+            int sidechain_id_int = request.params[0].get_int();
+            if (sidechain_id_int < 0 || sidechain_id_int > 255) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
+            }
+            uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
+
+            std::string bundle_hex = request.params[1].get_str();
+            if (!IsHex(bundle_hex) || bundle_hex.size() != 64) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "bundle_hash must be 32 bytes (64 hex chars)");
+            }
+            std::vector<unsigned char> bundle_vec = ParseHex(bundle_hex);
+
+            CAmount amount = AmountFromValue(request.params[2]);
+
+            bool subtract_fee_from_amount = false;
+            if (request.params.size() > 3 && !request.params[3].isNull()) {
+                subtract_fee_from_amount = request.params[3].get_bool();
+            }
+
+            // Build drivechain script:
+            // OP_DRIVECHAIN <sidechain_id> <bundle_hash> <tag=0x03>
+            CScript script;
+            script << OP_DRIVECHAIN
+                   << std::vector<unsigned char>{ sidechain_id }
+                   << bundle_vec
+                   << std::vector<unsigned char>{ 0x03 }; // EXECUTE tag
+
+            CCoinControl coin_control;
+
+            LOCK(pwallet->cs_wallet);
+            std::string txid = SendToDrivechainScript(*pwallet, script, amount, coin_control, subtract_fee_from_amount);
+            return txid;
+        },
     };
 }
 
