@@ -6,10 +6,7 @@
 from decimal import Decimal
 
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import (
-    assert_equal,
-    assert_raises_rpc_error,
-)
+from test_framework.util import assert_equal
 
 from test_framework.messages import CTransaction, CTxOut
 from test_framework.script import CScript
@@ -46,20 +43,19 @@ class DrivechainActivationTest(BitcoinTestFramework):
         if not (0 <= tag <= 255):
             raise ValueError("tag must fit in 1 byte")
 
-        OP_DRIVECHAIN = 0xB4  # matches your patched opcode value used in the other test
+        OP_DRIVECHAIN = 0xB4
         return CScript([OP_DRIVECHAIN, bytes([sidechain_id]), payload, bytes([tag])])
 
     def _create_drivechain_tx(self, node, amount: Decimal = Decimal("1.0")) -> str:
         """Create, fund, and sign a tx with a single drivechain DEPOSIT output.
 
-        NOTE: Do *not* use createrawtransaction() for custom scripts on Litecoin.
+        IMPORTANT (Litecoin): Do *not* use createrawtransaction() for custom scripts.
         Build the raw tx locally, then fundrawtransaction() adds inputs + change.
         """
         tx = CTransaction()
         tx.vin = []
         script = self._make_drivechain_script(sidechain_id=1, payload_hex="00" * 32, tag=0x00)
-        n_value = int(amount * 100_000_000)  # satoshis
-        tx.vout = [CTxOut(n_value, script)]
+        tx.vout = [CTxOut(int(amount * 100_000_000), script)] 
         raw_hex = tx.serialize().hex()
 
         funded = node.fundrawtransaction(raw_hex)["hex"]
@@ -82,18 +78,12 @@ class DrivechainActivationTest(BitcoinTestFramework):
         if isinstance(softforks, dict):
             dc = softforks.get("drivechain")
             if isinstance(dc, dict):
-
                 bip9 = dc.get("bip9")
                 if isinstance(bip9, dict) and "status" in bip9:
                     return bip9["status"]
-
                 if "status" in dc:
                     return dc["status"]
-
                 if "active" in dc:
-                    return "active" if dc["active"] else "inactive"
-
-                if dc.get("type") and "active" in dc:
                     return "active" if dc["active"] else "inactive"
 
         if isinstance(softforks, list):
@@ -102,14 +92,11 @@ class DrivechainActivationTest(BitcoinTestFramework):
                     continue
                 if entry.get("id") != "drivechain":
                     continue
-
                 if "status" in entry:
                     return entry["status"]
-
                 bip9 = entry.get("bip9")
                 if isinstance(bip9, dict) and "status" in bip9:
                     return bip9["status"]
-
                 if "active" in entry:
                     return "active" if entry["active"] else "inactive"
 
@@ -132,19 +119,9 @@ class DrivechainActivationTest(BitcoinTestFramework):
         self.log.info(f"Initial drivechain status: {status}")
         assert_equal(status, "active")
 
-        # (Optional) If you later want pre-activation behavior, you can re-enable this block.
-        # dc_tx_hex = self._create_drivechain_tx(node)
-        # self.log.info("Testing pre-activation mempool rejection for drivechain output...")
-        # assert_raises_rpc_error(
-        #     -26,
-        #     "drivechain-before-activation",
-        #     node.sendrawtransaction,
-        #     dc_tx_hex,
-        # )
-
         self.log.info("Testing post-activation acceptance of drivechain output...")
-        dc_tx_hex2 = self._create_drivechain_tx(node)
-        txid = node.sendrawtransaction(dc_tx_hex2)
+        dc_tx_hex = self._create_drivechain_tx(node)
+        txid = node.sendrawtransaction(dc_tx_hex)
 
         node.generate(1)
         tx = node.gettransaction(txid)

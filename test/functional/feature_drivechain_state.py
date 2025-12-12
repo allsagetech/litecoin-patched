@@ -6,9 +6,7 @@
 from decimal import Decimal
 
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import (
-    assert_equal,
-)
+from test_framework.util import assert_equal
 
 from test_framework.messages import CTransaction, CTxOut
 from test_framework.script import CScript
@@ -23,19 +21,22 @@ def make_drivechain_script(sidechain_id: int, payload_hex: str, tag: int) -> CSc
         PUSHDATA(32) -> payload hash
         PUSHDATA(1)  -> tag
     """
-    assert 0 <= sidechain_id <= 255
-    assert len(payload_hex) == 64
-    assert 0 <= tag <= 255
+    if not (0 <= sidechain_id <= 255):
+        raise ValueError("sidechain_id must fit in 1 byte")
+    if len(payload_hex) != 64:
+        raise ValueError("payload_hex must be 64 hex chars (32 bytes)")
+    if not (0 <= tag <= 255):
+        raise ValueError("tag must fit in 1 byte")
 
     OP_DRIVECHAIN = 0xB4
     payload = bytes.fromhex(payload_hex)
     return CScript([OP_DRIVECHAIN, bytes([sidechain_id]), payload, bytes([tag])])
 
 
-def _build_raw_tx_with_output(script: CScript, amount: Decimal) -> str:
+def build_raw_tx_with_output(script: CScript, amount: Decimal) -> str:
     """Create a raw tx (no inputs) with one custom-script output.
 
-    Avoid createrawtransaction() here; Litecoin treats unknown keys as addresses.
+    IMPORTANT (Litecoin): Avoid createrawtransaction() here; Litecoin treats unknown keys as addresses.
     """
     tx = CTransaction()
     tx.vin = []
@@ -65,7 +66,7 @@ class DrivechainStateTest(BitcoinTestFramework):
 
         self.log.info("Creating drivechain DEPOSIT output.")
         amount = Decimal("1.0")
-        raw = _build_raw_tx_with_output(deposit_script, amount)
+        raw = build_raw_tx_with_output(deposit_script, amount)
         funded = node.fundrawtransaction(raw)["hex"]
         signed = node.signrawtransactionwithwallet(funded)["hex"]
         txid = node.sendrawtransaction(signed)
@@ -87,7 +88,7 @@ class DrivechainStateTest(BitcoinTestFramework):
         bundle_script = make_drivechain_script(sidechain_id, bundle_payload, BUNDLE_COMMIT_TAG)
 
         self.log.info("Creating drivechain BUNDLE_COMMIT output.")
-        raw2 = _build_raw_tx_with_output(bundle_script, Decimal("0.1"))
+        raw2 = build_raw_tx_with_output(bundle_script, Decimal("0.1"))
         funded2 = node.fundrawtransaction(raw2)["hex"]
         signed2 = node.signrawtransactionwithwallet(funded2)["hex"]
         txid2 = node.sendrawtransaction(signed2)
