@@ -1999,6 +1999,36 @@ int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out)
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
 }
 
+static bool RecomputeDrivechainStateFromActiveChain( const CChain& chain, const CChainParams& chainparams, BlockValidationState& state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+{
+    AssertLockHeld(cs_main);
+
+    g_drivechain_state = DrivechainState();
+
+    for (int h = 0; h <= chain.Height(); ++h) {
+        const CBlockIndex* pindex = chain[h];
+        if (pindex == nullptr) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                 "drivechain-recompute-null-index");
+        }
+
+        CBlock blk;
+        if (!ReadBlockFromDisk(blk, pindex, chainparams.GetConsensus())) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                 "drivechain-recompute-readblock-failed");
+        }
+
+        BlockValidationState dc_state;
+        if (!g_drivechain_state.ConnectBlock(blk, pindex, dc_state)) {
+
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                 "drivechain-recompute-connect-failed");
+        }
+    }
+
+    return true;
+}
+
 /** Undo the effects of this block (with given index) on the UTXO set represented by coins.
  *  When FAILED is returned, view is left in an indeterminate state. */
 DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockIndex* pindex, CCoinsViewCache& view)
@@ -2061,10 +2091,14 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
         }
     }
 
-    // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
-    g_drivechain_state.DisconnectBlock(block, pindex);
+    {
+        BlockValidationState dc_recompute_state;
+        if (!RecomputeDrivechainStateFromActiveChain(m_chain, m_chainparams, dc_recompute_state)) {
+            return DISCONNECT_FAILED;
+        }
+    }
 
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
 }
