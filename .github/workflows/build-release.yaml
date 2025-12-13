@@ -122,6 +122,11 @@ jobs:
 
           run_one feature_drivechain_activation.py
           run_one feature_drivechain_state.py
+          run_one drivechain_bundlehash_mismatch_reject.py
+          run_one drivechain_execute_requires_approval.py
+          run_one drivechain_reject_pre_activation.py
+          run_one drivechain_reorg_state_rollback.py
+          run_one drivechain_vote_coinbase_only.py
 
   # ------------------------------------------------------------
   # 2) Build Linux binaries
