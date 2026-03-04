@@ -68,8 +68,10 @@ class DrivechainOwnerAuthRestartReorg(BitcoinTestFramework):
         assert_equal(sc_after_restart["owner_key_hash_payload"], owner_key_hash_payload)
         assert_equal(sc_after_restart["escrow_balance"], 100000000)
 
-        # Mine a longer competing chain on n1 to orphan n0's sidechain-registration branch.
-        n1.generatetoaddress(2, n1.getnewaddress())
+        # Mine a strictly longer competing chain on n1 to orphan
+        # n0's sidechain-registration branch after reconnect.
+        blocks_needed = (n0.getblockcount() - n1.getblockcount()) + 1
+        n1.generatetoaddress(blocks_needed, n1.getnewaddress())
 
         self.connect_nodes(0, 1)
         self.sync_blocks()
