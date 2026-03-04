@@ -151,14 +151,16 @@ class DrivechainBundleReplaceRules(BitcoinTestFramework):
             scid,
             bundle3,
             Decimal("0.1"),
+            False,
+            owner_privkey,
         )
 
-        # And still fail if attempted directly in a block.
+        # A direct block attempt without owner auth must still fail.
         commit3_spk = make_drivechain_script(scid, bundle3, 0x01)
         tx3_hex = create_funded_signed_tx_hex(n, commit3_spk, Decimal("0.1"))
         res = submit_block(n, tx_hexes=[tx3_hex])
         assert res is not None
-        assert "drivechain-approved-bundle-pending" in str(res)
+        assert "drivechain-owner-auth-missing" in str(res)
 
 
 if __name__ == "__main__":
