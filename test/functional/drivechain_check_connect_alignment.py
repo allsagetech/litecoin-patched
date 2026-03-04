@@ -4,18 +4,74 @@
 
 from decimal import Decimal
 
+from test_framework.address import base58_to_byte
 from test_framework.authproxy import JSONRPCException
 from test_framework.blocktools import add_witness_commitment, create_block, create_coinbase
+from test_framework.key import SECP256K1, SECP256K1_G, SECP256K1_ORDER
 from test_framework.messages import CTransaction, CTxOut, FromHex, hash256
 from test_framework.script import CScript
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal
+from test_framework.util import assert_equal, modinv
 
 
-def make_drivechain_script(sidechain_id: int, payload_hex: str, tag: int) -> CScript:
+def make_drivechain_script(sidechain_id: int, payload_hex: str, tag: int, auth_sig: bytes = None) -> CScript:
     payload = bytes.fromhex(payload_hex)[::-1]
     assert len(payload) == 32
-    return CScript(bytes([0x6A, 0xB4, 0x01, sidechain_id, 0x20]) + payload + bytes([0x01, tag]))
+    raw = bytes([0x6A, 0xB4, 0x01, sidechain_id, 0x20]) + payload + bytes([0x01, tag])
+    if auth_sig is not None:
+        assert len(auth_sig) == 65
+        raw += bytes([0x41]) + auth_sig
+    return CScript(raw)
+
+
+def decode_wif_privkey(wif: str):
+    payload, version = base58_to_byte(wif)
+    assert version in (128, 239)
+    if len(payload) == 33 and payload[-1] == 0x01:
+        return payload[:32], True
+    if len(payload) == 32:
+        return payload, False
+    raise AssertionError("unexpected WIF payload length")
+
+
+def compute_bundle_auth_message(scid: int, bundle_hash_hex: str) -> bytes:
+    # C++: "DCBA\x01" || scid || bundle_hash(uint256 internal bytes)
+    preimage = b"DCBA\x01" + bytes([scid]) + bytes.fromhex(bundle_hash_hex)[::-1]
+    return hash256(preimage)
+
+
+def sign_compact_recoverable(secret_bytes: bytes, msg_hash: bytes, compressed: bool) -> bytes:
+    secret = int.from_bytes(secret_bytes, "big")
+    assert 1 <= secret < SECP256K1_ORDER
+    z = int.from_bytes(msg_hash, "big")
+
+    for counter in range(1, 1024):
+        k = int.from_bytes(hash256(secret_bytes + msg_hash + counter.to_bytes(4, byteorder="big")), "big") % SECP256K1_ORDER
+        if k == 0:
+            continue
+
+        R = SECP256K1.affine(SECP256K1.mul([(SECP256K1_G, k)]))
+        if R is None:
+            continue
+
+        r_full = R[0]
+        r = r_full % SECP256K1_ORDER
+        if r == 0:
+            continue
+
+        s = (modinv(k, SECP256K1_ORDER) * (z + r * secret)) % SECP256K1_ORDER
+        if s == 0:
+            continue
+
+        recid = (1 if (R[1] & 1) else 0) | (2 if r_full >= SECP256K1_ORDER else 0)
+        if s > (SECP256K1_ORDER // 2):
+            s = SECP256K1_ORDER - s
+            recid ^= 1
+
+        header = 27 + recid + (4 if compressed else 0)
+        return bytes([header]) + r.to_bytes(32, "big") + s.to_bytes(32, "big")
+
+    raise AssertionError("failed to create compact signature")
 
 
 def submit_block(node, *, extra_coinbase_vouts=None, txids=None, tx_hexes=None):
@@ -152,7 +208,10 @@ class DrivechainCheckConnectAlignment(BitcoinTestFramework):
             mine_empty(n, vote_end + 1 - cur_h)
 
         exec_txid = n.senddrivechainexecute(scid, bundle1, withdrawals, True)
-        commit2_spk = make_drivechain_script(scid, bundle2, 0x01)
+        owner_secret, owner_compressed = decode_wif_privkey(owner_privkey)
+        auth_msg = compute_bundle_auth_message(scid, bundle2)
+        auth_sig = sign_compact_recoverable(owner_secret, auth_msg, owner_compressed)
+        commit2_spk = make_drivechain_script(scid, bundle2, 0x01, auth_sig)
         tx2_hex = create_funded_signed_tx_hex(n, commit2_spk, Decimal("0.1"))
 
         # EXECUTE first, then a new commit in the same block. This guards
