@@ -32,6 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Run production gate checks
         run: |
@@ -53,6 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Fallback checkout with retries
         if: steps.checkout_primary.outcome == 'failure'
@@ -217,12 +219,10 @@ jobs:
   # ------------------------------------------------------------
   build-linux:
     name: Build Linux binaries
+    if: github.event_name == 'push' && (github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     needs: [drivechain-production-gates, drivechain-functional-tests]
-    env:
-      RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
-      RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
 
     permissions:
       contents: write
@@ -251,6 +251,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Fallback checkout with retries
         if: steps.checkout_primary.outcome == 'failure'
@@ -427,7 +428,10 @@ jobs:
           )
 
       - name: Sign SHA256SUMS (optional)
-        if: github.event_name == 'push' && (github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v')) && env.RELEASE_GPG_PRIVATE_KEY != ''
+        if: secrets.RELEASE_GPG_PRIVATE_KEY != ''
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
         shell: bash
         run: |
           set -euo pipefail
@@ -454,7 +458,7 @@ jobs:
             artifacts/SHA256SUMS
 
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'push' && (github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v')) && env.RELEASE_GPG_PRIVATE_KEY != ''
+        if: secrets.RELEASE_GPG_PRIVATE_KEY != ''
         with:
           name: litecoin-core-drivechain-${{ env.RELEASE_ASSET_SUFFIX }}-signature
           if-no-files-found: error
@@ -566,7 +570,7 @@ jobs:
           asset_content_type: application/json
 
       - name: Upload SHA256SUMS signature
-        if: github.event_name == 'push' && (github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v')) && env.RELEASE_GPG_PRIVATE_KEY != ''
+        if: secrets.RELEASE_GPG_PRIVATE_KEY != ''
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
