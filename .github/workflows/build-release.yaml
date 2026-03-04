@@ -429,8 +429,21 @@ jobs:
               > SHA256SUMS
           )
 
+      - name: Detect optional signing key
+        id: signing_key
+        shell: bash
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "${RELEASE_GPG_PRIVATE_KEY:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sign SHA256SUMS (optional)
-        if: secrets.RELEASE_GPG_PRIVATE_KEY != ''
+        if: steps.signing_key.outputs.enabled == 'true'
         env:
           RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
           RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
@@ -460,7 +473,7 @@ jobs:
             artifacts/SHA256SUMS
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: secrets.RELEASE_GPG_PRIVATE_KEY != ''
+        if: steps.signing_key.outputs.enabled == 'true'
         with:
           name: litecoin-core-drivechain-${{ env.RELEASE_ASSET_SUFFIX }}-signature
           if-no-files-found: error
