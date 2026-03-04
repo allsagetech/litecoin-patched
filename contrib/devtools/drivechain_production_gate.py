@@ -2,6 +2,7 @@
 # Copyright (c) 2026 AllSageTech, LLC
 # Distributed under the MIT software license, see COPYING.
 
+import datetime
 import pathlib
 import os
 import re
@@ -11,23 +12,56 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
-def _extract_signoff_value(content: str, field: str) -> str | None:
+def _normalize_signoff_value(value: str) -> str:
+    return value.strip().strip("`").strip()
+
+
+def _extract_signoff_values(content: str, field: str) -> list[str]:
     # Match checklist entries of the form "- Field: value"
-    pattern = rf"^- {re.escape(field)}:\s*(.+?)\s*$"
-    match = re.search(pattern, content, flags=re.MULTILINE)
-    if not match:
-        return None
-    return match.group(1).strip()
+    pattern = rf"^- {re.escape(field)}:\s*(.*?)\s*$"
+    matches = re.findall(pattern, content, flags=re.MULTILINE)
+    return [_normalize_signoff_value(match) for match in matches]
 
 
 def _is_pending(value: str) -> bool:
-    normalized = value.strip().strip("`").strip().lower()
-    return (
-        normalized == "pending"
-        or normalized.startswith("pending ")
-        or "pending" in normalized
-        or normalized == "not approved"
+    normalized = _normalize_signoff_value(value).lower()
+    if not normalized:
+        return True
+    placeholders = (
+        "pending",
+        "not approved",
+        "tbd",
+        "todo",
+        "to be determined",
+        "n/a",
+        "na",
+        "none",
+        "unknown",
+        "null",
     )
+    for placeholder in placeholders:
+        if normalized == placeholder:
+            return True
+        if normalized.startswith(f"{placeholder} "):
+            return True
+        if normalized.startswith(f"{placeholder}("):
+            return True
+        if normalized.startswith(f"{placeholder}:"):
+            return True
+        if normalized.startswith(f"{placeholder}-"):
+            return True
+    return False
+
+
+def _is_iso_date(value: str) -> bool:
+    normalized = _normalize_signoff_value(value)
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", normalized):
+        return False
+    try:
+        datetime.date.fromisoformat(normalized)
+    except ValueError:
+        return False
+    return True
 
 
 def must_exist(path: str, errors: list[str]) -> None:
@@ -81,17 +115,40 @@ def main() -> int:
                 "Approved by",
                 "Approval date",
             ]
+            date_fields = {"Date", "Effective date", "Approval date"}
             for field in required_fields:
-                value = _extract_signoff_value(signoff, field)
-                if value is None:
+                values = _extract_signoff_values(signoff, field)
+                if not values:
                     errors.append(f"External security sign-off missing required field: '{field}'")
                     continue
+                if len(values) > 1:
+                    errors.append(f"External security sign-off field '{field}' appears multiple times")
+                    continue
+                value = values[0]
                 if _is_pending(value):
                     errors.append(f"External security sign-off field '{field}' is still pending")
+                    continue
+                if field in date_fields and not _is_iso_date(value):
+                    errors.append(
+                        f"External security sign-off field '{field}' must use YYYY-MM-DD format"
+                    )
 
-            if not re.search(r"^- Approval status:\s*APPROVED\s*$", signoff, flags=re.MULTILINE):
+            approval_values = _extract_signoff_values(signoff, "Approval status")
+            if not approval_values:
+                errors.append("External security sign-off missing required field: 'Approval status'")
+            elif len(approval_values) > 1:
+                errors.append("External security sign-off field 'Approval status' appears multiple times")
+            elif approval_values[0].upper() != "APPROVED":
                 errors.append("External security sign-off is not approved (expected '- Approval status: APPROVED')")
-            if not re.search(r"^- Unresolved High/Critical findings:\s*NO\s*$", signoff, flags=re.MULTILINE):
+
+            unresolved_values = _extract_signoff_values(signoff, "Unresolved High/Critical findings")
+            if not unresolved_values:
+                errors.append("External security sign-off missing required field: 'Unresolved High/Critical findings'")
+            elif len(unresolved_values) > 1:
+                errors.append(
+                    "External security sign-off field 'Unresolved High/Critical findings' appears multiple times"
+                )
+            elif unresolved_values[0].upper() != "NO":
                 errors.append("External security sign-off still has unresolved High/Critical findings")
 
     lip_path = REPO_ROOT / "doc/drivechain/LIP-drivechain.md"

@@ -75,3 +75,14 @@ Owner-auth sidechains require an owner signature on `BUNDLE_COMMIT`.
 - Incident and rollback response: `doc/drivechain/INCIDENT_RESPONSE_RUNBOOK.md`
 - Staged rollout: `doc/drivechain/STAGED_ROLLOUT_PLAN.md`
 - External sign-off template: `doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md`
+
+## 9. External Sign-Off Syntax Requirements
+
+Release tag pushes enforce `DRIVECHAIN_ENFORCE_EXTERNAL_SIGNOFF=1`, which validates
+`doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md` using the following rules:
+- Required checklist fields must appear exactly once.
+- Placeholder values are rejected (`PENDING`, `NOT APPROVED`, `TBD`, `TODO`, `N/A`, `UNKNOWN`, `NONE`).
+- `Date`, `Effective date`, and `Approval date` must be `YYYY-MM-DD`.
+- `Approval status` must be `APPROVED`.
+- `Unresolved High/Critical findings` must be `NO`.
+- Values can be bare text or markdown-backticked.

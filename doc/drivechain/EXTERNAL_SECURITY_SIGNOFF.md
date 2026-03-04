@@ -3,6 +3,14 @@
 Use this file as the manual release gate for external review and sign-off criteria.
 All `PENDING` values below must be completed before a release tag push.
 
+Validation rules enforced by `contrib/devtools/drivechain_production_gate.py`:
+- Fields listed below must exist exactly once.
+- Placeholder values are rejected (`PENDING`, `NOT APPROVED`, `TBD`, `TODO`, `N/A`, `UNKNOWN`, `NONE`).
+- `Date`, `Effective date`, and `Approval date` must use `YYYY-MM-DD`.
+- `Approval status` must be `APPROVED`.
+- `Unresolved High/Critical findings` must be `NO`.
+- Status values may be written as bare text or wrapped in markdown backticks.
+
 ## 1. Independent Review
 
 - Reviewer/firm: `PENDING`
