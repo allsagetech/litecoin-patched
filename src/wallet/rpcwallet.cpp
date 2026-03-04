@@ -5,6 +5,7 @@
 
 #include <amount.h>
 #include <set>
+#include <chainparams.h>
 #include <core_io.h>
 #include <interfaces/chain.h>
 #include <key_io.h>
@@ -809,7 +810,7 @@ static RPCHelpMan senddrivechainregister()
         std::vector<RPCArg>{
             {"owner_privkey", RPCArg::Type::STR, RPCArg::Optional::NO, "Owner WIF private key (compressed pubkey hash is committed on-chain)"},
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional sidechain id (0-255). If omitted, lowest unused id is selected."},
-            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Amount to attach to register output (default: 0)"},
+            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Amount to attach to register output (default: 1.0)"},
             {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
         },
         RPCResult{RPCResult::Type::OBJ, "", "",
@@ -823,9 +824,9 @@ static RPCHelpMan senddrivechainregister()
             HelpExampleCli("senddrivechainregister",
                 "\"cR...\"") +
             HelpExampleCli("senddrivechainregister",
-                "\"cR...\" 7 0") +
+                "\"cR...\" 7 1.0") +
             HelpExampleRpc("senddrivechainregister",
-                "\"cR...\", 7, 0")
+                "\"cR...\", 7, 1.0")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
@@ -853,9 +854,15 @@ static RPCHelpMan senddrivechainregister()
             const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
             const uint256 owner_key_hash = Hash(owner_pubkey_bytes);
 
-            CAmount amount = 0;
+            CAmount amount = COIN;
             if (request.params.size() > 2 && !request.params[2].isNull()) {
                 amount = AmountFromValue(request.params[2]);
+            }
+            const CAmount min_register_amount = Params().GetConsensus().nDrivechainMinRegisterAmount;
+            if (amount < min_register_amount) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    strprintf("amount must be at least %s LTC", FormatMoney(min_register_amount)));
             }
 
             bool subtract_fee_from_amount = false;
@@ -905,7 +912,7 @@ static RPCHelpMan senddrivechaindeposit()
         "Create, fund, sign and broadcast a Drivechain DEPOSIT transaction.\n"
         "This RPC only creates drivechain deposit outputs (script generated internally).\n"
         "You may specify multiple deposit outputs in one transaction.\n"
-        "For a brand-new sidechain, a non-zero payload enables owner auth and is interpreted as Hash256(compressed owner pubkey).\n",
+        "The sidechain must already be registered and confirmed on-chain before deposits are accepted.\n",
         std::vector<RPCArg>{
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"payload", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload hex (64 hex chars)"},
@@ -970,7 +977,7 @@ static RPCHelpMan senddrivechainbundle()
         "senddrivechainbundle",
         "Create, fund, sign and broadcast a drivechain BUNDLE_COMMIT transaction.\n"
         "This publishes a bundle hash for a sidechain.\n"
-        "The sidechain must already exist (created by a prior DEPOSIT).\n",
+        "The sidechain must already exist (created by a prior confirmed REGISTER).\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},

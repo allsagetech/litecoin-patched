@@ -39,6 +39,9 @@ class DrivechainOwnerAuthEnforcement(BitcoinTestFramework):
         wrong_addr = node.getnewaddress()
         wrong_privkey = node.dumpprivkey(wrong_addr)
 
+        node.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        node.generatetoaddress(1, node.getnewaddress())
+
         node.senddrivechaindeposit(scid, owner_key_hash_payload, [Decimal("1.0")])
         node.generatetoaddress(1, node.getnewaddress())
 

@@ -205,25 +205,23 @@ bool DrivechainState::ConnectBlock(
 
             switch (info.kind) {
                 case DrivechainScriptInfo::Kind::DEPOSIT: {
-                    Sidechain* sc_ptr = nullptr;
+                    if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-register-confirmation-required");
+                    }
                     auto sc_it = sidechains.find(info.sidechain_id);
                     if (sc_it == sidechains.end()) {
-                        auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
-                        sc_ptr = &sc;
-                        if (!info.payload.IsNull()) {
-                            sc.owner_key_hash = info.payload;
-                            sc.owner_auth_required = true;
-                        }
-                    } else {
-                        sc_ptr = &sc_it->second;
-                        if (sc_ptr->owner_auth_required &&
-                            !info.payload.IsNull() &&
-                            info.payload != sc_ptr->owner_key_hash) {
-                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
-                                                 "drivechain-owner-key-hash-mismatch");
-                        }
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-unknown-sidechain");
                     }
-                    sc_ptr->escrow_balance += txout.nValue;
+                    Sidechain& sc = sc_it->second;
+                    if (sc.owner_auth_required &&
+                        !info.payload.IsNull() &&
+                        info.payload != sc.owner_key_hash) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-owner-key-hash-mismatch");
+                    }
+                    sc.escrow_balance += txout.nValue;
                     break;
                 }
 
@@ -231,6 +229,10 @@ bool DrivechainState::ConnectBlock(
                     if (info.payload.IsNull()) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                              "drivechain-register-null-owner");
+                    }
+                    if (txout.nValue < params.nDrivechainMinRegisterAmount) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-register-amount-too-low");
                     }
                     if (sidechains.find(info.sidechain_id) != sidechains.end()) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,

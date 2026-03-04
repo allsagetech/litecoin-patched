@@ -58,6 +58,9 @@ class DrivechainStateTest(BitcoinTestFramework):
         node.generatetoaddress(101, addr)
 
         sidechain_id = 1
+        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        node.senddrivechainregister(owner_privkey, sidechain_id, Decimal("1.0"))
+        node.generate(1)
 
         # --- Deposit ---
         DEPOSIT_TAG = 0x00
@@ -82,13 +85,10 @@ class DrivechainStateTest(BitcoinTestFramework):
         assert_equal(len(sc["bundles"]), 0)
 
         # --- Bundle commit ---
-        BUNDLE_COMMIT_TAG = 0x01
         bundle_payload = "11" * 32
-        bundle_script = make_drivechain_script(sidechain_id=sidechain_id, payload_hex=bundle_payload, tag=BUNDLE_COMMIT_TAG)
 
-        self.log.info("Creating drivechain BUNDLE_COMMIT output.")
-        signed2 = create_drivechain_tx(node, script=bundle_script, amount=Decimal("0.1"))
-        txid2 = node.sendrawtransaction(signed2)
+        self.log.info("Creating drivechain BUNDLE_COMMIT output with owner authorization.")
+        txid2 = node.senddrivechainbundle(sidechain_id, bundle_payload, Decimal("0.1"), False, owner_privkey)
         node.generate(1)
 
         dcinfo2 = node.getdrivechaininfo()

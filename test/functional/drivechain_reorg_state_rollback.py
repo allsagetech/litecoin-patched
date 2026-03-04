@@ -73,14 +73,20 @@ class DrivechainReorgStateRollbackTest(BitcoinTestFramework):
         self.disconnect_nodes(0, 1)
 
         #
-        # Fork A (node0): create DEPOSIT + BUNDLE_COMMIT and mine them in.
+        # Fork A (node0): REGISTER + DEPOSIT + BUNDLE_COMMIT and mine them in.
         #
-        self.log.info("Fork A (node0): creating DEPOSIT + BUNDLE_COMMIT, mining 2 blocks.")
+        self.log.info("Fork A (node0): creating REGISTER + DEPOSIT + BUNDLE_COMMIT, mining 3 blocks.")
+        owner_privkey = n0.dumpprivkey(n0.getnewaddress())
+        reg = n0.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        txid_reg = reg["txid"]
+        self.log.debug(f"REGISTER txid: {txid_reg}")
+        n0.generate(1)
+
         txid_dep = n0.senddrivechaindeposit(scid, payload, [Decimal("1.0")])
         self.log.debug(f"DEPOSIT txid: {txid_dep}")
         n0.generate(1)
 
-        txid_bundle = n0.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"))
+        txid_bundle = n0.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
         self.log.debug(f"BUNDLE_COMMIT txid: {txid_bundle}")
         n0.generate(1)
 
@@ -99,7 +105,7 @@ class DrivechainReorgStateRollbackTest(BitcoinTestFramework):
         # Fork B (node1): mine a longer chain WITHOUT those txs.
         #
         self.log.info("Fork B (node1): mining a longer competing chain (no drivechain txs).")
-        # Node1 is now isolated; just mine a longer chain than node0's +2.
+        # Node1 is now isolated; just mine a longer chain than node0's +3.
         n1.generate(4)
 
         # Confirm node1 still has no drivechain state (since it never saw node0's fork A blocks).
@@ -142,15 +148,20 @@ class DrivechainReorgStateRollbackTest(BitcoinTestFramework):
         # Split again
         self.disconnect_nodes(0, 1)
 
-        # Fork A2 (node0) with same scid but new bundle hash
+        # Fork A2 (node0) with a fresh scid and new bundle hash
+        scid2 = 2
         bundle_hash2 = "22" * 32
-        txid_dep2 = n0.senddrivechaindeposit(scid, payload, [Decimal("2.0")])
+        owner_privkey2 = n0.dumpprivkey(n0.getnewaddress())
+        reg2 = n0.senddrivechainregister(owner_privkey2, scid2, Decimal("1.0"))
+        txid_reg2 = reg2["txid"]
         n0.generate(1)
-        txid_bundle2 = n0.senddrivechainbundle(scid, bundle_hash2, Decimal("0.1"))
+        txid_dep2 = n0.senddrivechaindeposit(scid2, payload, [Decimal("2.0")])
+        n0.generate(1)
+        txid_bundle2 = n0.senddrivechainbundle(scid2, bundle_hash2, Decimal("0.1"), False, owner_privkey2)
         n0.generate(1)
 
         infoA2 = n0.getdrivechaininfo()
-        scA2 = _get_sidechain(infoA2, scid)
+        scA2 = _get_sidechain(infoA2, scid2)
         assert scA2 is not None
         # Reorged-out deposit transactions from prior forks may be resurrected
         # and re-mined on this branch, so escrow can be > 2.0 LTC here.

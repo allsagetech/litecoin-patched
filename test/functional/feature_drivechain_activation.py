@@ -116,6 +116,10 @@ class DrivechainActivationTest(BitcoinTestFramework):
         self.log.info(f"Initial drivechain status: {status}")
         assert_equal(status, "active")
 
+        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        node.senddrivechainregister(owner_privkey, 1, Decimal("1.0"))
+        node.generate(1)
+
         # Post-activation: drivechain output should be accepted.
         self.log.info("Testing post-activation acceptance of drivechain output.")
         dc_tx_hex = self._create_drivechain_tx(node)

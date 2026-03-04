@@ -789,9 +789,14 @@ namespace {
 
                 switch (info.kind) {
                     case DrivechainScriptInfo::Kind::DEPOSIT: {
+                        if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-confirmation-required");
+                        }
                         const Sidechain* sc = g_drivechain_state.GetSidechain(info.sidechain_id);
-                        if (sc != nullptr &&
-                            sc->owner_auth_required &&
+                        if (sc == nullptr) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-unknown-sidechain");
+                        }
+                        if (sc->owner_auth_required &&
                             !info.payload.IsNull() &&
                             info.payload != sc->owner_key_hash) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-owner-key-hash-mismatch");
@@ -802,6 +807,9 @@ namespace {
                     case DrivechainScriptInfo::Kind::REGISTER: {
                         if (info.payload.IsNull()) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-null-owner");
+                        }
+                        if (txout.nValue < params.nDrivechainMinRegisterAmount) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-amount-too-low");
                         }
                         if (g_drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
                             !registered_sidechains_in_block.insert(info.sidechain_id).second) {
@@ -1062,6 +1070,9 @@ namespace {
                     if (info.payload.IsNull()) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-null-owner");
                     }
+                    if (tx.vout[out_i].nValue < params.nDrivechainMinRegisterAmount) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-amount-too-low");
+                    }
                     if (g_drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
                         !registered_sidechains_in_tx.insert(info.sidechain_id).second) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-sidechain-exists");
@@ -1105,9 +1116,14 @@ namespace {
                 }
 
                 case DrivechainScriptInfo::Kind::DEPOSIT: {
+                    if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-confirmation-required");
+                    }
                     const Sidechain* sc = g_drivechain_state.GetSidechain(info.sidechain_id);
-                    if (sc != nullptr &&
-                        sc->owner_auth_required &&
+                    if (sc == nullptr) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-unknown-sidechain");
+                    }
+                    if (sc->owner_auth_required &&
                         !info.payload.IsNull() &&
                         info.payload != sc->owner_key_hash) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-owner-key-hash-mismatch");

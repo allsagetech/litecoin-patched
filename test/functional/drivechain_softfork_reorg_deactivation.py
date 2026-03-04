@@ -76,7 +76,9 @@ class DrivechainSoftforkReorgDeactivation(BitcoinTestFramework):
         mine_to_height(n0, 432)
         assert_equal(get_drivechain_status(n0), "active")
 
-        txid = n0.senddrivechaindeposit(scid, "22" * 32, [Decimal("1.0")])
+        owner_privkey = n0.dumpprivkey(n0.getnewaddress())
+        reg = n0.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        txid = reg["txid"]
         assert txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
         assert find_sidechain(n0, scid) is not None

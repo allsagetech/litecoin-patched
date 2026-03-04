@@ -35,10 +35,14 @@ class DrivechainGBTVoteMetadataTest(BitcoinTestFramework):
         bundle_hash = "66" * 32
 
         node.generatetoaddress(130, node.getnewaddress())
+        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        node.senddrivechainregister(owner_privkey, sidechain_id, Decimal("1.0"))
+        node.generatetoaddress(1, node.getnewaddress())
+
         node.senddrivechaindeposit(sidechain_id, deposit_payload, [Decimal("1.0")], False)
         node.generatetoaddress(1, node.getnewaddress())
 
-        node.senddrivechainbundle(sidechain_id, bundle_hash, Decimal("0.1"))
+        node.senddrivechainbundle(sidechain_id, bundle_hash, Decimal("0.1"), False, owner_privkey)
         node.generatetoaddress(1, node.getnewaddress())
 
         bundle = get_bundle(node, sidechain_id, bundle_hash)

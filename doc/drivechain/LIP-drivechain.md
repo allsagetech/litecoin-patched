@@ -98,7 +98,7 @@ Wallets treat them as:
 ### Sidechain Fields
 - `id` - 1-byte integer
 - `escrow_balance` - aggregated deposits minus executed withdrawals
-- `creation_height` - first time a REGISTER or DEPOSIT appears
+- `creation_height` - first time a REGISTER appears
 - `is_active` - always true once seen (simple activation model)
 - `bundles` - mapping of bundle_hash -> Bundle
 
@@ -118,7 +118,7 @@ State is deterministic and regenerated on reorgs.
 A `DEPOSIT` output:
 
 - Increases `escrow_balance[sidechain_id] += value`  
-- Creates the sidechain entry if missing  
+- Requires sidechain to already exist via a confirmed REGISTER  
 - Payload is opaque (sidechain interprets it, e.g. an address commitment)  
 
 Consensus ensures:
@@ -155,7 +155,7 @@ scriptPubKey (byte array)
 
 ### Bundle Lifecycle Rules
 
-- A sidechain is created by its first REGISTER or DEPOSIT.
+- A sidechain is created by a confirmed REGISTER.
 - BUNDLE_COMMIT for an unknown sidechain is invalid.
 - A sidechain may have **only one active (unapproved) bundle at a time**.  
 - Any new BUNDLE_COMMIT replaces the previous unapproved one.  
@@ -271,16 +271,12 @@ This specification includes an ownership path:
 - `REGISTER` output tag (`0x05`) with owner key hash payload.
 - Compact signature required over `(sidechain_id, owner_key_hash)`.
 - On success, sidechain ownership is bound and owner-auth is enabled.
+- `REGISTER` output value MUST be at least the chain's minimum registration amount.
 
 RPC support:
 
 - `senddrivechainregister` registers a sidechain owner key.
 - If `sidechain_id` is omitted, the wallet selects the lowest currently unused ID.
-
-Legacy behavior remains supported for compatibility:
-
-- A first `DEPOSIT` can still create a sidechain.
-- Secure deployments should prefer `REGISTER` and enforce an operational allowlist.
 
 ---
 

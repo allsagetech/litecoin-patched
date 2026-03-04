@@ -2,6 +2,8 @@
 # Copyright (c) 2026 AllSageTech, LLC
 # Distributed under the MIT software license, see COPYING.
 
+from decimal import Decimal
+
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 
@@ -28,6 +30,15 @@ class DrivechainRegisterMempoolConflict(BitcoinTestFramework):
 
         owner1_privkey = node.dumpprivkey(node.getnewaddress())
         owner2_privkey = node.dumpprivkey(node.getnewaddress())
+
+        assert_raises_rpc_error(
+            -8,
+            "amount must be at least 1.00000000 LTC",
+            node.senddrivechainregister,
+            owner1_privkey,
+            scid,
+            Decimal("0.5"),
+        )
 
         reg1 = node.senddrivechainregister(owner1_privkey, scid)
         reg1_txid = reg1["txid"]

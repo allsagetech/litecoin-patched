@@ -6,6 +6,7 @@
 #ifndef BITCOIN_CONSENSUS_PARAMS_H
 #define BITCOIN_CONSENSUS_PARAMS_H
 
+#include <amount.h>
 #include <uint256.h>
 #include <limits>
 
@@ -94,6 +95,8 @@ struct Params {
     int nDrivechainVoteWindow{0};
     /** Drivechain bundle approval threshold (yes votes). */
     int nDrivechainApprovalThreshold{0};
+    /** Minimum burn amount for sidechain REGISTER outputs. */
+    CAmount nDrivechainMinRegisterAmount{0};
 
     BIP9Deployment vDeployments[MAX_VERSION_BITS_DEPLOYMENTS];
     /** Proof of work parameters */

@@ -107,9 +107,13 @@ class DrivechainExecuteEscrowCredit(BitcoinTestFramework):
         withdrawals = [{"address": withdrawal_addr, "amount": Decimal("0.1")}]
         bundle_hash = make_bundle_hash(n, scid, withdrawals)
 
+        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        n.generatetoaddress(1, n.getnewaddress())
+
         n.senddrivechaindeposit(scid, dep_payload, [Decimal("1.0")])
         n.generatetoaddress(1, n.getnewaddress())
-        n.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"))
+        n.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         bundle = get_bundle(n, scid, bundle_hash)

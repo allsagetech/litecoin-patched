@@ -104,15 +104,19 @@ class DrivechainBundleReplaceRules(BitcoinTestFramework):
         bundle2 = "22" * 32
         bundle3 = "33" * 32
 
-        # Sidechain must exist (created by first deposit) before bundle commits.
+        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        n.generatetoaddress(1, n.getnewaddress())
+
+        # Sidechain must exist before bundle commits.
         n.senddrivechaindeposit(scid, "00" * 32, [Decimal("1.0")])
         n.generatetoaddress(1, n.getnewaddress())
 
-        n.senddrivechainbundle(scid, bundle1, Decimal("0.1"))
+        n.senddrivechainbundle(scid, bundle1, Decimal("0.1"), False, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         # Replaces unapproved bundle1.
-        n.senddrivechainbundle(scid, bundle2, Decimal("0.1"))
+        n.senddrivechainbundle(scid, bundle2, Decimal("0.1"), False, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         sc = get_sidechain(n, scid)

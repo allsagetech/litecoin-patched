@@ -38,9 +38,13 @@ class DrivechainReorgCacheMetricsTest(BitcoinTestFramework):
 
         self.disconnect_nodes(0, 1)
 
+        owner_privkey = n0.dumpprivkey(n0.getnewaddress())
+        n0.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        n0.generate(1)
+
         n0.senddrivechaindeposit(scid, payload, [Decimal("1.0")])
         n0.generate(1)
-        n0.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"))
+        n0.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
         n0.generate(1)
 
         info_fork_a = n0.getdrivechaininfo()

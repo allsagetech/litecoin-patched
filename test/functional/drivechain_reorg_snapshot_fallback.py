@@ -29,9 +29,13 @@ class DrivechainReorgSnapshotFallback(BitcoinTestFramework):
 
         node.generatetoaddress(110, node.getnewaddress())
 
+        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        node.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        node.generatetoaddress(1, node.getnewaddress())
+
         node.senddrivechaindeposit(scid, payload, [Decimal("1.0")])
         node.generatetoaddress(1, node.getnewaddress())
-        node.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"))
+        node.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
         node.generatetoaddress(1, node.getnewaddress())
 
         self.restart_node(0)

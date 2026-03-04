@@ -119,10 +119,14 @@ class DrivechainCheckConnectAlignment(BitcoinTestFramework):
         bundle1 = make_bundle_hash(n, scid, withdrawals)
         bundle2 = "22" * 32
 
+        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        n.generatetoaddress(1, n.getnewaddress())
+
         n.senddrivechaindeposit(scid, "00" * 32, [Decimal("1.0")])
         n.generatetoaddress(1, n.getnewaddress())
 
-        n.senddrivechainbundle(scid, bundle1, Decimal("0.1"))
+        n.senddrivechainbundle(scid, bundle1, Decimal("0.1"), False, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         bundle = get_bundle(n, scid, bundle1)

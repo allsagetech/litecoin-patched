@@ -77,11 +77,9 @@ class DrivechainSoftforkActivationBoundary(BitcoinTestFramework):
 
         # Use wallet RPC for the active-path acceptance check to avoid
         # custom-raw-tx edge cases in CI.
-        txid = node.senddrivechaindeposit(
-            1,
-            "11" * 32,
-            [Decimal("1.0")],
-        )
+        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        reg = node.senddrivechainregister(owner_privkey, 1, Decimal("1.0"))
+        txid = reg["txid"]
         assert txid
         assert txid in node.getrawmempool()
 
