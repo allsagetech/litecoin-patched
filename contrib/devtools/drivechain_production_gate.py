@@ -11,6 +11,25 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
+def _extract_signoff_value(content: str, field: str) -> str | None:
+    # Match checklist entries of the form "- Field: value"
+    pattern = rf"^- {re.escape(field)}:\s*(.+?)\s*$"
+    match = re.search(pattern, content, flags=re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def _is_pending(value: str) -> bool:
+    normalized = value.strip().strip("`").strip().lower()
+    return (
+        normalized == "pending"
+        or normalized.startswith("pending ")
+        or "pending" in normalized
+        or normalized == "not approved"
+    )
+
+
 def must_exist(path: str, errors: list[str]) -> None:
     full = REPO_ROOT / path
     if not full.exists():
@@ -49,6 +68,27 @@ def main() -> int:
             errors.append("External security sign-off file is required for release gating")
         else:
             signoff = signoff_path.read_text(encoding="utf-8")
+            required_fields = [
+                "Reviewer/firm",
+                "Scope",
+                "Report link",
+                "Date",
+                "Program URL",
+                "In-scope components",
+                "Disclosure SLA",
+                "Effective date",
+                "Release candidate tag",
+                "Approved by",
+                "Approval date",
+            ]
+            for field in required_fields:
+                value = _extract_signoff_value(signoff, field)
+                if value is None:
+                    errors.append(f"External security sign-off missing required field: '{field}'")
+                    continue
+                if _is_pending(value):
+                    errors.append(f"External security sign-off field '{field}' is still pending")
+
             if not re.search(r"^- Approval status:\s*APPROVED\s*$", signoff, flags=re.MULTILINE):
                 errors.append("External security sign-off is not approved (expected '- Approval status: APPROVED')")
             if not re.search(r"^- Unresolved High/Critical findings:\s*NO\s*$", signoff, flags=re.MULTILINE):
