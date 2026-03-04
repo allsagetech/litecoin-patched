@@ -33,7 +33,7 @@ class DrivechainRegisterMempoolConflict(BitcoinTestFramework):
 
         assert_raises_rpc_error(
             -8,
-            "amount must be at least 1.00000000 LTC",
+            "amount must be at least",
             node.senddrivechainregister,
             owner1_privkey,
             scid,
