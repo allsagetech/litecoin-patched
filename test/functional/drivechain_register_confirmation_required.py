@@ -67,20 +67,26 @@ class DrivechainRegisterConfirmationRequired(BitcoinTestFramework):
             signed,
         )
 
-        assert_raises_rpc_error(
-            -26,
-            "drivechain-unknown-sidechain",
-            node.senddrivechaindeposit,
-            scid,
-            "00" * 32,
-            [Decimal("1.0")],
-        )
-
         deposit_script = CScript(
             bytes([0x6A, 0xB4, 0x01, scid, 0x20]) +
             bytes(32) +
             bytes([0x01, 0x00])
         )
+
+        # With -walletbroadcast=0, wallet RPCs skip preflight mempool rejection.
+        # Use sendrawtransaction to deterministically assert mempool policy.
+        tx_unknown = CTransaction()
+        tx_unknown.vin = []
+        tx_unknown.vout = [CTxOut(register_value_sat, deposit_script)]
+        funded_unknown = node.fundrawtransaction(tx_unknown.serialize().hex())["hex"]
+        signed_unknown = node.signrawtransactionwithwallet(funded_unknown)["hex"]
+        assert_raises_rpc_error(
+            -26,
+            "drivechain-unknown-sidechain",
+            node.sendrawtransaction,
+            signed_unknown,
+        )
+
         tx2 = CTransaction()
         tx2.vin = []
         tx2.vout = [
