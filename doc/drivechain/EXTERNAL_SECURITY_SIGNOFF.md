@@ -4,22 +4,23 @@ Use this file as a release gate for manual/external criteria.
 
 ## 1. Independent Review
 
-- Reviewer/firm:
-- Scope:
-- Report link:
-- Date:
-- Unresolved High/Critical findings: `YES/NO`
+- Reviewer/firm: `PENDING (blocking release)`
+- Scope: `PENDING (must include consensus, mempool, reorg/restart, RPC authz, and release pipeline)`
+- Report link: `PENDING`
+- Date: `PENDING`
+- Unresolved High/Critical findings: `YES`
 
 ## 2. Bug Bounty / Security Program
 
-- Program URL:
-- In-scope components:
-- Disclosure SLA:
-- Effective date:
+- Program URL: `PENDING`
+- In-scope components: `PENDING`
+- Disclosure SLA: `PENDING`
+- Effective date: `PENDING`
 
 ## 3. Release Sign-Off
 
-- Release candidate tag:
-- Approved by:
-- Approval date:
-- Notes:
+- Release candidate tag: `PENDING`
+- Approved by: `NOT APPROVED`
+- Approval date: `PENDING`
+- Approval status: `PENDING`
+- Notes: `Mainnet release is blocked until this file is updated to Approval status: APPROVED and unresolved High/Critical findings are NO.`

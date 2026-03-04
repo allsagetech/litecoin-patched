@@ -3,6 +3,7 @@
 # Distributed under the MIT software license, see COPYING.
 
 import pathlib
+import os
 import re
 import sys
 
@@ -40,6 +41,18 @@ def main() -> int:
     ]
     for path in required_docs:
         must_exist(path, errors)
+
+    enforce_external_signoff = os.getenv("DRIVECHAIN_ENFORCE_EXTERNAL_SIGNOFF", "0") == "1"
+    signoff_path = REPO_ROOT / "doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md"
+    if enforce_external_signoff:
+        if not signoff_path.exists():
+            errors.append("External security sign-off file is required for release gating")
+        else:
+            signoff = signoff_path.read_text(encoding="utf-8")
+            if not re.search(r"^- Approval status:\s*APPROVED\s*$", signoff, flags=re.MULTILINE):
+                errors.append("External security sign-off is not approved (expected '- Approval status: APPROVED')")
+            if not re.search(r"^- Unresolved High/Critical findings:\s*NO\s*$", signoff, flags=re.MULTILINE):
+                errors.append("External security sign-off still has unresolved High/Critical findings")
 
     lip_path = REPO_ROOT / "doc/drivechain/LIP-drivechain.md"
     if lip_path.exists():
