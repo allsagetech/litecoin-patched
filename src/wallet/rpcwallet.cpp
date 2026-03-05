@@ -33,6 +33,7 @@
 #include <util/translation.h>
 #include <util/url.h>
 #include <util/vector.h>
+#include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/context.h>
 #include <wallet/feebumper.h>
