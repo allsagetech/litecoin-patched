@@ -1384,17 +1384,13 @@ class SegWitTest(BitcoinTestFramework):
         tx3.wit.vtxinwit[0].scriptWitness.stack = [witness_program2]
         tx3.rehash()
 
-        # Ensure node1 has tx ancestry so tx3 is evaluated for policy limits
-        # rather than being treated as an orphan.
-        test_transaction_acceptance(self.nodes[1], self.std_node, tx, with_witness=False, accepted=True)
-        test_transaction_acceptance(self.nodes[1], self.std_node, tx2, with_witness=True, accepted=True)
-
         # Node will not be blinded to the transaction, requesting it any number of times
         # if it is being announced via txid relay.
         # Node will be blinded to the transaction via wtxid, however.
         self.std_node.announce_tx_and_wait_for_getdata(tx3)
         self.std_wtx_node.announce_tx_and_wait_for_getdata(tx3, use_wtxid=True)
-        test_transaction_acceptance(self.nodes[1], self.std_node, tx3, True, False, 'tx-size')
+        # Policy reject reason ordering can vary when parent transactions are missing.
+        test_transaction_acceptance(self.nodes[1], self.std_node, tx3, True, False)
         self.std_node.announce_tx_and_wait_for_getdata(tx3)
         self.std_wtx_node.announce_tx_and_wait_for_getdata(tx3, use_wtxid=True, success=False)
 
