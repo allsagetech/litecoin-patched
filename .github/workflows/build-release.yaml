@@ -42,10 +42,10 @@ jobs:
           python3 contrib/devtools/drivechain_production_gate.py
 
   # ------------------------------------------------------------
-  # 1) Signet functional tests
+  # 1) SegWit + Signet functional tests
   # ------------------------------------------------------------
   signet-functional-tests:
-    name: Signet functional tests
+    name: SegWit + Signet functional tests
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     needs: [drivechain-production-gates]
@@ -114,6 +114,7 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install blake3
+          python3 -m pip install pycryptodome
 
           # litecoin_scrypt: prefer in-tree module if present, else PyPI
           if [ -d "test/functional/litecoin_scrypt" ] || [ -f "test/functional/litecoin_scrypt/setup.py" ] || [ -f "test/functional/litecoin_scrypt/pyproject.toml" ]; then
@@ -141,7 +142,7 @@ jobs:
       - name: build
         run: make -j4
 
-      - name: Run Signet functional test
+      - name: Run SegWit and Signet functional tests
         env:
           LC_ALL: C
         run: |
@@ -177,6 +178,10 @@ jobs:
             }
           }
 
+          run_one p2p_segwit.py
+          run_one p2p_compactblocks.py
+          run_one rpc_psbt.py
+          run_one wallet_implicitsegwit.py --legacy-wallet
           run_one feature_signet.py
 
   # ------------------------------------------------------------
@@ -252,6 +257,7 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install blake3
+          python3 -m pip install pycryptodome
 
           # litecoin_scrypt: prefer in-tree module if present, else PyPI
           if [ -d "test/functional/litecoin_scrypt" ] || [ -f "test/functional/litecoin_scrypt/setup.py" ] || [ -f "test/functional/litecoin_scrypt/pyproject.toml" ]; then

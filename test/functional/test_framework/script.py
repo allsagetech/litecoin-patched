@@ -33,8 +33,21 @@ OPCODE_NAMES = {}  # type: Dict[CScriptOp, str]
 
 LEAF_VERSION_TAPSCRIPT = 0xc0
 
+def ripemd160(s):
+    try:
+        return hashlib.new('ripemd160', s).digest()
+    except ValueError:
+        # Some CI OpenSSL builds disable RIPEMD160 in hashlib.
+        try:
+            from Crypto.Hash import RIPEMD160
+        except ModuleNotFoundError as e:
+            raise RuntimeError("RIPEMD160 is unavailable; install pycryptodome") from e
+        h = RIPEMD160.new()
+        h.update(s)
+        return h.digest()
+
 def hash160(s):
-    return hashlib.new('ripemd160', sha256(s)).digest()
+    return ripemd160(sha256(s))
 
 def bn2vch(v):
     """Convert number to bitcoin-specific little endian format."""
