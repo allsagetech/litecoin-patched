@@ -21,12 +21,13 @@ struct Bundle
     uint256 hash;
     int first_seen_height{-1};
     int yes_votes{0};
+    int no_votes{0};
     bool approved{false};
     bool executed{false};
 
     SERIALIZE_METHODS(Bundle, obj)
     {
-        READWRITE(obj.hash, obj.first_seen_height, obj.yes_votes, obj.approved, obj.executed);
+        READWRITE(obj.hash, obj.first_seen_height, obj.yes_votes, obj.no_votes, obj.approved, obj.executed);
     }
 };
 
@@ -51,7 +52,8 @@ struct DrivechainBundleSchedule
 {
     int64_t vote_start_height{0};
     int64_t vote_end_height{0};
-    int64_t expiration_height{0};
+    int64_t approval_height{0};
+    int64_t executable_height{0};
 };
 
 bool ComputeDrivechainBundleSchedule(
@@ -81,7 +83,5 @@ public:
     Sidechain& GetOrCreateSidechain(uint8_t id, int height);
     Bundle& GetOrCreateBundle(Sidechain& sc, const uint256& hash, int height);
 };
-
-extern DrivechainState g_drivechain_state;
 
 #endif

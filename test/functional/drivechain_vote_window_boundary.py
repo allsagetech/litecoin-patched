@@ -115,11 +115,21 @@ class DrivechainVoteWindowBoundary(BitcoinTestFramework):
         assert bundle is not None
         vote_start = int(bundle["vote_start_height"])
         vote_end = int(bundle["vote_end_height"])
+        approval_height = int(bundle["approval_height"])
+        executable_height = int(bundle["executable_height"])
 
         cur_h = n.getblockcount()
-        if cur_h < vote_start - 1:
-            # Pre-window votes MUST NOT count.
-            mine_votes(n, scid=scid, bundle_hash_hex=bundle_hash, nblocks=vote_start - 1 - cur_h)
+        if cur_h < vote_start - 2:
+            mine_empty(n, vote_start - 2 - cur_h)
+
+        # Pre-window votes are consensus-invalid.
+        vote_out = CTxOut(0, make_drivechain_script(scid, bundle_hash, 0x02))
+        pre_window_res = submit_block(n, extra_coinbase_vouts=[vote_out])
+        assert pre_window_res is not None
+        assert "drivechain-vote-outside-window" in str(pre_window_res)
+
+        if n.getblockcount() < vote_start - 1:
+            mine_empty(n, vote_start - 1 - n.getblockcount())
 
         bundle = get_bundle(n, scid, bundle_hash)
         assert bundle is not None
@@ -129,30 +139,34 @@ class DrivechainVoteWindowBoundary(BitcoinTestFramework):
             # vote_start is inside the voting window; missing vote is consensus-invalid.
             mine_votes(n, scid=scid, bundle_hash_hex=bundle_hash, nblocks=1)
 
-        # Approve inside the window.
-        while True:
-            bundle = get_bundle(n, scid, bundle_hash)
-            assert bundle is not None
-            if bundle["approved"]:
-                break
-            if n.getblockcount() >= vote_end:
-                raise AssertionError("bundle did not get approved inside vote window")
+        while n.getblockcount() < vote_end:
             mine_votes(n, scid=scid, bundle_hash_hex=bundle_hash, nblocks=1)
 
-        # Approved but still in window: EXECUTE must fail.
-        if n.getblockcount() <= vote_end:
-            assert_raises_rpc_error(
-                -26,
-                "dc-exec-window-open",
-                n.senddrivechainexecute,
-                scid,
-                bundle_hash,
-                withdrawals,
-            )
+        bundle = get_bundle(n, scid, bundle_hash)
+        assert bundle is not None
+        assert_equal(n.getblockcount(), vote_end)
+        assert_equal(bundle["approved"], False)
+
+        assert_equal(submit_block(n), None)
+        bundle = get_bundle(n, scid, bundle_hash)
+        assert bundle is not None
+        assert_equal(n.getblockcount(), approval_height)
+        assert_equal(bundle["approved"], True)
+
+        # Approved but still before finalization completes: EXECUTE must fail.
+        assert n.getblockcount() < executable_height
+        assert_raises_rpc_error(
+            -26,
+            "dc-exec-finalizing",
+            n.senddrivechainexecute,
+            scid,
+            bundle_hash,
+            withdrawals,
+        )
 
         cur_h = n.getblockcount()
-        if cur_h <= vote_end:
-            mine_empty(n, vote_end + 1 - cur_h)
+        if cur_h < executable_height:
+            mine_empty(n, executable_height - cur_h)
 
         ok_exec_txid = n.senddrivechainexecute(
             scid, bundle_hash, withdrawals

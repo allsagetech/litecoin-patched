@@ -983,7 +983,7 @@ static RPCHelpMan senddrivechainbundle()
             {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
             {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Dummy amount to attach to commit output"},
             {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
-            {"owner_privkey", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Optional WIF private key used to append sidechain owner auth signature"},
+            {"owner_privkey", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "WIF private key used to append sidechain owner auth signature. Required when the registered sidechain has owner auth enabled."},
         },
         RPCResult{
             RPCResult::Type::STR_HEX, "txid", "The transaction id"
@@ -1018,12 +1018,37 @@ static RPCHelpMan senddrivechainbundle()
             if (request.params.size() > 3 && !request.params[3].isNull()) {
                 subtract_fee_from_amount = request.params[3].get_bool();
             }
+            const bool owner_key_provided = request.params.size() > 4 && !request.params[4].isNull();
+            CKey owner_key;
+            uint256 owner_key_hash;
             std::vector<unsigned char> auth_sig;
-            if (request.params.size() > 4 && !request.params[4].isNull()) {
-                const CKey owner_key = DecodeSecret(request.params[4].get_str());
+            if (owner_key_provided) {
+                owner_key = DecodeSecret(request.params[4].get_str());
                 if (!owner_key.IsValid()) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey must be a valid WIF private key");
                 }
+                const CPubKey owner_pubkey = owner_key.GetPubKey();
+                if (!owner_pubkey.IsValid() || !owner_pubkey.IsCompressed()) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey does not produce a valid compressed public key");
+                }
+                const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
+                owner_key_hash = Hash(owner_pubkey_bytes);
+            }
+
+            {
+                LOCK(cs_main);
+                const Sidechain* sc = ::ChainstateActive().GetDrivechainState().GetSidechain(sidechain_id);
+                if (sc != nullptr && sc->owner_auth_required) {
+                    if (!owner_key_provided) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey is required for registered sidechains with owner auth");
+                    }
+                    if (owner_key_hash != sc->owner_key_hash) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey does not match the registered owner key");
+                    }
+                }
+            }
+
+            if (owner_key_provided) {
                 const uint256 auth_msg = ComputeDrivechainBundleAuthMessage(sidechain_id, bundle_hash);
                 if (!owner_key.SignCompact(auth_msg, auth_sig)) {
                     throw JSONRPCError(RPC_WALLET_ERROR, "failed to create owner authorization signature");

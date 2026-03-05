@@ -54,8 +54,8 @@ class DrivechainOwnerAuthEnforcement(BitcoinTestFramework):
         assert sidechain["owner_key_hash_payload"] == owner_key_hash_payload
 
         assert_raises_rpc_error(
-            -26,
-            "drivechain-owner-auth-missing",
+            -8,
+            "owner_privkey is required for registered sidechains with owner auth",
             node.senddrivechainbundle,
             scid,
             bundle_hash,
@@ -63,8 +63,8 @@ class DrivechainOwnerAuthEnforcement(BitcoinTestFramework):
         )
 
         assert_raises_rpc_error(
-            -26,
-            "drivechain-owner-auth-invalid",
+            -8,
+            "owner_privkey does not match the registered owner key",
             node.senddrivechainbundle,
             scid,
             bundle_hash,

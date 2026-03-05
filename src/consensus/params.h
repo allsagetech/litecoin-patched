@@ -95,6 +95,8 @@ struct Params {
     int nDrivechainVoteWindow{0};
     /** Drivechain bundle approval threshold (yes votes). */
     int nDrivechainApprovalThreshold{0};
+    /** Delay after the voting window before an approved bundle may execute. */
+    int nDrivechainFinalizationDelay{0};
     /** Minimum burn amount for sidechain REGISTER outputs. */
     CAmount nDrivechainMinRegisterAmount{0};
 

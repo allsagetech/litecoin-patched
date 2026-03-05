@@ -102,7 +102,8 @@ class DrivechainVoteRequiredInWindow(BitcoinTestFramework):
 
         updated_bundle = get_bundle(node, scid, bundle_hash)
         assert updated_bundle is not None
-        assert_equal(int(updated_bundle["yes_votes"]), -1)
+        assert_equal(int(updated_bundle["yes_votes"]), 0)
+        assert_equal(int(updated_bundle["no_votes"]), 1)
 
 
 if __name__ == "__main__":

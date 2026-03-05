@@ -52,16 +52,7 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
         assert_equal(sc["owner_key_hash_payload"], owner_key_hash_payload)
         assert_equal(sc["owner_key_hash"], owner_key_hash_rpc)
 
-        assert_raises_rpc_error(
-            -26,
-            "drivechain-owner-key-hash-mismatch",
-            n.senddrivechaindeposit,
-            0,
-            "11" * 32,
-            [Decimal("0.25")],
-        )
-
-        n.senddrivechaindeposit(0, "00" * 32, [Decimal("0.25")])
+        n.senddrivechaindeposit(0, "11" * 32, [Decimal("0.25")])
         n.generatetoaddress(1, n.getnewaddress())
 
         # Duplicate registration of the same ID must fail.
@@ -76,8 +67,8 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
         # Owner-auth sidechain requires authorization on bundle commits.
         bundle_hash = "44" * 32
         assert_raises_rpc_error(
-            -26,
-            "drivechain-owner-auth-missing",
+            -8,
+            "owner_privkey is required for registered sidechains with owner auth",
             n.senddrivechainbundle,
             0,
             bundle_hash,
@@ -87,8 +78,8 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
         wrong_addr = n.getnewaddress()
         wrong_privkey = n.dumpprivkey(wrong_addr)
         assert_raises_rpc_error(
-            -26,
-            "drivechain-owner-auth-invalid",
+            -8,
+            "owner_privkey does not match the registered owner key",
             n.senddrivechainbundle,
             0,
             bundle_hash,

@@ -1573,7 +1573,8 @@ static UniValue getdrivechaininfo(const JSONRPCRequest& request)
 
     {
         LOCK(cs_main);
-        for (const auto& it : g_drivechain_state.sidechains) {
+        const DrivechainState& drivechain_state = ::ChainstateActive().GetDrivechainState();
+        for (const auto& it : drivechain_state.sidechains) {
             const uint8_t id = it.first;
             const Sidechain& sc = it.second;
 
@@ -1600,9 +1601,11 @@ static UniValue getdrivechaininfo(const JSONRPCRequest& request)
                 if (ComputeDrivechainBundleSchedule(Params().GetConsensus(), bundle.first_seen_height, schedule)) {
                     b.pushKV("vote_start_height", schedule.vote_start_height);
                     b.pushKV("vote_end_height", schedule.vote_end_height);
-                    b.pushKV("expiration_height", schedule.expiration_height);
+                    b.pushKV("approval_height", schedule.approval_height);
+                    b.pushKV("executable_height", schedule.executable_height);
                 }
                 b.pushKV("yes_votes", bundle.yes_votes);
+                b.pushKV("no_votes", bundle.no_votes);
                 b.pushKV("approved", bundle.approved);
                 b.pushKV("executed", bundle.executed);
                 bundles.push_back(b);

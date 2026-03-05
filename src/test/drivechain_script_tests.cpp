@@ -72,6 +72,7 @@ BOOST_AUTO_TEST_CASE(bundle_schedule_boundaries)
 {
     Consensus::Params params;
     params.nDrivechainVoteWindow = 20;
+    params.nDrivechainFinalizationDelay = 20;
     params.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight = 100;
 
     DrivechainBundleSchedule schedule;
@@ -79,24 +80,31 @@ BOOST_AUTO_TEST_CASE(bundle_schedule_boundaries)
     BOOST_REQUIRE(ComputeDrivechainBundleSchedule(params, 103, schedule));
     BOOST_CHECK_EQUAL(schedule.vote_start_height, 120);
     BOOST_CHECK_EQUAL(schedule.vote_end_height, 139);
-    BOOST_CHECK_EQUAL(schedule.expiration_height, 160);
+    BOOST_CHECK_EQUAL(schedule.approval_height, 140);
+    BOOST_CHECK_EQUAL(schedule.executable_height, 160);
 
     BOOST_REQUIRE(ComputeDrivechainBundleSchedule(params, 120, schedule));
     BOOST_CHECK_EQUAL(schedule.vote_start_height, 140);
     BOOST_CHECK_EQUAL(schedule.vote_end_height, 159);
-    BOOST_CHECK_EQUAL(schedule.expiration_height, 180);
+    BOOST_CHECK_EQUAL(schedule.approval_height, 160);
+    BOOST_CHECK_EQUAL(schedule.executable_height, 180);
 }
 
 BOOST_AUTO_TEST_CASE(bundle_schedule_invalid_inputs)
 {
     Consensus::Params params;
     params.nDrivechainVoteWindow = 0;
+    params.nDrivechainFinalizationDelay = 20;
     params.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight = 100;
 
     DrivechainBundleSchedule schedule;
     BOOST_CHECK(!ComputeDrivechainBundleSchedule(params, 100, schedule));
 
     params.nDrivechainVoteWindow = 20;
+    params.nDrivechainFinalizationDelay = 0;
+    BOOST_CHECK(!ComputeDrivechainBundleSchedule(params, 100, schedule));
+
+    params.nDrivechainFinalizationDelay = 20;
     BOOST_CHECK(!ComputeDrivechainBundleSchedule(params, -1, schedule));
 }
 

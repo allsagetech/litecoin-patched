@@ -569,7 +569,7 @@ void SetupServerArgs(NodeContext& node)
 
     argsman.AddArg("-blockmaxweight=<n>", strprintf("Set maximum BIP141 block weight (default: %d)", DEFAULT_BLOCK_MAX_WEIGHT), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockmintxfee=<amt>", strprintf("Set lowest fee rate (in %s/kB) for transactions to be included in block creation. (default: %s)", CURRENCY_UNIT, FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE)), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
-    argsman.AddArg("-drivechainvote=<mode>", "Drivechain miner vote mode for required vote outputs in coinbase: yes, no, or abstain (abstain is treated as no) (default: yes)", ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
+    argsman.AddArg("-drivechainvote=<mode>", "Drivechain miner vote mode for required vote outputs in coinbase: yes or no (default: yes)", ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockversion=<n>", "Override block version to test forking scenarios", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::BLOCK_CREATION);
 
     argsman.AddArg("-rest", strprintf("Accept public REST requests (default: %u)", DEFAULT_REST_ENABLE), ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
@@ -1182,9 +1182,9 @@ bool AppInitParameterInteraction(const ArgsManager& args)
     if (args.IsArgSet("-drivechainvote")) {
         const std::string configured_vote_mode = args.GetArg("-drivechainvote", "yes");
         const std::string vote_mode = ToLower(configured_vote_mode);
-        if (vote_mode != "yes" && vote_mode != "no" && vote_mode != "abstain") {
+        if (vote_mode != "yes" && vote_mode != "no") {
             return InitError(strprintf(
-                Untranslated("Unsupported -drivechainvote value '%s' (expected: yes, no, or abstain)"),
+                Untranslated("Unsupported -drivechainvote value '%s' (expected: yes or no)"),
                 configured_vote_mode));
         }
     }

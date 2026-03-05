@@ -4,6 +4,9 @@
 
 from decimal import Decimal
 
+from test_framework.blocktools import add_witness_commitment, create_block, create_coinbase
+from test_framework.messages import CTxOut
+from test_framework.script import CScript
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 
@@ -19,6 +22,37 @@ def get_bundle(node, scid: int, bundle_hash_hex: str):
     return None
 
 
+def make_drivechain_script(sidechain_id: int, payload_hex: str, tag: int) -> CScript:
+    payload = bytes.fromhex(payload_hex)[::-1]
+    assert len(payload) == 32
+    return CScript(bytes([0x6A, 0xB4, 0x01, sidechain_id, 0x20]) + payload + bytes([0x01, tag]))
+
+
+def submit_block(node, *, extra_coinbase_vouts=None):
+    if extra_coinbase_vouts is None:
+        extra_coinbase_vouts = []
+
+    tip = node.getbestblockhash()
+    height = node.getblockcount() + 1
+    ntime = node.getblockheader(tip)["time"] + 1
+
+    coinbase = create_coinbase(height)
+    for vout in extra_coinbase_vouts:
+        coinbase.vout.append(vout)
+    coinbase.rehash()
+
+    block = create_block(int(tip, 16), coinbase, ntime, version=0x20000000)
+    block.hashMerkleRoot = block.calc_merkle_root()
+    add_witness_commitment(block)
+    block.solve()
+    return node.submitblock(block.serialize().hex())
+
+
+def mine_empty_blocks(node, nblocks: int):
+    for _ in range(nblocks):
+        assert_equal(submit_block(node), None)
+
+
 class DrivechainBundlePruning(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
@@ -31,7 +65,6 @@ class DrivechainBundlePruning(BitcoinTestFramework):
 
         scid = 1
         bundle1 = "11" * 32
-        bundle2 = "22" * 32
 
         owner_privkey = n.dumpprivkey(n.getnewaddress())
         n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
@@ -45,26 +78,24 @@ class DrivechainBundlePruning(BitcoinTestFramework):
         n.generatetoaddress(1, n.getnewaddress())
         b1 = get_bundle(n, scid, bundle1)
         assert b1 is not None
-        exp1 = int(b1["expiration_height"])
+        vote_start = int(b1["vote_start_height"])
+        vote_end = int(b1["vote_end_height"])
+        approval_height = int(b1["approval_height"])
 
         cur_h = n.getblockcount()
-        if cur_h < 121:
-            n.generatetoaddress(121 - cur_h, n.getnewaddress())
+        if cur_h < vote_start - 1:
+            mine_empty_blocks(n, vote_start - 1 - cur_h)
 
-        n.senddrivechainbundle(scid, bundle2, Decimal("0.1"), False, owner_privkey)
-        n.generatetoaddress(1, n.getnewaddress())
-        b2 = get_bundle(n, scid, bundle2)
-        assert b2 is not None
-        exp2 = int(b2["expiration_height"])
-        assert exp2 > exp1
+        vote_no_out = CTxOut(0, make_drivechain_script(scid, bundle1, 0x04))
+        while n.getblockcount() < vote_end:
+            assert_equal(submit_block(n, extra_coinbase_vouts=[vote_no_out]), None)
 
-        cur_h = n.getblockcount()
-        if cur_h < exp1:
-            n.generatetoaddress(exp1 - cur_h, n.getnewaddress())
-        assert_equal(n.getblockcount(), exp1)
-
+        # The bundle remains visible at the end of the vote window so operators can
+        # inspect the final tally, then it is pruned at approval_height when it failed.
+        assert get_bundle(n, scid, bundle1) is not None
+        assert_equal(submit_block(n), None)
+        assert_equal(n.getblockcount(), approval_height)
         assert get_bundle(n, scid, bundle1) is None
-        assert get_bundle(n, scid, bundle2) is not None
 
 
 if __name__ == "__main__":

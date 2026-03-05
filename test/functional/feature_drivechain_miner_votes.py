@@ -84,7 +84,8 @@ class DrivechainMinerVotesTest(BitcoinTestFramework):
         node_no.generate(1)
         bundle_no = get_bundle(node_no, sidechain_id, bundle_hash)
         assert bundle_no is not None
-        assert_equal(int(bundle_no["yes_votes"]), -1)
+        assert_equal(int(bundle_no["yes_votes"]), 0)
+        assert_equal(int(bundle_no["no_votes"]), 1)
 
 
 if __name__ == "__main__":

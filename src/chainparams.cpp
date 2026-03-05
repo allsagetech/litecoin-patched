@@ -110,8 +110,9 @@ public:
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 6048; // 75% of 8064
         consensus.nMinerConfirmationWindow = 8064; // nPowTargetTimespan / nPowTargetSpacing * 4
-        consensus.nDrivechainVoteWindow = 4032;
-        consensus.nDrivechainApprovalThreshold = 1680;
+        consensus.nDrivechainVoteWindow = 8064;
+        consensus.nDrivechainApprovalThreshold = 6048;
+        consensus.nDrivechainFinalizationDelay = 8064;
         consensus.nDrivechainMinRegisterAmount = 1 * COIN;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
@@ -241,8 +242,9 @@ public:
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
         consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing
-        consensus.nDrivechainVoteWindow = 4032;
-        consensus.nDrivechainApprovalThreshold = 1680;
+        consensus.nDrivechainVoteWindow = 8064;
+        consensus.nDrivechainApprovalThreshold = 6048;
+        consensus.nDrivechainFinalizationDelay = 8064;
         consensus.nDrivechainMinRegisterAmount = 1 * COIN;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
@@ -351,7 +353,8 @@ public:
         consensus.nRuleChangeActivationThreshold = 108; // 75% for testchains
         consensus.nMinerConfirmationWindow = 144; // Faster than normal for regtest (144 instead of 2016)
         consensus.nDrivechainVoteWindow = 20;
-        consensus.nDrivechainApprovalThreshold = 10;
+        consensus.nDrivechainApprovalThreshold = 15;
+        consensus.nDrivechainFinalizationDelay = 20;
         consensus.nDrivechainMinRegisterAmount = 1 * COIN;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;

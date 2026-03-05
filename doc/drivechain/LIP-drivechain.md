@@ -1,5 +1,5 @@
 LIP: 0005
-Title: Drivechains for Litecoin (BIP300/301-style Withdrawals)
+Title: Miner-Enforced Sidechains for Litecoin
 Author: AllSageTech, LLC / support@allsagetech.com
 Status: Final
 Type: Standards Track - Consensus
@@ -10,35 +10,39 @@ License: MIT
 
 # Abstract
 
-This proposal introduces **Drivechains for Litecoin**, a mainchain-enforced mechanism enabling opt-in sidechains whose assets are backed 1:1 with LTC locked on-chain. The mechanism is inspired by Bitcoin's BIP300/301 but uses stricter on-chain validation, simplified semantics, and enhanced transparency.
+This proposal defines Litecoin-native, miner-enforced sidechains. LTC is locked on the Litecoin mainchain, sidechains are produced via blind merged mining, and LTC can be released only through a pre-committed withdrawal bundle that Litecoin miners approve on-chain over fixed vote windows. The design is inspired by BIP300/301, but LIP-0005 is specified for Litecoin's 2.5-minute blocks, scrypt miner set, and activation policy.
 
 This soft fork adds a new opcode (`OP_DRIVECHAIN`) and new output type (`TxoutType::DRIVECHAIN`) which enable six operations:
 
 1. **DEPOSIT** - Lock LTC into a sidechain escrow
 2. **REGISTER** - Bind sidechain ownership to an owner key hash
 3. **BUNDLE_COMMIT** - Publish a hash of a sidechain withdrawal bundle
-4. **VOTE_YES** - Cast a miner yes vote for bundle approval (coinbase only)
-5. **VOTE_NO** - Cast a miner no vote for bundle approval (coinbase only)
-6. **EXECUTE** - Release escrow to mainchain addresses after approval
+4. **VOTE_YES** - Cast a miner approval vote for bundle finalization (coinbase only)
+5. **VOTE_NO** - Cast an explicit miner rejection signal (coinbase only)
+6. **EXECUTE** - Release escrow to mainchain addresses after approval and finalization
 
-These rules allow permissionless deployment of sidechains with fully verifiable peg-in and miner-approved peg-out semantics.
+Security comes from objective Litecoin consensus rules, not from a federation and not from asking miners to validate arbitrary sidechain state. Mainchain consensus tracks only deterministic facts: sidechain registration, escrow balances, bundle identity, fixed vote windows, approval thresholds, owner-authenticated bundle publication, finalization delay, and exact execute-template matching. Approval requires sustained miner participation across an 8,064-block Litecoin window, with the threshold measured against the total blocks in that window rather than only the votes cast.
 
 ---
 
 # Motivation
 
-Litecoin often serves as a proving ground for technologies that may later be adopted elsewhere or that expand the Litecoin ecosystem.
+Litecoin is well suited for miner-enforced sidechains. Its faster block cadence permits long observation windows without extreme wall-clock delay, its scrypt miner set can monetize additional sidechain demand through blind merged mining, and LTC can remain the shared monetary base across experimental environments.
 
-Drivechains allow Litecoin to:
+The core design principle is deliberate: rely more on miners by giving them more enforcement, not more subjectivity.
+
+LIP-0005 is intended to let Litecoin:
 
 - Add entirely new feature sets without modifying the mainchain  
 - Host alternative execution environments  
 - Experiment with privacy and ZK systems  
 - Scale without fragmenting liquidity  
 - Enable synthetic assets or stablecoins  
-- Provide a trust-minimized layer-2 ecosystem  
+- Provide a trust-minimized sidechain ecosystem
+- Give scrypt miners direct fee revenue from sidechain activity
+- Make withdrawal theft require sustained coordination across thousands of Litecoin blocks
 
-Drivechains unify experimentation under the same global LTC monetary base and the same PoW security, using objective, on-chain rules-not custodians or federated multisigs.
+This proposal therefore gives miners a narrow, high-consequence role: approve or reject a pre-committed withdrawal bundle. Everything else remains objective mainchain validation. Miners do not need to run sidechain nodes to enforce LIP-0005, and the protocol does not depend on custodians or federated multisigs.
 
 ---
 
@@ -106,6 +110,9 @@ Wallets treat them as:
 - `hash` - 32-byte payload
 - `first_seen_height`  
 - `yes_votes`  
+- `no_votes`
+- `approval_height`
+- `executable_height`
 - `approved` (boolean)  
 - `executed` (boolean)
 
@@ -165,16 +172,18 @@ scriptPubKey (byte array)
 
 # Miner Voting Rules
 
-Votes are signaled using `VOTE_YES` outputs in the **coinbase**.
-Implementations may expose local miner policy to emit either `VOTE_YES` or
-`VOTE_NO`; consensus only requires that a valid vote for the required bundle is
-present during active vote windows.
+Votes are signaled in the **coinbase**. `VOTE_YES` and `VOTE_NO` are distinct
+signals, and consensus tracks both counts. Approval, however, depends only on
+whether `yes_votes` reaches a threshold measured against the total number of
+blocks in the voting window. This makes non-voting blocks effectively count
+against approval without overloading `VOTE_NO` into a negative tally.
 
 ## Voting Constants (Consensus)
 
 ```text
-VOTE_WINDOW = 4032 blocks
-APPROVAL_THRESHOLD = 1680 votes
+VOTE_WINDOW = 8064 blocks
+APPROVAL_THRESHOLD = 6048 yes votes
+FINALIZATION_DELAY = 8064 blocks
 VOTE_EPOCH_START = StartHeight
 ```
 
@@ -188,7 +197,8 @@ For each bundle with `first_seen_height = H_first`, nodes MUST derive voting hei
 window_index      = floor((H_first - VOTE_EPOCH_START) / VOTE_WINDOW) + 1
 vote_start_height = VOTE_EPOCH_START + (window_index * VOTE_WINDOW)
 vote_end_height   = vote_start_height + VOTE_WINDOW - 1
-expiration_height = vote_start_height + (2 * VOTE_WINDOW)
+approval_height   = vote_end_height + 1
+executable_height = vote_end_height + FINALIZATION_DELAY + 1
 ```
 
 The `+1` in `window_index` is required so voting always begins at the **next** fixed
@@ -199,15 +209,21 @@ Nodes MUST NOT use sliding windows derived from `first_seen_height`.
 
 ## Consensus Rules
 
-1. `VOTE_YES` outputs MUST appear only in the coinbase transaction.
+1. `VOTE_YES` and `VOTE_NO` outputs MUST appear only in the coinbase transaction.
 2. Each vote MUST reference an existing `(sidechain_id, bundle_hash)` on the active chain.
-3. A vote MUST increment `yes_votes` only when `block_height` is in
+3. A `VOTE_YES` signal MUST increment `yes_votes` only when `block_height` is in
    `[vote_start_height, vote_end_height]` for that bundle.
-4. A bundle SHALL become `approved = true` when `yes_votes >= APPROVAL_THRESHOLD`.
-5. If `block_height >= expiration_height` and the bundle is not approved, the bundle
-   MUST be treated as expired and MUST NOT be approved or executed.
-6. On reorg, vote totals and approval status MUST be recomputed from the active chain;
-   votes from disconnected blocks MUST NOT be retained.
+4. A `VOTE_NO` signal MUST increment `no_votes` only when `block_height` is in
+   `[vote_start_height, vote_end_height]` for that bundle.
+5. A bundle SHALL become `approved = true` at `approval_height` if and only if
+   `yes_votes >= APPROVAL_THRESHOLD`.
+6. A bundle that does not satisfy `yes_votes >= APPROVAL_THRESHOLD` by `approval_height`
+   MUST be treated as failed, MUST NOT become approved later, and MAY be replaced by a
+   new `BUNDLE_COMMIT`.
+7. `no_votes` MAY be exposed by RPC or miner policy, but MUST NOT subtract from
+   `yes_votes`.
+8. On reorg, vote totals, approval status, and executable height MUST be recomputed
+   from the active chain; votes from disconnected blocks MUST NOT be retained.
 
 ---
 # Execution (Peg-out)
@@ -218,36 +234,43 @@ An EXECUTE output:
 - Must output **exactly** the list of withdrawals encoded in the bundle  
 - Cannot exceed escrow  
 - Must not alter withdrawal amounts or destinations  
-- MUST occur only at or after `vote_end_height + 1` for the referenced bundle
+- MUST occur only at or after `executable_height` for the referenced bundle
 
 ## Validity Conditions
 
 1. Bundle exists  
 2. Bundle is approved  
 3. Not previously executed  
-4. `block_height >= vote_end_height + 1`
+4. `block_height >= executable_height`
 5. Outputs exactly match canonical withdrawal list  
 6. Sum(outputs) <= escrow
 7. State updates atomically  
 
 ---
 
-# Bundle Expiration
+# Bundle Failure and Replacement
 
-Bundles expire at:
+Bundles that fail to reach the threshold at `approval_height` are failed, not
+pending:
 
 ```text
-EXPIRATION_HEIGHT = vote_start_height + (2 * VOTE_WINDOW)
+if yes_votes < APPROVAL_THRESHOLD at approval_height:
+    bundle.approved = false
+    bundle is failed
 ```
 
-Expiration MUST be interpreted using the fixed-window derivation in the
-`Miner Voting Rules` section.
+Failure MUST be interpreted using the fixed-window derivation in the
+`Miner Voting Rules` section and the total-window threshold above.
 
-Expired bundles MUST NOT be approved or executed.
+Failed bundles MUST NOT be approved or executed.
 
-On reorg, `first_seen_height`, `vote_start_height`, `vote_end_height`, and
-`expiration_height` MUST be recomputed from the active chain, and expiration
-status MUST follow the recomputed values.
+An approved bundle remains the unique executable bundle for the sidechain until
+it is executed. An unapproved or failed bundle MAY be replaced by a later
+`BUNDLE_COMMIT`.
+
+On reorg, `first_seen_height`, `vote_start_height`, `vote_end_height`,
+`approval_height`, and `executable_height` MUST be recomputed from the active
+chain, and failure or approval status MUST follow the recomputed values.
 
 ---
 # Standardness Policies
@@ -271,6 +294,8 @@ This specification includes an ownership path:
 - `REGISTER` output tag (`0x05`) with owner key hash payload.
 - Compact signature required over `(sidechain_id, owner_key_hash)`.
 - On success, sidechain ownership is bound and owner-auth is enabled.
+- If owner-auth is enabled, each `BUNDLE_COMMIT` MUST carry a valid compact
+  signature over `(sidechain_id, bundle_hash)` from the registered owner key.
 - `REGISTER` output value MUST be at least the chain's minimum registration amount.
 
 RPC support:
@@ -357,8 +382,9 @@ FAILED at timeout (if never locked in):               3,282,048
 A malicious majority would need to:
 
 - Publish a malicious bundle  
-- Vote for it continuously for ~1 week  
-- Execute it after public observation  
+- Deliver at least 6,048 yes votes across an 8,064-block Litecoin window
+- Wait through an additional 8,064-block finalization delay
+- Execute it after prolonged public observation
 
 Thus, theft is **highly visible** and economically irrational.
 

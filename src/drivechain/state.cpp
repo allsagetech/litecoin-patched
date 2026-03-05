@@ -16,8 +16,6 @@
 #include <set>
 #include <vector>
 
-DrivechainState g_drivechain_state;
-
 namespace {
 
 static int64_t FloorDiv(int64_t a, int64_t b)
@@ -37,7 +35,9 @@ bool ComputeDrivechainBundleSchedule(
     int first_seen_height,
     DrivechainBundleSchedule& out_schedule)
 {
-    if (first_seen_height < 0 || params.nDrivechainVoteWindow <= 0) {
+    if (first_seen_height < 0 ||
+        params.nDrivechainVoteWindow <= 0 ||
+        params.nDrivechainFinalizationDelay <= 0) {
         return false;
     }
 
@@ -50,7 +50,8 @@ bool ComputeDrivechainBundleSchedule(
 
     out_schedule.vote_start_height = epoch_start + (window_index * vote_window);
     out_schedule.vote_end_height = out_schedule.vote_start_height + vote_window - 1;
-    out_schedule.expiration_height = out_schedule.vote_start_height + (2 * vote_window);
+    out_schedule.approval_height = out_schedule.vote_end_height + 1;
+    out_schedule.executable_height = out_schedule.vote_end_height + params.nDrivechainFinalizationDelay + 1;
     return true;
 }
 
@@ -100,7 +101,7 @@ namespace {
         return out;
     }
 
-    static void PruneExpiredBundles(
+    static void PruneFailedBundles(
         std::map<uint8_t, Sidechain>& sidechains,
         const Consensus::Params& params,
         int height)
@@ -109,8 +110,9 @@ namespace {
             auto& bundles = sc_it.second.bundles;
             for (auto b_it = bundles.begin(); b_it != bundles.end();) {
                 DrivechainBundleSchedule schedule;
-                if (!ComputeDrivechainBundleSchedule(params, b_it->second.first_seen_height, schedule) ||
-                    height >= schedule.expiration_height) {
+                const Bundle& bundle = b_it->second;
+                if (!ComputeDrivechainBundleSchedule(params, bundle.first_seen_height, schedule) ||
+                    (!bundle.approved && !bundle.executed && height >= schedule.approval_height)) {
                     b_it = bundles.erase(b_it);
                 } else {
                     ++b_it;
@@ -164,7 +166,9 @@ bool DrivechainState::ConnectBlock(
     const Consensus::Params& params,
     BlockValidationState& state)
 {
-    if (params.nDrivechainVoteWindow <= 0 || params.nDrivechainApprovalThreshold <= 0) {
+    if (params.nDrivechainVoteWindow <= 0 ||
+        params.nDrivechainApprovalThreshold <= 0 ||
+        params.nDrivechainFinalizationDelay <= 0) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-invalid-params");
     }
 
@@ -215,12 +219,6 @@ bool DrivechainState::ConnectBlock(
                                              "drivechain-unknown-sidechain");
                     }
                     Sidechain& sc = sc_it->second;
-                    if (sc.owner_auth_required &&
-                        !info.payload.IsNull() &&
-                        info.payload != sc.owner_key_hash) {
-                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
-                                             "drivechain-owner-key-hash-mismatch");
-                    }
                     sc.escrow_balance += txout.nValue;
                     break;
                 }
@@ -312,22 +310,36 @@ bool DrivechainState::ConnectBlock(
                     }
 
                     auto sc_it = sidechains.find(info.sidechain_id);
-                    if (sc_it == sidechains.end()) break;
+                    if (sc_it == sidechains.end()) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "dc-vote-unknown-sidechain");
+                    }
                     auto b_it = sc_it->second.bundles.find(info.payload);
-                    if (b_it == sc_it->second.bundles.end()) break;
+                    if (b_it == sc_it->second.bundles.end()) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "dc-vote-unknown-bundle");
+                    }
 
                     Bundle& bundle = b_it->second;
+                    if (bundle.approved || bundle.executed) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "dc-vote-finalized-bundle");
+                    }
                     DrivechainBundleSchedule schedule;
                     if (!ComputeDrivechainBundleSchedule(params, bundle.first_seen_height, schedule)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                              "drivechain-vote-window-invalid");
                     }
 
-                    if (height >= schedule.vote_start_height && height <= schedule.vote_end_height) {
-                        bundle.yes_votes += (info.kind == DrivechainScriptInfo::Kind::VOTE_YES) ? 1 : -1;
-                        if (!bundle.approved && bundle.yes_votes >= params.nDrivechainApprovalThreshold) {
-                            bundle.approved = true;
-                        }
+                    if (height < schedule.vote_start_height || height > schedule.vote_end_height) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-vote-outside-window");
+                    }
+
+                    if (info.kind == DrivechainScriptInfo::Kind::VOTE_YES) {
+                        ++bundle.yes_votes;
+                    } else {
+                        ++bundle.no_votes;
                     }
                     break;
                 }
@@ -397,9 +409,9 @@ bool DrivechainState::ConnectBlock(
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                      "drivechain-execute-window-open");
             }
-            if (height >= schedule.expiration_height) {
+            if (height < schedule.executable_height) {
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
-                                     "drivechain-execute-expired");
+                                     "drivechain-execute-finalizing");
             }
 
             CAmount withdraw_sum = 0;
@@ -451,7 +463,26 @@ bool DrivechainState::ConnectBlock(
         }
     }
 
-    PruneExpiredBundles(sidechains, params, height);
+    for (auto& sc_it : sidechains) {
+        for (auto& bundle_it : sc_it.second.bundles) {
+            Bundle& bundle = bundle_it.second;
+            if (bundle.approved || bundle.executed) {
+                continue;
+            }
+
+            DrivechainBundleSchedule schedule;
+            if (!ComputeDrivechainBundleSchedule(params, bundle.first_seen_height, schedule)) {
+                continue;
+            }
+
+            if (height >= schedule.approval_height &&
+                bundle.yes_votes >= params.nDrivechainApprovalThreshold) {
+                bundle.approved = true;
+            }
+        }
+    }
+
+    PruneFailedBundles(sidechains, params, height);
     return true;
 }
 

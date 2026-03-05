@@ -108,7 +108,7 @@ static CScript BuildDrivechainVoteScript(uint8_t sidechain_id, const uint256& bu
     std::vector<unsigned char> sidechain_v{sidechain_id};
     std::vector<unsigned char> payload(bundle_hash.begin(), bundle_hash.end());
     const std::string vote_mode = ToLower(gArgs.GetArg("-drivechainvote", "yes"));
-    const bool vote_no = (vote_mode == "no" || vote_mode == "abstain");
+    const bool vote_no = (vote_mode == "no");
     const unsigned char vote_tag = vote_no ? static_cast<unsigned char>(0x04) : static_cast<unsigned char>(0x02);
     std::vector<unsigned char> tag{vote_tag}; // VOTE_NO / VOTE_YES
 
@@ -158,7 +158,8 @@ static void AddDrivechainVotesToCoinbase(
 
     const int next_height = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
 
-    for (const auto& sc_it : g_drivechain_state.sidechains) {
+    const DrivechainState& drivechain_state = ::ChainstateActive().GetDrivechainState();
+    for (const auto& sc_it : drivechain_state.sidechains) {
         const uint8_t sidechain_id = sc_it.first;
         const Sidechain& sc = sc_it.second;
 

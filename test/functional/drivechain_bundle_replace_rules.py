@@ -129,19 +129,24 @@ class DrivechainBundleReplaceRules(BitcoinTestFramework):
         assert b2 is not None
         vote_start = int(b2["vote_start_height"])
         vote_end = int(b2["vote_end_height"])
+        approval_height = int(b2["approval_height"])
 
         cur_h = n.getblockcount()
         if cur_h < vote_start:
             mine_empty(n, vote_start - cur_h - 1)
 
-        while True:
-            b2 = get_bundle(n, scid, bundle2)
-            assert b2 is not None
-            if b2["approved"]:
-                break
-            if n.getblockcount() >= vote_end:
-                raise AssertionError("bundle2 did not get approved before vote window closed")
+        while n.getblockcount() < vote_end:
             mine_votes(n, scid=scid, bundle_hash_hex=bundle2, nblocks=1)
+
+        b2 = get_bundle(n, scid, bundle2)
+        assert b2 is not None
+        assert_equal(b2["approved"], False)
+
+        assert_equal(submit_block(n), None)
+        b2 = get_bundle(n, scid, bundle2)
+        assert b2 is not None
+        assert_equal(n.getblockcount(), approval_height)
+        assert_equal(b2["approved"], True)
 
         # While approved and unexecuted, a different commit must fail at mempool admission.
         assert_raises_rpc_error(

@@ -19,13 +19,13 @@ class DrivechainVoteArgValidationTest(BitcoinTestFramework):
 
         # Mixed-case values should be accepted.
         self.restart_node(0, extra_args=["-acceptnonstdtxn=1", "-drivechainvote=YeS"])
-        self.restart_node(0, extra_args=["-acceptnonstdtxn=1", "-drivechainvote=ABSTAIN"])
+        self.restart_node(0, extra_args=["-acceptnonstdtxn=1", "-drivechainvote=No"])
 
         # Invalid values should fail startup with a clear validation error.
         self.stop_node(0)
         node.assert_start_raises_init_error(
             extra_args=["-acceptnonstdtxn=1", "-drivechainvote=not-a-mode"],
-            expected_msg="Error: Unsupported -drivechainvote value 'not-a-mode' (expected: yes, no, or abstain)",
+            expected_msg="Error: Unsupported -drivechainvote value 'not-a-mode' (expected: yes or no)",
         )
 
         # Bring node back to default to keep teardown path simple.

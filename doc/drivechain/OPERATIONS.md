@@ -40,7 +40,8 @@ litecoin-cli senddrivechaindeposit <sidechain_id> <payload_hex_32b> "[1.0]"
 
 Notes:
 
-- For owner-auth sidechains, keep payload semantics consistent with owner hash conventions.
+- Deposit payloads are sidechain-defined and opaque to Litecoin consensus.
+- Owner-auth sidechains require owner signatures on `BUNDLE_COMMIT`, not owner-hash-shaped deposit payloads.
 - Confirm deposits before attempting execute paths that depend on escrow.
 
 ## 4. Commit / Vote / Execute

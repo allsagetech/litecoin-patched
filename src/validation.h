@@ -13,6 +13,7 @@
 #include <amount.h>
 #include <coins.h>
 #include <crypto/common.h> // for ReadLE64
+#include <drivechain/state.h>
 #include <fs.h>
 #include <optional.h>
 #include <policy/feerate.h>
@@ -603,6 +604,9 @@ public:
     //! @see CChain, CBlockIndex.
     CChain m_chain;
 
+    //! Drivechain state tracked for this specific chainstate/tip.
+    DrivechainState m_drivechain_state;
+
     /**
      * The blockhash which is the base of the snapshot this chainstate was created from.
      *
@@ -628,6 +632,16 @@ public:
     CCoinsViewDB& CoinsDB() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         return m_coins_views->m_dbview;
+    }
+
+    const DrivechainState& GetDrivechainState() const EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        return m_drivechain_state;
+    }
+
+    DrivechainState& GetDrivechainState() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        return m_drivechain_state;
     }
 
     //! @returns A reference to a wrapped view of the in-memory UTXO set that

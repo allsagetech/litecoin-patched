@@ -189,23 +189,29 @@ class DrivechainCheckConnectAlignment(BitcoinTestFramework):
         assert bundle is not None
         vote_start = int(bundle["vote_start_height"])
         vote_end = int(bundle["vote_end_height"])
+        approval_height = int(bundle["approval_height"])
+        executable_height = int(bundle["executable_height"])
 
         cur_h = n.getblockcount()
         if cur_h < vote_start:
             mine_empty(n, vote_start - cur_h - 1)
 
-        while True:
-            bundle = get_bundle(n, scid, bundle1)
-            assert bundle is not None
-            if bundle["approved"]:
-                break
-            if n.getblockcount() >= vote_end:
-                raise AssertionError("bundle1 did not get approved before vote window closed")
+        while n.getblockcount() < vote_end:
             mine_votes(n, scid=scid, bundle_hash_hex=bundle1, nblocks=1)
 
+        bundle = get_bundle(n, scid, bundle1)
+        assert bundle is not None
+        assert_equal(bundle["approved"], False)
+
+        assert_equal(submit_block(n), None)
+        bundle = get_bundle(n, scid, bundle1)
+        assert bundle is not None
+        assert_equal(n.getblockcount(), approval_height)
+        assert_equal(bundle["approved"], True)
+
         cur_h = n.getblockcount()
-        if cur_h <= vote_end:
-            mine_empty(n, vote_end + 1 - cur_h)
+        if cur_h < executable_height:
+            mine_empty(n, executable_height - cur_h)
 
         exec_txid = n.senddrivechainexecute(scid, bundle1, withdrawals, True)
         owner_secret, owner_compressed = decode_wif_privkey(owner_privkey)

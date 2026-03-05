@@ -226,14 +226,16 @@ namespace {
         return pblocktree->Read(DrivechainStateByHashDbKey(hash), out_snapshot);
     }
 
-    static void CacheDrivechainStateForHash(const uint256& tip_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    static void CacheDrivechainStateForHash(
+        const uint256& tip_hash,
+        const DrivechainState& drivechain_state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
 
         if (g_drivechain_state_cache.find(tip_hash) == g_drivechain_state_cache.end()) {
             g_drivechain_state_cache_order.push_back(tip_hash);
         }
-        g_drivechain_state_cache[tip_hash] = g_drivechain_state;
+        g_drivechain_state_cache[tip_hash] = drivechain_state;
 
         while (g_drivechain_state_cache_order.size() > DRIVECHAIN_STATE_CACHE_MAX_ENTRIES) {
             const uint256 evict_hash = g_drivechain_state_cache_order.front();
@@ -242,26 +244,26 @@ namespace {
         }
     }
 
-    static void CacheDrivechainStateForTip(const CChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    static void CacheDrivechainStateForTip(const CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
 
-        const CBlockIndex* tip = chain.Tip();
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
         if (tip == nullptr) {
             return;
         }
 
         const uint256 tip_hash = tip->GetBlockHash();
-        CacheDrivechainStateForHash(tip_hash);
+        CacheDrivechainStateForHash(tip_hash, chainstate.GetDrivechainState());
     }
 
-    static bool RestoreDrivechainStateForTipFromCache(const CChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    static bool RestoreDrivechainStateForTipFromCache(CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
 
-        const CBlockIndex* tip = chain.Tip();
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
         if (tip == nullptr) {
-            g_drivechain_state = DrivechainState();
+            chainstate.GetDrivechainState() = DrivechainState();
             return true;
         }
 
@@ -274,13 +276,13 @@ namespace {
                 return false;
             }
 
-            g_drivechain_state = std::move(persisted_snapshot.state);
-            CacheDrivechainStateForHash(tip->GetBlockHash());
+            chainstate.GetDrivechainState() = std::move(persisted_snapshot.state);
+            CacheDrivechainStateForHash(tip->GetBlockHash(), chainstate.GetDrivechainState());
             return true;
         }
 
         ++g_drivechain_state_cache_hits;
-        g_drivechain_state = it->second;
+        chainstate.GetDrivechainState() = it->second;
         return true;
     }
     CBlockIndex* pindexBestInvalid = nullptr;
@@ -725,6 +727,7 @@ namespace {
         const CBlock& block,
         const CChainParams& chainparams,
         const CBlockIndex* pindex,
+        const DrivechainState& drivechain_state,
         BlockValidationState& state)
     {
         const Consensus::Params& params = chainparams.GetConsensus();
@@ -732,7 +735,9 @@ namespace {
             return true;
         }
 
-        if (params.nDrivechainVoteWindow <= 0 || params.nDrivechainApprovalThreshold <= 0) {
+        if (params.nDrivechainVoteWindow <= 0 ||
+            params.nDrivechainApprovalThreshold <= 0 ||
+            params.nDrivechainFinalizationDelay <= 0) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-invalid-params");
         }
 
@@ -756,7 +761,7 @@ namespace {
         std::set<uint8_t> registered_sidechains_in_block;
         std::map<uint8_t, uint256> required_votes_by_sidechain;
 
-        for (const auto& sc_it : g_drivechain_state.sidechains) {
+        for (const auto& sc_it : drivechain_state.sidechains) {
             uint256 required_bundle_hash;
             if (!FindRequiredDrivechainVoteBundle(sc_it.second, params, height, required_bundle_hash)) {
                 continue;
@@ -792,14 +797,9 @@ namespace {
                         if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-confirmation-required");
                         }
-                        const Sidechain* sc = g_drivechain_state.GetSidechain(info.sidechain_id);
+                        const Sidechain* sc = drivechain_state.GetSidechain(info.sidechain_id);
                         if (sc == nullptr) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-unknown-sidechain");
-                        }
-                        if (sc->owner_auth_required &&
-                            !info.payload.IsNull() &&
-                            info.payload != sc->owner_key_hash) {
-                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-owner-key-hash-mismatch");
                         }
                         break;
                     }
@@ -811,7 +811,7 @@ namespace {
                         if (txout.nValue < params.nDrivechainMinRegisterAmount) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-amount-too-low");
                         }
-                        if (g_drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                        if (drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
                             !registered_sidechains_in_block.insert(info.sidechain_id).second) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-sidechain-exists");
                         }
@@ -830,7 +830,7 @@ namespace {
                         }
                         // Keep this rule in pre-validation too, so TestBlockValidity/ConnectBlock
                         // behavior cannot diverge.
-                        const Sidechain* sc = g_drivechain_state.GetSidechain(info.sidechain_id);
+                        const Sidechain* sc = drivechain_state.GetSidechain(info.sidechain_id);
                         if (sc == nullptr) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-unknown-sidechain");
                         }
@@ -869,7 +869,7 @@ namespace {
                         if (!voted_sidechains_in_coinbase.insert(info.sidechain_id).second) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-duplicate-sidechain");
                         }
-                        const Bundle* bundle = g_drivechain_state.GetBundle(info.sidechain_id, info.payload);
+                        const Bundle* bundle = drivechain_state.GetBundle(info.sidechain_id, info.payload);
                         if (bundle == nullptr) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-unknown-bundle");
                         }
@@ -877,8 +877,11 @@ namespace {
                         if (!ComputeDrivechainBundleSchedule(params, bundle->first_seen_height, schedule)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-vote-window-invalid");
                         }
-                        if (!bundle->approved && height >= schedule.expiration_height) {
-                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-expired");
+                        if (bundle->approved || bundle->executed) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-vote-finalized-bundle");
+                        }
+                        if (height < schedule.vote_start_height || height > schedule.vote_end_height) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-vote-outside-window");
                         }
 
                         const auto required_it = required_votes_by_sidechain.find(info.sidechain_id);
@@ -918,11 +921,11 @@ namespace {
                 }
 
                 // Must reference an approved, not-yet-executed bundle in current tracked state.
-                const Sidechain* sc = g_drivechain_state.GetSidechain(execute_info.sidechain_id);
+                const Sidechain* sc = drivechain_state.GetSidechain(execute_info.sidechain_id);
                 if (sc == nullptr) {
                     return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-unknown-sidechain");
                 }
-                const Bundle* bundle = g_drivechain_state.GetBundle(execute_info.sidechain_id, execute_info.payload);
+                const Bundle* bundle = drivechain_state.GetBundle(execute_info.sidechain_id, execute_info.payload);
                 if (bundle == nullptr) {
                     return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-unknown-bundle");
                 }
@@ -941,8 +944,8 @@ namespace {
                 if (height <= schedule.vote_end_height) {
                     return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-window-open");
                 }
-                if (height >= schedule.expiration_height) {
-                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-expired");
+                if (height < schedule.executable_height) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "dc-exec-finalizing");
                 }
 
                 // Sum + validate withdrawals (and ensure no drivechain outputs inside).
@@ -1009,7 +1012,7 @@ namespace {
             const CAmount exec_sum = kv.second;
 
             CAmount esc_before = 0;
-            if (const Sidechain* sc = g_drivechain_state.GetSidechain(sc_id)) {
+            if (const Sidechain* sc = drivechain_state.GetSidechain(sc_id)) {
                 esc_before = sc->escrow_balance;
             }
 
@@ -1035,6 +1038,7 @@ namespace {
         const CTransaction& tx,
         const CChainParams& chainparams,
         const CBlockIndex* pindexPrev,
+        const DrivechainState& drivechain_state,
         TxValidationState& state)
     {
         const Consensus::Params& params = chainparams.GetConsensus();
@@ -1073,7 +1077,7 @@ namespace {
                     if (tx.vout[out_i].nValue < params.nDrivechainMinRegisterAmount) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-amount-too-low");
                     }
-                    if (g_drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                    if (drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
                         !registered_sidechains_in_tx.insert(info.sidechain_id).second) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-sidechain-exists");
                     }
@@ -1090,7 +1094,7 @@ namespace {
                     if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-confirmation-required");
                     }
-                    const Sidechain* sc = g_drivechain_state.GetSidechain(info.sidechain_id);
+                    const Sidechain* sc = drivechain_state.GetSidechain(info.sidechain_id);
                     if (sc == nullptr) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-unknown-sidechain");
                     }
@@ -1119,14 +1123,9 @@ namespace {
                     if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-confirmation-required");
                     }
-                    const Sidechain* sc = g_drivechain_state.GetSidechain(info.sidechain_id);
+                    const Sidechain* sc = drivechain_state.GetSidechain(info.sidechain_id);
                     if (sc == nullptr) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-unknown-sidechain");
-                    }
-                    if (sc->owner_auth_required &&
-                        !info.payload.IsNull() &&
-                        info.payload != sc->owner_key_hash) {
-                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-owner-key-hash-mismatch");
                     }
                     break;
                 }
@@ -1167,12 +1166,12 @@ namespace {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-withdrawals-oob");
         }
 
-        const Sidechain* sc = g_drivechain_state.GetSidechain(execute_info.sidechain_id);
+        const Sidechain* sc = drivechain_state.GetSidechain(execute_info.sidechain_id);
         if (sc == nullptr) {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "dc-exec-unknown-sidechain");
         }
 
-        const Bundle* bundle = g_drivechain_state.GetBundle(execute_info.sidechain_id, execute_info.payload);
+        const Bundle* bundle = drivechain_state.GetBundle(execute_info.sidechain_id, execute_info.payload);
         if (bundle == nullptr) {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "dc-exec-unknown-bundle");
         }
@@ -1193,8 +1192,8 @@ namespace {
         if (next_height <= schedule.vote_end_height) {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "dc-exec-window-open");
         }
-        if (next_height >= schedule.expiration_height) {
-            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "dc-exec-expired");
+        if (next_height < schedule.executable_height) {
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "dc-exec-finalizing");
         }
 
         uint256 computed;
@@ -1242,11 +1241,11 @@ namespace {
         return true;
     }
 
-    static bool LoadPersistedDrivechainStateForTip(const CChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    static bool LoadPersistedDrivechainStateForTip(CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
 
-        const CBlockIndex* tip = chain.Tip();
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
         if (tip == nullptr || pblocktree == nullptr) {
             return false;
         }
@@ -1267,12 +1266,12 @@ namespace {
             return false;
         }
 
-        g_drivechain_state = std::move(snapshot.state);
-        CacheDrivechainStateForTip(chain);
+        chainstate.GetDrivechainState() = std::move(snapshot.state);
+        CacheDrivechainStateForTip(chainstate);
         return true;
     }
 
-    static bool PersistDrivechainStateForTip(const CChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    static bool PersistDrivechainStateForTip(const CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
 
@@ -1281,9 +1280,9 @@ namespace {
         }
 
         DrivechainStateSnapshot snapshot;
-        const CBlockIndex* tip = chain.Tip();
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
         snapshot.tip_hash = tip ? tip->GetBlockHash() : uint256();
-        snapshot.state = g_drivechain_state;
+        snapshot.state = chainstate.GetDrivechainState();
         if (!pblocktree->Write(DB_DRIVECHAIN_STATE_KEY, snapshot)) {
             return false;
         }
@@ -1322,18 +1321,18 @@ namespace {
         }
 
         ++g_drivechain_state_snapshots_written;
-        CacheDrivechainStateForTip(chain);
+        CacheDrivechainStateForTip(chainstate);
         return true;
     }
 
     static bool RestoreDrivechainStateFromBestAncestorSnapshot(
-        const CChain& chain,
+        CChainState& chainstate,
         int& out_start_height) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
         out_start_height = 0;
 
-        const CBlockIndex* cursor = chain.Tip();
+        const CBlockIndex* cursor = chainstate.m_chain.Tip();
         size_t searched = 0;
         while (cursor != nullptr && searched < DRIVECHAIN_STATE_SNAPSHOT_SEARCH_LIMIT) {
             const uint256 cursor_hash = cursor->GetBlockHash();
@@ -1341,7 +1340,7 @@ namespace {
             const auto cache_it = g_drivechain_state_cache.find(cursor_hash);
             if (cache_it != g_drivechain_state_cache.end()) {
                 ++g_drivechain_state_cache_hits;
-                g_drivechain_state = cache_it->second;
+                chainstate.GetDrivechainState() = cache_it->second;
                 out_start_height = cursor->nHeight + 1;
                 return true;
             }
@@ -1349,8 +1348,8 @@ namespace {
             DrivechainStateSnapshot snapshot;
             if (LoadPersistedDrivechainStateSnapshotForHash(cursor_hash, snapshot) &&
                 snapshot.tip_hash == cursor_hash) {
-                g_drivechain_state = std::move(snapshot.state);
-                CacheDrivechainStateForHash(cursor_hash);
+                chainstate.GetDrivechainState() = std::move(snapshot.state);
+                CacheDrivechainStateForHash(cursor_hash, chainstate.GetDrivechainState());
                 out_start_height = cursor->nHeight + 1;
                 return true;
             }
@@ -1362,22 +1361,22 @@ namespace {
         return false;
     }
 
-    // Rebuild g_drivechain_state from the active chain (slow but simple and correct).
+    // Rebuild a chainstate's drivechain state from its current chain (slow but simple and correct).
     static bool RecomputeDrivechainStateFromActiveChain(
-        const CChain& chain,
+        CChainState& chainstate,
         const CChainParams& chainparams,
         BlockValidationState& state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
 
         int replay_start_height = 0;
-        if (!RestoreDrivechainStateFromBestAncestorSnapshot(chain, replay_start_height)) {
-            g_drivechain_state = DrivechainState();
+        if (!RestoreDrivechainStateFromBestAncestorSnapshot(chainstate, replay_start_height)) {
+            chainstate.GetDrivechainState() = DrivechainState();
             replay_start_height = 0;
         }
 
-        for (int h = replay_start_height; h <= chain.Height(); ++h) {
-            const CBlockIndex* pindex = chain[h];
+        for (int h = replay_start_height; h <= chainstate.m_chain.Height(); ++h) {
+            const CBlockIndex* pindex = chainstate.m_chain[h];
             if (pindex == nullptr) {
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-null-index");
             }
@@ -1393,12 +1392,12 @@ namespace {
 
             // Run the same block-level drivechain checks used during normal ConnectBlock
             // so recompute/fallback paths cannot diverge from live consensus validation.
-            if (!CheckDrivechainBlock(blk, chainparams, pindex, state)) {
+            if (!CheckDrivechainBlock(blk, chainparams, pindex, chainstate.GetDrivechainState(), state)) {
                 return false;
             }
 
             BlockValidationState dc_state;
-            if (!g_drivechain_state.ConnectBlock(blk, pindex, chainparams.GetConsensus(), dc_state)) {
+            if (!chainstate.GetDrivechainState().ConnectBlock(blk, pindex, chainparams.GetConsensus(), dc_state)) {
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-connect-failed");
             }
         }
@@ -1414,7 +1413,12 @@ bool CheckDrivechainTxForCurrentState(
     const CBlockIndex* pindexPrev,
     TxValidationState& state)
 {
-    return CheckDrivechainMempoolTx(tx, chainparams, pindexPrev, state);
+    return CheckDrivechainMempoolTx(
+        tx,
+        chainparams,
+        pindexPrev,
+        ::ChainstateActive().GetDrivechainState(),
+        state);
 }
 
 static void LimitMempoolSize(CTxMemPool& pool, size_t limit, std::chrono::seconds age)
@@ -1748,7 +1752,12 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (!CheckFinalTx(tx, STANDARD_LOCKTIME_VERIFY_FLAGS))
         return state.Invalid(TxValidationResult::TX_PREMATURE_SPEND, "non-final");
 
-    if (!CheckDrivechainMempoolTx(tx, args.m_chainparams, ::ChainActive().Tip(), state)) {
+    if (!CheckDrivechainMempoolTx(
+            tx,
+            args.m_chainparams,
+            ::ChainActive().Tip(),
+            ::ChainstateActive().GetDrivechainState(),
+            state)) {
         return false;
     }
 
@@ -3478,14 +3487,14 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
         return false;
     }
 
-    if (!CheckDrivechainBlock(block, chainparams, pindex, state)) {
+    if (!CheckDrivechainBlock(block, chainparams, pindex, m_drivechain_state, state)) {
         return false;
     }
 
     if (drivechain_enabled && fJustCheck) {
         // Keep TestBlockValidity behavior aligned with full ConnectBlock by
         // validating state transitions against a copy of the current state.
-        DrivechainState drivechain_state_copy = g_drivechain_state;
+        DrivechainState drivechain_state_copy = m_drivechain_state;
         if (!drivechain_state_copy.ConnectBlock(block, pindex, chainparams.GetConsensus(), state)) {
             return false;
         }
@@ -3519,7 +3528,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     view.SetBestBlock(pindex->GetBlockHash());
 
     if (drivechain_enabled) {
-        if (!g_drivechain_state.ConnectBlock(block, pindex, chainparams.GetConsensus(), state)) return false;
+        if (!m_drivechain_state.ConnectBlock(block, pindex, chainparams.GetConsensus(), state)) return false;
     }
 
     int64_t nTime5 = GetTimeMicros(); nTimeIndex += nTime5 - nTime4;
@@ -3846,15 +3855,15 @@ bool CChainState::DisconnectTip(
 
     if (fRecomputeDrivechain) {
         // Fast path for common reorg/disconnect: restore exact state for new tip from cache.
-        if (!RestoreDrivechainStateForTipFromCache(m_chain)) {
+        if (!RestoreDrivechainStateForTipFromCache(*this)) {
             // Fallback if cache miss (e.g. after restart / very deep reorg).
             ++g_drivechain_state_recompute_fallbacks;
             BlockValidationState dc_recompute_state;
-            if (!RecomputeDrivechainStateFromActiveChain(m_chain, Params(), dc_recompute_state)) {
+            if (!RecomputeDrivechainStateFromActiveChain(*this, Params(), dc_recompute_state)) {
                 return false;
             }
         }
-        if (!PersistDrivechainStateForTip(m_chain)) {
+        if (!PersistDrivechainStateForTip(*this)) {
             return false;
         }
     }
@@ -3967,7 +3976,7 @@ bool CChainState::ConnectTip(BlockValidationState& state, const CChainParams& ch
     // Update m_chain & related variables.
     m_chain.SetTip(pindexNew);
     RemoveStaleDrivechainBmmRequests(m_mempool, m_chain.Tip());
-    if (!PersistDrivechainStateForTip(m_chain)) {
+    if (!PersistDrivechainStateForTip(*this)) {
         return AbortNode(state, "Failed to persist drivechain state after connecting block");
     }
     UpdateTip(m_mempool, pindexNew, chainparams);
@@ -4083,15 +4092,15 @@ bool CChainState::ActivateBestChainStep(BlockValidationState& state, const CChai
         fBlocksDisconnected = true;
     }
 
-    if (fBlocksDisconnected && !RestoreDrivechainStateForTipFromCache(m_chain)) {
+    if (fBlocksDisconnected && !RestoreDrivechainStateForTipFromCache(*this)) {
         ++g_drivechain_state_recompute_fallbacks;
-        if (!RecomputeDrivechainStateFromActiveChain(m_chain, chainparams, state)) {
+        if (!RecomputeDrivechainStateFromActiveChain(*this, chainparams, state)) {
             UpdateMempoolForReorg(m_mempool, disconnectpool, false);
             AbortNode(state, "Failed to recompute drivechain state after disconnecting blocks; see debug.log for details");
             return false;
         }
     }
-    if (fBlocksDisconnected && !PersistDrivechainStateForTip(m_chain)) {
+    if (fBlocksDisconnected && !PersistDrivechainStateForTip(*this)) {
         UpdateMempoolForReorg(m_mempool, disconnectpool, false);
         AbortNode(state, "Failed to persist drivechain state after disconnecting blocks; see debug.log for details");
         return false;
@@ -5669,16 +5678,16 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
         FormatISO8601DateTime(tip->GetBlockTime()),
         GuessVerificationProgress(chainparams.TxData(), tip));
 
-    if (LoadPersistedDrivechainStateForTip(m_chain)) {
+    if (LoadPersistedDrivechainStateForTip(*this)) {
         return true;
     }
 
     BlockValidationState dc_recompute_state;
     ++g_drivechain_state_recompute_fallbacks;
-    if (!RecomputeDrivechainStateFromActiveChain(m_chain, chainparams, dc_recompute_state)) {
+    if (!RecomputeDrivechainStateFromActiveChain(*this, chainparams, dc_recompute_state)) {
         return error("%s: drivechain state recompute failed (%s)", __func__, dc_recompute_state.ToString());
     }
-    if (!PersistDrivechainStateForTip(m_chain)) {
+    if (!PersistDrivechainStateForTip(*this)) {
         return error("%s: drivechain state persist failed", __func__);
     }
     return true;
@@ -6031,7 +6040,6 @@ void UnloadBlockIndex(CTxMemPool* mempool, ChainstateManager& chainman)
 {
     LOCK(cs_main);
     chainman.Unload();
-    g_drivechain_state = DrivechainState();
     g_drivechain_state_cache.clear();
     g_drivechain_state_cache_order.clear();
     g_drivechain_state_persisted_order.clear();
