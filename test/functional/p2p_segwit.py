@@ -1384,6 +1384,11 @@ class SegWitTest(BitcoinTestFramework):
         tx3.wit.vtxinwit[0].scriptWitness.stack = [witness_program2]
         tx3.rehash()
 
+        # Ensure node1 has tx ancestry so tx3 is evaluated for policy limits
+        # rather than being treated as an orphan.
+        test_transaction_acceptance(self.nodes[1], self.std_node, tx, with_witness=False, accepted=True)
+        test_transaction_acceptance(self.nodes[1], self.std_node, tx2, with_witness=True, accepted=True)
+
         # Node will not be blinded to the transaction, requesting it any number of times
         # if it is being announced via txid relay.
         # Node will be blinded to the transaction via wtxid, however.
