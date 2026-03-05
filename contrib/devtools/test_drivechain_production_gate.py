@@ -147,7 +147,17 @@ class DrivechainProductionGateTest(unittest.TestCase):
                 os.environ["DRIVECHAIN_ENFORCE_EXTERNAL_SIGNOFF"] = previous_enforce
 
     def test_is_pending_detects_disallowed_placeholders(self) -> None:
-        for value in ("PENDING", "pending (YYYY-MM-DD)", "NOT APPROVED", "TBD", "N/A", "todo"):
+        for value in (
+            "PENDING",
+            "pending (YYYY-MM-DD)",
+            "NOT APPROVED",
+            "NOT APPROVED.",
+            "TBD",
+            "TBD.",
+            "N/A",
+            "N/A.",
+            "todo",
+        ):
             with self.subTest(value=value):
                 self.assertTrue(gate._is_pending(value))
 
@@ -185,6 +195,16 @@ class DrivechainProductionGateTest(unittest.TestCase):
 
     def test_main_rejects_explicit_placeholder_values(self) -> None:
         signoff = render_signoff(report_link="TBD", approved_by="NOT APPROVED (security sign-off pending)")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = pathlib.Path(tmpdir)
+            build_minimal_repo(root, signoff)
+            code, output = self.run_gate(root)
+        self.assertEqual(code, 1)
+        self.assertIn("field 'Report link' is still pending", output)
+        self.assertIn("field 'Approved by' is still pending", output)
+
+    def test_main_rejects_punctuated_placeholder_values(self) -> None:
+        signoff = render_signoff(report_link="TBD.", approved_by="NOT APPROVED.")
         with tempfile.TemporaryDirectory() as tmpdir:
             root = pathlib.Path(tmpdir)
             build_minimal_repo(root, signoff)

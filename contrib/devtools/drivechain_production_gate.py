@@ -10,6 +10,9 @@ import sys
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+PENDING_PLACEHOLDER_PREFIX = re.compile(
+    r"^(pending|not approved|tbd|todo|to be determined|n/a|na|none|unknown|null)(?=$|[^a-z0-9])"
+)
 
 
 def _normalize_signoff_value(value: str) -> str:
@@ -27,30 +30,8 @@ def _is_pending(value: str) -> bool:
     normalized = _normalize_signoff_value(value).lower()
     if not normalized:
         return True
-    placeholders = (
-        "pending",
-        "not approved",
-        "tbd",
-        "todo",
-        "to be determined",
-        "n/a",
-        "na",
-        "none",
-        "unknown",
-        "null",
-    )
-    for placeholder in placeholders:
-        if normalized == placeholder:
-            return True
-        if normalized.startswith(f"{placeholder} "):
-            return True
-        if normalized.startswith(f"{placeholder}("):
-            return True
-        if normalized.startswith(f"{placeholder}:"):
-            return True
-        if normalized.startswith(f"{placeholder}-"):
-            return True
-    return False
+    normalized = normalized.lstrip("`'\"([{<").strip()
+    return bool(PENDING_PLACEHOLDER_PREFIX.match(normalized))
 
 
 def _is_iso_date(value: str) -> bool:
