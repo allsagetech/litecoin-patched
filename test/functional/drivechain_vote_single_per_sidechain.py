@@ -37,6 +37,11 @@ def submit_block(node, *, extra_coinbase_vouts=None):
     return node.submitblock(block.serialize().hex())
 
 
+def mine_empty_blocks(node, nblocks: int):
+    for _ in range(nblocks):
+        assert_equal(submit_block(node), None)
+
+
 def get_bundle(node, scid: int, bundle_hash_hex: str):
     info = node.getdrivechaininfo()
     for sc in info["sidechains"]:
@@ -72,6 +77,12 @@ class DrivechainVoteSinglePerSidechain(BitcoinTestFramework):
         bundle_before = get_bundle(n, scid, bundle_hash)
         assert bundle_before is not None
         assert_equal(bundle_before["yes_votes"], 0)
+        vote_start = int(bundle_before["vote_start_height"])
+
+        cur_height = n.getblockcount()
+        target_height = vote_start - 1
+        if cur_height < target_height:
+            mine_empty_blocks(n, target_height - cur_height)
 
         vote_spk = make_drivechain_script(scid, bundle_hash, 0x02)
         res = submit_block(n, extra_coinbase_vouts=[CTxOut(0, vote_spk), CTxOut(0, vote_spk)])
