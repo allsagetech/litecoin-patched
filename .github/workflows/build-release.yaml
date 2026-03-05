@@ -42,10 +42,10 @@ jobs:
           python3 contrib/devtools/drivechain_production_gate.py
 
   # ------------------------------------------------------------
-  # 1) SegWit functional tests
+  # 1) Signet functional tests
   # ------------------------------------------------------------
-  segwit-functional-tests:
-    name: SegWit functional tests
+  signet-functional-tests:
+    name: Signet functional tests
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     needs: [drivechain-production-gates]
@@ -141,7 +141,7 @@ jobs:
       - name: build
         run: make -j4
 
-      - name: Run SegWit functional tests
+      - name: Run Signet functional test
         env:
           LC_ALL: C
         run: |
@@ -177,10 +177,7 @@ jobs:
             }
           }
 
-          run_one p2p_segwit.py
-          run_one p2p_compactblocks.py
-          run_one rpc_psbt.py
-          run_one wallet_implicitsegwit.py --legacy-wallet
+          run_one feature_signet.py
 
   # ------------------------------------------------------------
   # 2) Drivechain functional tests (everything but master)
@@ -189,7 +186,7 @@ jobs:
     name: Drivechain functional tests
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-    needs: [drivechain-production-gates, segwit-functional-tests]
+    needs: [drivechain-production-gates, signet-functional-tests]
 
     steps:
       - name: Checkout repository
