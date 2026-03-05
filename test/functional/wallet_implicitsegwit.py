@@ -7,7 +7,7 @@
 import test_framework.address as address
 from test_framework.test_framework import BitcoinTestFramework
 
-# TODO: Might be nice to test p2pk here too
+# P2PK has no standard address encoding; this test covers address-convertible key destinations.
 address_types = ('legacy', 'bech32', 'p2sh-segwit')
 
 def key_to_address(key, address_type):
