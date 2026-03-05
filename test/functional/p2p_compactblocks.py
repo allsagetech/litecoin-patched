@@ -667,12 +667,12 @@ class CompactBlocksTest(BitcoinTestFramework):
         node = self.nodes[0]
         utxo = self.utxos.pop(0)
 
+        # First relay a block that has no witness data.
         block = self.build_block_with_transactions(node, utxo, 10)
 
         [l.clear_block_announcement() for l in listeners]
 
-        # ToHex() won't serialize with witness, but this block has no witnesses
-        # anyway. TODO: repeat this test with witness tx's to a segwit node.
+        # ToHex() won't serialize with witness, but this block has no witnesses.
         node.submitblock(ToHex(block))
 
         for l in listeners:
@@ -681,6 +681,22 @@ class CompactBlocksTest(BitcoinTestFramework):
             for l in listeners:
                 l.last_message["cmpctblock"].header_and_shortids.header.calc_sha256()
                 assert_equal(l.last_message["cmpctblock"].header_and_shortids.header.sha256, block.sha256)
+
+        # Now relay a block that includes witness transactions.
+        [l.clear_block_announcement() for l in listeners]
+        txid = node.sendtoaddress(node.getnewaddress(address_type="bech32"), 0.1)
+        tx = FromHex(CTransaction(), node.gettransaction(txid)["hex"])
+        assert not tx.wit.is_null()
+        mined_block_hash = int(node.generate(1)[0], 16)
+        mined_block = FromHex(CBlock(), node.getblock("{:064x}".format(mined_block_hash), False))
+        assert any(not mined_tx.wit.is_null() for mined_tx in mined_block.vtx[1:])
+
+        for l in listeners:
+            l.wait_until(lambda: "cmpctblock" in l.last_message, timeout=30)
+        with p2p_lock:
+            for l in listeners:
+                l.last_message["cmpctblock"].header_and_shortids.header.calc_sha256()
+                assert_equal(l.last_message["cmpctblock"].header_and_shortids.header.sha256, mined_block_hash)
 
     # Test that we don't get disconnected if we relay a compact block with valid header,
     # but invalid transactions.

@@ -58,8 +58,7 @@ void test_one_input(const std::vector<uint8_t>& buffer)
     (void)block.ToString();
     (void)BlockMerkleRoot(block);
     if (!block.vtx.empty()) {
-        // TODO: Avoid array index out of bounds error in BlockWitnessMerkleRoot
-        //       when block.vtx.empty().
+        // Guard against empty-transaction blocks for witness merkle root computation.
         (void)BlockWitnessMerkleRoot(block);
     }
     (void)GetBlockWeight(block);

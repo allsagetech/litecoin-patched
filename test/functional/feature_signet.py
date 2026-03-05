@@ -6,7 +6,7 @@
 
 from decimal import Decimal
 
-from test_framework.test_framework import BitcoinTestFramework, SkipTest
+from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 
 signet_blocks = [
@@ -40,14 +40,19 @@ class SignetBasicTest(BitcoinTestFramework):
         ]
 
     def run_test(self):
-        if True:
-            raise SkipTest("Signet not supported")
-
         self.log.info("basic tests using OP_TRUE challenge")
 
         self.log.info('getmininginfo')
         mining_info = self.nodes[0].getmininginfo()
         assert_equal(mining_info['blocks'], 0)
+        if mining_info['chain'] == 'test':
+            # This fork currently maps signet chain params to testnet behavior.
+            # Keep this as a smoke test for signet bootstrapping until native signet
+            # params are implemented.
+            with self.nodes[0].assert_debug_log(["Signet derived magic (message start)"]):
+                self.restart_node(0)
+            return
+
         assert_equal(mining_info['chain'], 'signet')
         assert 'currentblocktx' not in mining_info
         assert 'currentblockweight' not in mining_info

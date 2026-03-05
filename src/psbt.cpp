@@ -5,6 +5,21 @@
 #include <psbt.h>
 #include <util/strencodings.h>
 
+namespace {
+bool IsWitnessV1PlusProgram(const CScript& script)
+{
+    int version = 0;
+    std::vector<unsigned char> program;
+    return script.IsWitnessProgram(version, program) && version > 0;
+}
+
+bool IsSegwitV1PlusOutput(const CScript& script_pub_key, const CScript* redeem_script = nullptr)
+{
+    if (IsWitnessV1PlusProgram(script_pub_key)) return true;
+    return redeem_script && script_pub_key.IsPayToScriptHash() && IsWitnessV1PlusProgram(*redeem_script);
+}
+} // namespace
+
 
 PartiallySignedTransaction::PartiallySignedTransaction(const CMutableTransaction& tx) : tx(tx)
 {
@@ -136,8 +151,19 @@ void PSBTInput::Merge(const PSBTInput& input)
 {
     if (!non_witness_utxo && input.non_witness_utxo) non_witness_utxo = input.non_witness_utxo;
     if (witness_utxo.IsNull() && !input.witness_utxo.IsNull()) {
-        // TODO: For segwit v1, we will want to clear out the non-witness utxo when setting a witness one. For v0 and non-segwit, this is not safe
         witness_utxo = input.witness_utxo;
+    }
+    if (!witness_utxo.IsNull()) {
+        const CScript* redeem_script_ptr = nullptr;
+        if (!redeem_script.empty()) {
+            redeem_script_ptr = &redeem_script;
+        } else if (!input.redeem_script.empty()) {
+            redeem_script_ptr = &input.redeem_script;
+        }
+        // For segwit v1+ spends, witness_utxo is sufficient and we can drop non_witness_utxo.
+        if (IsSegwitV1PlusOutput(witness_utxo.scriptPubKey, redeem_script_ptr)) {
+            non_witness_utxo = nullptr;
+        }
     }
 
     partial_sigs.insert(input.partial_sigs.begin(), input.partial_sigs.end());
@@ -275,10 +301,12 @@ bool SignPSBTInput(const SigningProvider& provider, PartiallySignedTransaction& 
     input.FromSignatureData(sigdata);
 
     // If we have a witness signature, put a witness UTXO.
-    // TODO: For segwit v1, we should remove the non_witness_utxo
     if (sigdata.witness) {
         input.witness_utxo = utxo;
-        // input.non_witness_utxo = nullptr;
+        // For segwit v1+ spends, witness_utxo is sufficient and non_witness_utxo can be dropped.
+        if (IsSegwitV1PlusOutput(utxo.scriptPubKey, sigdata.redeem_script.empty() ? nullptr : &sigdata.redeem_script)) {
+            input.non_witness_utxo = nullptr;
+        }
     }
 
     // Fill in the missing info
