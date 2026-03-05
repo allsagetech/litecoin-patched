@@ -42,6 +42,7 @@
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 #include <wallet/walletutil.h>
+#include <drivechain/state.h>
 #include <drivechain/script.h>
 #include <hash.h>
 #include <wallet/fees.h>
