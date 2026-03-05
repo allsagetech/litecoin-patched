@@ -158,6 +158,10 @@ public:
     //! populates the values.
     virtual void findCoins(std::map<COutPoint, Coin>& coins) = 0;
 
+    //! Look up registered sidechain owner-auth data from active chain state.
+    //! Returns false if the sidechain is not registered.
+    virtual bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, uint256& owner_key_hash) = 0;
+
     //! Estimate fraction of total transactions verified if blocks up to
     //! the specified block hash are verified.
     virtual double guessVerificationProgress(const uint256& block_hash) = 0;

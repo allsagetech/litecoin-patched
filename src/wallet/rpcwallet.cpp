@@ -33,7 +33,6 @@
 #include <util/translation.h>
 #include <util/url.h>
 #include <util/vector.h>
-#include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/context.h>
 #include <wallet/feebumper.h>
@@ -43,7 +42,6 @@
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 #include <wallet/walletutil.h>
-#include <drivechain/state.h>
 #include <drivechain/script.h>
 #include <hash.h>
 #include <wallet/fees.h>
@@ -1037,14 +1035,15 @@ static RPCHelpMan senddrivechainbundle()
                 owner_key_hash = Hash(owner_pubkey_bytes);
             }
 
-            {
-                LOCK(cs_main);
-                const Sidechain* sc = ::ChainstateActive().GetDrivechainState().GetSidechain(sidechain_id);
-                if (sc != nullptr && sc->owner_auth_required) {
+            if (pwallet->HaveChain()) {
+                bool owner_auth_required = false;
+                uint256 registered_owner_key_hash;
+                if (pwallet->chain().getDrivechainSidechain(sidechain_id, owner_auth_required, registered_owner_key_hash) &&
+                    owner_auth_required) {
                     if (!owner_key_provided) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey is required for registered sidechains with owner auth");
                     }
-                    if (owner_key_hash != sc->owner_key_hash) {
+                    if (owner_key_hash != registered_owner_key_hash) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey does not match the registered owner key");
                     }
                 }
