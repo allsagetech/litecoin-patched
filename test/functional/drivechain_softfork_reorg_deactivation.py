@@ -76,7 +76,7 @@ class DrivechainSoftforkReorgDeactivation(BitcoinTestFramework):
         mine_to_height(n0, 432)
         assert_equal(get_drivechain_status(n0), "active")
 
-        owner_privkey = n0.dumpprivkey(n0.getnewaddress())
+        owner_privkey = n0.getnewaddress()
         reg = n0.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         txid = reg["txid"]
         assert txid in n0.getrawmempool()

@@ -168,11 +168,13 @@ namespace {
     static const std::pair<char, std::string> DB_DRIVECHAIN_STATE_KEY = std::make_pair('D', "state");
     static const std::pair<char, std::string> DB_DRIVECHAIN_STATE_RING_KEY = std::make_pair('D', "state-ring");
     static constexpr char DB_DRIVECHAIN_STATE_BY_HASH_PREFIX = 'E';
-    static constexpr size_t DRIVECHAIN_STATE_CACHE_MAX_ENTRIES = 4096;
-    static constexpr size_t DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES = 4096;
+    static constexpr size_t DRIVECHAIN_STATE_CACHE_MAX_ENTRIES = 512;
+    static constexpr size_t DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES = 512;
     static constexpr size_t DRIVECHAIN_STATE_SNAPSHOT_SEARCH_LIMIT = DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES;
     static std::map<uint256, DrivechainState> g_drivechain_state_cache;
     static std::deque<uint256> g_drivechain_state_cache_order;
+    static std::map<uint256, uint256> g_drivechain_state_hash_cache;
+    static std::deque<uint256> g_drivechain_state_hash_cache_order;
     static std::deque<uint256> g_drivechain_state_persisted_order;
     static bool g_drivechain_state_persisted_order_loaded{false};
     static uint64_t g_drivechain_state_cache_hits{0};
@@ -226,11 +228,50 @@ namespace {
         return pblocktree->Read(DrivechainStateByHashDbKey(hash), out_snapshot);
     }
 
+    static uint256 ComputeDrivechainStateHash(const DrivechainState& drivechain_state)
+    {
+        return SerializeHash(drivechain_state);
+    }
+
+    static void RememberDrivechainStateHashForHash(
+        const uint256& tip_hash,
+        const uint256& state_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        if (g_drivechain_state_hash_cache.find(tip_hash) == g_drivechain_state_hash_cache.end()) {
+            g_drivechain_state_hash_cache_order.push_back(tip_hash);
+        }
+        g_drivechain_state_hash_cache[tip_hash] = state_hash;
+
+        while (g_drivechain_state_hash_cache_order.size() > DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES) {
+            const uint256 evict_hash = g_drivechain_state_hash_cache_order.front();
+            g_drivechain_state_hash_cache_order.pop_front();
+            g_drivechain_state_hash_cache.erase(evict_hash);
+        }
+    }
+
+    static bool GetRememberedDrivechainStateHashForHash(
+        const uint256& tip_hash,
+        uint256& out_state_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        const auto it = g_drivechain_state_hash_cache.find(tip_hash);
+        if (it == g_drivechain_state_hash_cache.end()) {
+            return false;
+        }
+        out_state_hash = it->second;
+        return true;
+    }
+
     static void CacheDrivechainStateForHash(
         const uint256& tip_hash,
         const DrivechainState& drivechain_state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
+
+        RememberDrivechainStateHashForHash(tip_hash, ComputeDrivechainStateHash(drivechain_state));
 
         if (g_drivechain_state_cache.find(tip_hash) == g_drivechain_state_cache.end()) {
             g_drivechain_state_cache_order.push_back(tip_hash);
@@ -1281,17 +1322,31 @@ namespace {
 
         DrivechainStateSnapshot snapshot;
         const CBlockIndex* tip = chainstate.m_chain.Tip();
+        const uint256 state_hash = ComputeDrivechainStateHash(chainstate.GetDrivechainState());
         snapshot.tip_hash = tip ? tip->GetBlockHash() : uint256();
         snapshot.state = chainstate.GetDrivechainState();
         if (!pblocktree->Write(DB_DRIVECHAIN_STATE_KEY, snapshot)) {
             return false;
         }
 
+        if (tip != nullptr) {
+            RememberDrivechainStateHashForHash(snapshot.tip_hash, state_hash);
+        }
+
         if (!EnsurePersistedDrivechainSnapshotOrderLoaded()) {
             return false;
         }
 
-        if (tip != nullptr) {
+        bool persist_full_snapshot = tip != nullptr;
+        if (persist_full_snapshot && tip->pprev != nullptr) {
+            uint256 parent_state_hash;
+            if (GetRememberedDrivechainStateHashForHash(tip->pprev->GetBlockHash(), parent_state_hash) &&
+                parent_state_hash == state_hash) {
+                persist_full_snapshot = false;
+            }
+        }
+
+        if (persist_full_snapshot) {
             const auto by_hash_key = DrivechainStateByHashDbKey(snapshot.tip_hash);
             if (!pblocktree->Write(by_hash_key, snapshot)) {
                 return false;
@@ -1321,7 +1376,9 @@ namespace {
         }
 
         ++g_drivechain_state_snapshots_written;
-        CacheDrivechainStateForTip(chainstate);
+        if (persist_full_snapshot) {
+            CacheDrivechainStateForTip(chainstate);
+        }
         return true;
     }
 
@@ -6042,6 +6099,8 @@ void UnloadBlockIndex(CTxMemPool* mempool, ChainstateManager& chainman)
     chainman.Unload();
     g_drivechain_state_cache.clear();
     g_drivechain_state_cache_order.clear();
+    g_drivechain_state_hash_cache.clear();
+    g_drivechain_state_hash_cache_order.clear();
     g_drivechain_state_persisted_order.clear();
     g_drivechain_state_persisted_order_loaded = false;
     g_drivechain_state_cache_hits = 0;

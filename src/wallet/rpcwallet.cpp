@@ -38,6 +38,7 @@
 #include <wallet/feebumper.h>
 #include <wallet/load.h>
 #include <wallet/rpcwallet.h>
+#include <wallet/scriptpubkeyman.h>
 #include <wallet/txlist.h>
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
@@ -766,6 +767,54 @@ static CScript BuildDrivechainRegisterScript(
     return script;
 }
 
+static void GetDrivechainOwnerKeyFromWalletAddress(
+    const CWallet& wallet,
+    const std::string& owner_address,
+    CKey& out_key,
+    uint256& out_owner_key_hash)
+{
+    const CTxDestination dest = DecodeDestination(owner_address);
+    if (!IsValidDestination(dest)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must be a valid wallet address");
+    }
+
+    CKeyID key_id;
+    if (const auto* pkhash = boost::get<PKHash>(&dest)) {
+        key_id = ToKeyID(*pkhash);
+    } else if (const auto* witness_key_hash = boost::get<WitnessV0KeyHash>(&dest)) {
+        key_id = ToKeyID(*witness_key_hash);
+    } else {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must refer to a single-key address");
+    }
+
+    const DestinationAddr dest_addr(dest);
+    ScriptPubKeyMan* const spk_man = wallet.GetScriptPubKeyMan(dest_addr);
+    if (spk_man == nullptr) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must belong to this wallet");
+    }
+
+    CPubKey owner_pubkey;
+    if (auto* legacy_spk_man = dynamic_cast<LegacyScriptPubKeyMan*>(spk_man)) {
+        if (!legacy_spk_man->GetPubKey(key_id, owner_pubkey) || !legacy_spk_man->GetKey(key_id, out_key)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "owner_address private key is not available in this wallet");
+        }
+    } else if (auto* descriptor_spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man)) {
+        std::unique_ptr<FlatSigningProvider> keys = descriptor_spk_man->GetSigningProvider(dest_addr.GetScript(), true);
+        if (!keys || !keys->GetPubKey(key_id, owner_pubkey) || !keys->GetKey(key_id, out_key)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "owner_address private key is not available in this wallet");
+        }
+    } else {
+        throw JSONRPCError(RPC_WALLET_ERROR, "owner_address is managed by an unsupported wallet backend");
+    }
+
+    if (!owner_pubkey.IsValid() || !owner_pubkey.IsCompressed()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must resolve to a valid compressed public key");
+    }
+
+    const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
+    out_owner_key_hash = Hash(owner_pubkey_bytes);
+}
+
 static std::pair<std::string, uint8_t> SendDrivechainRegisterWithAutoId(
     CWallet& wallet,
     const CKey& owner_key,
@@ -805,10 +854,10 @@ static RPCHelpMan senddrivechainregister()
     return RPCHelpMan{
         "senddrivechainregister",
         "Create, fund, sign and broadcast a Drivechain REGISTER transaction.\n"
-        "This is the secure sidechain ownership path: the owner key signs the registration binding.\n"
+        "This is the secure sidechain ownership path: the wallet signs the registration binding with the owner address key.\n"
         "If sidechain_id is omitted, the wallet picks the lowest currently unused id from 0-255.\n",
         std::vector<RPCArg>{
-            {"owner_privkey", RPCArg::Type::STR, RPCArg::Optional::NO, "Owner WIF private key (compressed pubkey hash is committed on-chain)"},
+            {"owner_address", RPCArg::Type::STR, RPCArg::Optional::NO, "Wallet address whose compressed public key becomes the registered owner key"},
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional sidechain id (0-255). If omitted, lowest unused id is selected."},
             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Amount to attach to register output (default: 1.0)"},
             {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
@@ -822,21 +871,16 @@ static RPCHelpMan senddrivechainregister()
             }},
         RPCExamples{
             HelpExampleCli("senddrivechainregister",
-                "\"cR...\"") +
+                "\"rltc1q...\"") +
             HelpExampleCli("senddrivechainregister",
-                "\"cR...\" 7 1.0") +
+                "\"rltc1q...\" 7 1.0") +
             HelpExampleRpc("senddrivechainregister",
-                "\"cR...\", 7, 1.0")
+                "\"rltc1q...\", 7, 1.0")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
             if (!wallet) return NullUniValue;
             CWallet* const pwallet = wallet.get();
-
-            const CKey owner_key = DecodeSecret(request.params[0].get_str());
-            if (!owner_key.IsValid()) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey must be a valid WIF private key");
-            }
 
             Optional<uint8_t> maybe_sidechain_id;
             if (request.params.size() > 1 && !request.params[1].isNull()) {
@@ -846,13 +890,6 @@ static RPCHelpMan senddrivechainregister()
                 }
                 maybe_sidechain_id = static_cast<uint8_t>(scid_i);
             }
-
-            const CPubKey owner_pubkey = owner_key.GetPubKey();
-            if (!owner_pubkey.IsValid()) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey does not produce a valid compressed public key");
-            }
-            const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
-            const uint256 owner_key_hash = Hash(owner_pubkey_bytes);
 
             CAmount amount = COIN;
             if (request.params.size() > 2 && !request.params[2].isNull()) {
@@ -873,6 +910,12 @@ static RPCHelpMan senddrivechainregister()
             std::string txid;
             uint8_t sidechain_id = 0;
             LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+
+            CKey owner_key;
+            uint256 owner_key_hash;
+            GetDrivechainOwnerKeyFromWalletAddress(*pwallet, request.params[0].get_str(), owner_key, owner_key_hash);
+
             if (maybe_sidechain_id) {
                 sidechain_id = *maybe_sidechain_id;
                 const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(sidechain_id, owner_key_hash);
@@ -977,29 +1020,28 @@ static RPCHelpMan senddrivechainbundle()
         "senddrivechainbundle",
         "Create, fund, sign and broadcast a drivechain BUNDLE_COMMIT transaction.\n"
         "This publishes a bundle hash for a sidechain.\n"
-        "The sidechain must already exist (created by a prior confirmed REGISTER).\n",
+        "The sidechain must already exist (created by a prior confirmed REGISTER).\n"
+        "Commit outputs are always created with zero value to avoid burning funds.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
-            {"amount",       RPCArg::Type::AMOUNT,  RPCArg::Optional::NO, "Dummy amount to attach to commit output"},
-            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
-            {"owner_privkey", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "WIF private key used to append sidechain owner auth signature. Required when the registered sidechain has owner auth enabled."},
+            {"owner_address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Wallet address used to sign the owner authorization. Required when the registered sidechain has owner auth enabled."},
         },
         RPCResult{
             RPCResult::Type::STR_HEX, "txid", "The transaction id"
         },
         RPCExamples{
             HelpExampleCli("senddrivechainbundle",
-                           "1 0000000000000000000000000000000000000000000000000000000000000000 0.1") +
+                           "1 0000000000000000000000000000000000000000000000000000000000000000 \"rltc1q...\"") +
             HelpExampleRpc("senddrivechainbundle",
-                           "1, \"0000...0000\", 0.1")
+                           "1, \"0000...0000\", \"rltc1q...\"")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
             if (!wallet) return NullUniValue;
             CWallet* const pwallet = wallet.get();
 
-            if (request.params.size() < 3) {
+            if (request.params.size() < 2) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
             }
 
@@ -1012,44 +1054,31 @@ static RPCHelpMan senddrivechainbundle()
             const uint256 bundle_hash = ParseHashV(request.params[1], "bundle_hash");
             std::vector<unsigned char> bundle_vec(bundle_hash.begin(), bundle_hash.end());
 
-            CAmount amount = AmountFromValue(request.params[2]);
-
-            bool subtract_fee_from_amount = false;
-            if (request.params.size() > 3 && !request.params[3].isNull()) {
-                subtract_fee_from_amount = request.params[3].get_bool();
-            }
-            const bool owner_key_provided = request.params.size() > 4 && !request.params[4].isNull();
-            CKey owner_key;
-            uint256 owner_key_hash;
+            const bool owner_address_provided = request.params.size() > 2 && !request.params[2].isNull();
             std::vector<unsigned char> auth_sig;
-            if (owner_key_provided) {
-                owner_key = DecodeSecret(request.params[4].get_str());
-                if (!owner_key.IsValid()) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey must be a valid WIF private key");
-                }
-                const CPubKey owner_pubkey = owner_key.GetPubKey();
-                if (!owner_pubkey.IsValid() || !owner_pubkey.IsCompressed()) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey does not produce a valid compressed public key");
-                }
-                const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
-                owner_key_hash = Hash(owner_pubkey_bytes);
-            }
-
+            bool owner_auth_required = false;
+            uint256 registered_owner_key_hash;
             if (pwallet->HaveChain()) {
-                bool owner_auth_required = false;
-                uint256 registered_owner_key_hash;
                 if (pwallet->chain().getDrivechainSidechain(sidechain_id, owner_auth_required, registered_owner_key_hash) &&
                     owner_auth_required) {
-                    if (!owner_key_provided) {
-                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey is required for registered sidechains with owner auth");
-                    }
-                    if (owner_key_hash != registered_owner_key_hash) {
-                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_privkey does not match the registered owner key");
+                    if (!owner_address_provided) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address is required for registered sidechains with owner auth");
                     }
                 }
             }
 
-            if (owner_key_provided) {
+            if (owner_address_provided) {
+                LOCK(pwallet->cs_wallet);
+                EnsureWalletIsUnlocked(pwallet);
+
+                CKey owner_key;
+                uint256 owner_key_hash;
+                GetDrivechainOwnerKeyFromWalletAddress(*pwallet, request.params[2].get_str(), owner_key, owner_key_hash);
+
+                if (owner_auth_required && owner_key_hash != registered_owner_key_hash) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address does not match the registered owner key");
+                }
+
                 const uint256 auth_msg = ComputeDrivechainBundleAuthMessage(sidechain_id, bundle_hash);
                 if (!owner_key.SignCompact(auth_msg, auth_sig)) {
                     throw JSONRPCError(RPC_WALLET_ERROR, "failed to create owner authorization signature");
@@ -1071,7 +1100,7 @@ static RPCHelpMan senddrivechainbundle()
             CCoinControl coin_control;
 
             LOCK(pwallet->cs_wallet);
-            std::string txid = SendToDrivechainScript(*pwallet, script, amount, coin_control, subtract_fee_from_amount);
+            std::string txid = SendToDrivechainScript(*pwallet, script, /*amount=*/0, coin_control, /*subtract_fee_from_amount=*/false);
             return txid;
         },
     };
@@ -5555,9 +5584,9 @@ static const CRPCCommand commands[] =
     { "wallet",             "setwalletflag",                    &setwalletflag,                 {"flag","value"} },
     { "wallet",             "signmessage",                      &signmessage,                   {"address","message"} },
     { "wallet",             "signrawtransactionwithwallet",     &signrawtransactionwithwallet,  {"hexstring","prevtxs","sighashtype"} },
-    { "wallet",             "senddrivechainregister",           &senddrivechainregister,        {"owner_privkey", "sidechain_id", "amount", "subtractfeefromamount"} },
+    { "wallet",             "senddrivechainregister",           &senddrivechainregister,        {"owner_address", "sidechain_id", "amount", "subtractfeefromamount"} },
     { "wallet",             "senddrivechaindeposit",            &senddrivechaindeposit,         {"sidechain_id", "payload", "amounts", "subtract_fee"} },
-    { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "amount", "subtractfeefromamount", "owner_privkey"} },
+    { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "owner_address"} },
     { "wallet",             "senddrivechainbmmrequest",         &senddrivechainbmmrequest,      {"sidechain_id", "side_block_hash", "prev_main_block_hash", "amount", "subtractfeefromamount"} },
     { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id", "bundle_hash", "withdrawals", "allow_unbroadcast"} },
     { "wallet",             "unloadwallet",                     &unloadwallet,                  {"wallet_name", "load_on_startup"} },

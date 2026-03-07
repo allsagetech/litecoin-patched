@@ -58,7 +58,7 @@ class DrivechainStateTest(BitcoinTestFramework):
         node.generatetoaddress(101, addr)
 
         sidechain_id = 1
-        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        owner_privkey = node.getnewaddress()
         node.senddrivechainregister(owner_privkey, sidechain_id, Decimal("1.0"))
         node.generate(1)
 
@@ -88,7 +88,7 @@ class DrivechainStateTest(BitcoinTestFramework):
         bundle_payload = "11" * 32
 
         self.log.info("Creating drivechain BUNDLE_COMMIT output with owner authorization.")
-        txid2 = node.senddrivechainbundle(sidechain_id, bundle_payload, Decimal("0.1"), False, owner_privkey)
+        txid2 = node.senddrivechainbundle(sidechain_id, bundle_payload, owner_privkey)
         node.generate(1)
 
         dcinfo2 = node.getdrivechaininfo()

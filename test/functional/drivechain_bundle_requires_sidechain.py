@@ -90,14 +90,14 @@ class DrivechainBundleRequiresSidechain(BitcoinTestFramework):
         assert "drivechain-unknown-sidechain" in str(res)
 
         # Register and confirm sidechain state; commit then succeeds.
-        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        owner_privkey = node.getnewaddress()
         node.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         node.generatetoaddress(1, node.getnewaddress())
 
         node.senddrivechaindeposit(scid, "00" * 32, [Decimal("1.0")])
         node.generatetoaddress(1, node.getnewaddress())
 
-        txid = node.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
+        txid = node.senddrivechainbundle(scid, bundle_hash, owner_privkey)
         assert isinstance(txid, str)
         node.generatetoaddress(1, node.getnewaddress())
         assert_equal(has_bundle(node, scid, bundle_hash), True)

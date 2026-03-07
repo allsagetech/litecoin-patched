@@ -97,7 +97,7 @@ class DrivechainExecuteDuplicateBundleReject(BitcoinTestFramework):
         n.generatetoaddress(120, n.getnewaddress())
 
         scid = 1
-        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        owner_privkey = n.getnewaddress()
         n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         n.generatetoaddress(1, n.getnewaddress())
 
@@ -107,7 +107,7 @@ class DrivechainExecuteDuplicateBundleReject(BitcoinTestFramework):
         withdrawals = [{"address": n.getnewaddress(), "amount": Decimal("0.1")}]
         bundle_hash = make_bundle_hash(n, scid, withdrawals)
 
-        n.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
+        n.senddrivechainbundle(scid, bundle_hash, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         bundle = get_bundle(n, scid, bundle_hash)

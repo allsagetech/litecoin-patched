@@ -104,7 +104,7 @@ class DrivechainBundleReplaceRules(BitcoinTestFramework):
         bundle2 = "22" * 32
         bundle3 = "33" * 32
 
-        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        owner_privkey = n.getnewaddress()
         n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         n.generatetoaddress(1, n.getnewaddress())
 
@@ -112,11 +112,11 @@ class DrivechainBundleReplaceRules(BitcoinTestFramework):
         n.senddrivechaindeposit(scid, "00" * 32, [Decimal("1.0")])
         n.generatetoaddress(1, n.getnewaddress())
 
-        n.senddrivechainbundle(scid, bundle1, Decimal("0.1"), False, owner_privkey)
+        n.senddrivechainbundle(scid, bundle1, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         # Replaces unapproved bundle1.
-        n.senddrivechainbundle(scid, bundle2, Decimal("0.1"), False, owner_privkey)
+        n.senddrivechainbundle(scid, bundle2, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         sc = get_sidechain(n, scid)
@@ -155,8 +155,6 @@ class DrivechainBundleReplaceRules(BitcoinTestFramework):
             n.senddrivechainbundle,
             scid,
             bundle3,
-            Decimal("0.1"),
-            False,
             owner_privkey,
         )
 

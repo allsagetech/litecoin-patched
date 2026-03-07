@@ -81,7 +81,7 @@ class DrivechainBundlehashMismatchReject(BitcoinTestFramework):
         n.generatetoaddress(110, n.getnewaddress())
 
         scid = 1
-        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        owner_privkey = n.getnewaddress()
         n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         n.generatetoaddress(1, n.getnewaddress())
 
@@ -89,7 +89,7 @@ class DrivechainBundlehashMismatchReject(BitcoinTestFramework):
         n.generatetoaddress(1, n.getnewaddress())
 
         committed_hash = "11" * 32
-        n.senddrivechainbundle(scid, committed_hash, Decimal("0.2"), False, owner_privkey)
+        n.senddrivechainbundle(scid, committed_hash, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         bundle = get_bundle(n, scid, committed_hash)

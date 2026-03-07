@@ -36,7 +36,6 @@ class DrivechainOwnerAuthRestartReorg(BitcoinTestFramework):
 
         owner_addr = n0.getnewaddress()
         owner_pubkey = bytes.fromhex(n0.getaddressinfo(owner_addr)["pubkey"])
-        owner_privkey = n0.dumpprivkey(owner_addr)
         # `senddrivechaindeposit` takes raw 32-byte payload hex, while
         # `getdrivechaininfo` reports uint256 via GetHex() (byte-reversed view).
         owner_key_hash_payload = hash256(owner_pubkey).hex()
@@ -44,7 +43,7 @@ class DrivechainOwnerAuthRestartReorg(BitcoinTestFramework):
 
         self.disconnect_nodes(0, 1)
 
-        n0.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        n0.senddrivechainregister(owner_addr, scid, Decimal("1.0"))
         n0.generatetoaddress(1, n0.getnewaddress())
         n0.senddrivechaindeposit(scid, owner_key_hash_payload, [Decimal("1.0")])
         n0.generatetoaddress(1, n0.getnewaddress())

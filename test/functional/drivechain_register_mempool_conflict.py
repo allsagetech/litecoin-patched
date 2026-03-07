@@ -28,8 +28,8 @@ class DrivechainRegisterMempoolConflict(BitcoinTestFramework):
 
         node.generatetoaddress(110, node.getnewaddress())
 
-        owner1_privkey = node.dumpprivkey(node.getnewaddress())
-        owner2_privkey = node.dumpprivkey(node.getnewaddress())
+        owner1_privkey = node.getnewaddress()
+        owner2_privkey = node.getnewaddress()
 
         assert_raises_rpc_error(
             -8,

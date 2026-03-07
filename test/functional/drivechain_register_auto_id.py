@@ -29,17 +29,16 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
 
         # Populate a few sidechains first so auto-assignment must scan for an unused id.
         for scid in (1, 2, 3):
-            reg_owner_privkey = n.dumpprivkey(n.getnewaddress())
+            reg_owner_privkey = n.getnewaddress()
             n.senddrivechainregister(reg_owner_privkey, scid, Decimal("1.0"))
             n.generatetoaddress(1, n.getnewaddress())
 
         owner_addr = n.getnewaddress()
-        owner_privkey = n.dumpprivkey(owner_addr)
         owner_pubkey = bytes.fromhex(n.getaddressinfo(owner_addr)["pubkey"])
         owner_key_hash_payload = hash256(owner_pubkey).hex()
         owner_key_hash_rpc = bytes.fromhex(owner_key_hash_payload)[::-1].hex()
 
-        reg = n.senddrivechainregister(owner_privkey)
+        reg = n.senddrivechainregister(owner_addr)
         assert_equal(int(reg["sidechain_id"]), 0)
         assert_equal(reg["owner_key_hash_payload"], owner_key_hash_payload)
         assert_equal(reg["owner_key_hash"], owner_key_hash_rpc)
@@ -60,7 +59,7 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
             -26,
             "drivechain-register-sidechain-exists",
             n.senddrivechainregister,
-            owner_privkey,
+            owner_addr,
             0,
         )
 
@@ -68,32 +67,26 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
         bundle_hash = "44" * 32
         assert_raises_rpc_error(
             -8,
-            "owner_privkey is required for registered sidechains with owner auth",
+            "owner_address is required for registered sidechains with owner auth",
             n.senddrivechainbundle,
             0,
             bundle_hash,
-            Decimal("0.1"),
         )
 
         wrong_addr = n.getnewaddress()
-        wrong_privkey = n.dumpprivkey(wrong_addr)
         assert_raises_rpc_error(
             -8,
-            "owner_privkey does not match the registered owner key",
+            "owner_address does not match the registered owner key",
             n.senddrivechainbundle,
             0,
             bundle_hash,
-            Decimal("0.1"),
-            False,
-            wrong_privkey,
+            wrong_addr,
         )
 
         txid = n.senddrivechainbundle(
             0,
             bundle_hash,
-            Decimal("0.1"),
-            False,
-            owner_privkey,
+            owner_addr,
         )
         assert txid
 

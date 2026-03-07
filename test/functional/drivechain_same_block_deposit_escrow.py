@@ -107,7 +107,7 @@ class DrivechainSameBlockDepositEscrow(BitcoinTestFramework):
         withdrawals = [{"address": n.getnewaddress(), "amount": withdraw_amount}]
         bundle_hash = make_bundle_hash(n, scid, withdrawals)
 
-        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        owner_privkey = n.getnewaddress()
         n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         n.generatetoaddress(1, n.getnewaddress())
 
@@ -116,7 +116,7 @@ class DrivechainSameBlockDepositEscrow(BitcoinTestFramework):
         n.generatetoaddress(1, n.getnewaddress())
 
         # Commit + approve a bundle while escrow is still below withdrawal amount.
-        n.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
+        n.senddrivechainbundle(scid, bundle_hash, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
 
         bundle = get_bundle(n, scid, bundle_hash)

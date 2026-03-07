@@ -76,7 +76,7 @@ class DrivechainReorgStateRollbackTest(BitcoinTestFramework):
         # Fork A (node0): REGISTER + DEPOSIT + BUNDLE_COMMIT and mine them in.
         #
         self.log.info("Fork A (node0): creating REGISTER + DEPOSIT + BUNDLE_COMMIT, mining 3 blocks.")
-        owner_privkey = n0.dumpprivkey(n0.getnewaddress())
+        owner_privkey = n0.getnewaddress()
         reg = n0.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         txid_reg = reg["txid"]
         self.log.debug(f"REGISTER txid: {txid_reg}")
@@ -86,7 +86,7 @@ class DrivechainReorgStateRollbackTest(BitcoinTestFramework):
         self.log.debug(f"DEPOSIT txid: {txid_dep}")
         n0.generate(1)
 
-        txid_bundle = n0.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
+        txid_bundle = n0.senddrivechainbundle(scid, bundle_hash, owner_privkey)
         self.log.debug(f"BUNDLE_COMMIT txid: {txid_bundle}")
         n0.generate(1)
 
@@ -151,13 +151,13 @@ class DrivechainReorgStateRollbackTest(BitcoinTestFramework):
         # Fork A2 (node0) with a fresh scid and new bundle hash
         scid2 = 2
         bundle_hash2 = "22" * 32
-        owner_privkey2 = n0.dumpprivkey(n0.getnewaddress())
+        owner_privkey2 = n0.getnewaddress()
         reg2 = n0.senddrivechainregister(owner_privkey2, scid2, Decimal("1.0"))
         txid_reg2 = reg2["txid"]
         n0.generate(1)
         txid_dep2 = n0.senddrivechaindeposit(scid2, payload, [Decimal("2.0")])
         n0.generate(1)
-        txid_bundle2 = n0.senddrivechainbundle(scid2, bundle_hash2, Decimal("0.1"), False, owner_privkey2)
+        txid_bundle2 = n0.senddrivechainbundle(scid2, bundle_hash2, owner_privkey2)
         n0.generate(1)
 
         infoA2 = n0.getdrivechaininfo()

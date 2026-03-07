@@ -10,15 +10,16 @@ This runbook documents practical operator flow for the Drivechain implementation
 
 ## 2. Register Sidechain Ownership
 
-Use `senddrivechainregister` with an owner WIF key.
+Use `senddrivechainregister` with an owner address from the loaded wallet.
 
 - Preferred: omit `sidechain_id` so wallet auto-selects the lowest unused ID.
 - Optional: pass explicit `sidechain_id` when coordinated externally.
+- The wallet must hold the corresponding private key and be unlocked.
 
 Example:
 
 ```bash
-litecoin-cli senddrivechainregister "<owner_wif>"
+litecoin-cli senddrivechainregister "<owner_address>"
 ```
 
 Response includes:
@@ -50,7 +51,8 @@ Notes:
 - Vote is miner/template-driven (`-drivechainvote`, `getblocktemplate.drivechainvotes`)
 - Execute approved bundle: `senddrivechainexecute`
 
-Owner-auth sidechains require an owner signature on `BUNDLE_COMMIT`.
+Owner-auth sidechains require an owner signature on `BUNDLE_COMMIT`, provided by the wallet key for the supplied owner address.
+`senddrivechainbundle` creates zero-value commit outputs so the RPC path does not burn funds.
 
 ## 5. Health / Debug Checks
 
@@ -67,7 +69,7 @@ Owner-auth sidechains require an owner signature on `BUNDLE_COMMIT`.
 ## 7. Operational Guardrails
 
 - Keep owner keys in dedicated operational wallets/HSM flows where possible.
-- Do not reuse owner keys across production sidechains.
+- Do not reuse owner keys across production sidechains or across networks.
 - Treat sidechain ID assignment as coordinated governance, not first-come social consensus.
 
 ## 8. Production References

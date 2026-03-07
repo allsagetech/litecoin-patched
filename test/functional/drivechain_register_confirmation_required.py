@@ -28,7 +28,7 @@ class DrivechainRegisterConfirmationRequired(BitcoinTestFramework):
 
         node.generatetoaddress(110, node.getnewaddress())
 
-        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        owner_privkey = node.getnewaddress()
         reg = node.senddrivechainregister(owner_privkey, scid)
         reg_tx_hex = node.gettransaction(reg["txid"])["hex"]
         reg_decoded = node.decoderawtransaction(reg_tx_hex)

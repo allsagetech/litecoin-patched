@@ -41,7 +41,7 @@ class DrivechainMinerVotesTest(BitcoinTestFramework):
         node_yes.generatetoaddress(130, node_yes.getnewaddress())
         self.sync_blocks()
 
-        owner_privkey = node_yes.dumpprivkey(node_yes.getnewaddress())
+        owner_privkey = node_yes.getnewaddress()
         node_yes.senddrivechainregister(owner_privkey, sidechain_id, Decimal("1.0"))
         node_yes.generatetoaddress(1, node_yes.getnewaddress())
         self.sync_blocks()
@@ -50,7 +50,7 @@ class DrivechainMinerVotesTest(BitcoinTestFramework):
         node_yes.generatetoaddress(1, node_yes.getnewaddress())
         self.sync_blocks()
 
-        node_yes.senddrivechainbundle(sidechain_id, bundle_hash, Decimal("0.1"), False, owner_privkey)
+        node_yes.senddrivechainbundle(sidechain_id, bundle_hash, owner_privkey)
         node_yes.generatetoaddress(1, node_yes.getnewaddress())
         self.sync_blocks()
 

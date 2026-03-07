@@ -4,6 +4,7 @@
 
 #include <drivechain/script.h>
 
+#include <chainparams.h>
 #include <hash.h>
 #include <pubkey.h>
 #include <script/script.h>
@@ -17,6 +18,13 @@ static constexpr unsigned char BMM_REQUEST_MAGIC[] = {0x00, 0xbf, 0x00};
 static constexpr unsigned char BMM_ACCEPT_MAGIC[] = {0xd1, 0x61, 0x73, 0x68};
 static constexpr unsigned char BUNDLE_AUTH_MAGIC[] = {'D', 'C', 'B', 'A', 0x01};
 static constexpr unsigned char REGISTER_AUTH_MAGIC[] = {'D', 'C', 'R', 'A', 0x01};
+
+static const uint256& GetDrivechainAuthDomain()
+{
+    // Bind owner-auth signatures to the active chain so a signature published on
+    // one network cannot be replayed on another.
+    return Params().GenesisBlock().GetHash();
+}
 
 static bool DecodeSinglePushAfterOpReturn(const CScript& scriptPubKey, std::vector<unsigned char>& out_payload)
 {
@@ -129,6 +137,7 @@ uint256 ComputeDrivechainBundleAuthMessage(uint8_t scid, const uint256& bundle_h
 {
     CHashWriter hw(SER_GETHASH, 0);
     hw.write((const char*)BUNDLE_AUTH_MAGIC, sizeof(BUNDLE_AUTH_MAGIC));
+    hw << GetDrivechainAuthDomain();
     hw << scid;
     hw << bundle_hash;
     return hw.GetHash();
@@ -160,6 +169,7 @@ uint256 ComputeDrivechainRegisterAuthMessage(uint8_t scid, const uint256& owner_
 {
     CHashWriter hw(SER_GETHASH, 0);
     hw.write((const char*)REGISTER_AUTH_MAGIC, sizeof(REGISTER_AUTH_MAGIC));
+    hw << GetDrivechainAuthDomain();
     hw << scid;
     hw << owner_key_hash;
     return hw.GetHash();

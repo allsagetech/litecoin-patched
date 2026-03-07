@@ -116,7 +116,7 @@ class DrivechainActivationTest(BitcoinTestFramework):
         self.log.info(f"Initial drivechain status: {status}")
         assert_equal(status, "active")
 
-        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        owner_privkey = node.getnewaddress()
         node.senddrivechainregister(owner_privkey, 1, Decimal("1.0"))
         node.generate(1)
 

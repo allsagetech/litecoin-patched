@@ -66,7 +66,7 @@ class DrivechainBundlePruning(BitcoinTestFramework):
         scid = 1
         bundle1 = "11" * 32
 
-        owner_privkey = n.dumpprivkey(n.getnewaddress())
+        owner_privkey = n.getnewaddress()
         n.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         n.generatetoaddress(1, n.getnewaddress())
 
@@ -74,7 +74,7 @@ class DrivechainBundlePruning(BitcoinTestFramework):
         n.senddrivechaindeposit(scid, "00" * 32, [Decimal("1.0")])
         n.generatetoaddress(1, n.getnewaddress())
 
-        n.senddrivechainbundle(scid, bundle1, Decimal("0.1"), False, owner_privkey)
+        n.senddrivechainbundle(scid, bundle1, owner_privkey)
         n.generatetoaddress(1, n.getnewaddress())
         b1 = get_bundle(n, scid, bundle1)
         assert b1 is not None

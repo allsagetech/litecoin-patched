@@ -73,14 +73,14 @@ class DrivechainVoteRequiredInWindow(BitcoinTestFramework):
 
         node.generatetoaddress(110, node.getnewaddress())
 
-        owner_privkey = node.dumpprivkey(node.getnewaddress())
+        owner_privkey = node.getnewaddress()
         node.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
         node.generatetoaddress(1, node.getnewaddress())
 
         node.senddrivechaindeposit(scid, "00" * 32, [Decimal("1.0")])
         node.generatetoaddress(1, node.getnewaddress())
 
-        node.senddrivechainbundle(scid, bundle_hash, Decimal("0.1"), False, owner_privkey)
+        node.senddrivechainbundle(scid, bundle_hash, owner_privkey)
         node.generatetoaddress(1, node.getnewaddress())
 
         bundle = get_bundle(node, scid, bundle_hash)

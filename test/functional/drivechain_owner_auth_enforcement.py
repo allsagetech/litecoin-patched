@@ -32,14 +32,12 @@ class DrivechainOwnerAuthEnforcement(BitcoinTestFramework):
 
         owner_addr = node.getnewaddress()
         owner_pubkey = bytes.fromhex(node.getaddressinfo(owner_addr)["pubkey"])
-        owner_privkey = node.dumpprivkey(owner_addr)
         owner_key_hash_payload = hash256(owner_pubkey).hex()
         owner_key_hash_rpc = bytes.fromhex(owner_key_hash_payload)[::-1].hex()
 
         wrong_addr = node.getnewaddress()
-        wrong_privkey = node.dumpprivkey(wrong_addr)
 
-        node.senddrivechainregister(owner_privkey, scid, Decimal("1.0"))
+        node.senddrivechainregister(owner_addr, scid, Decimal("1.0"))
         node.generatetoaddress(1, node.getnewaddress())
 
         node.senddrivechaindeposit(scid, owner_key_hash_payload, [Decimal("1.0")])
@@ -55,30 +53,25 @@ class DrivechainOwnerAuthEnforcement(BitcoinTestFramework):
 
         assert_raises_rpc_error(
             -8,
-            "owner_privkey is required for registered sidechains with owner auth",
+            "owner_address is required for registered sidechains with owner auth",
             node.senddrivechainbundle,
             scid,
             bundle_hash,
-            Decimal("0.1"),
         )
 
         assert_raises_rpc_error(
             -8,
-            "owner_privkey does not match the registered owner key",
+            "owner_address does not match the registered owner key",
             node.senddrivechainbundle,
             scid,
             bundle_hash,
-            Decimal("0.1"),
-            False,
-            wrong_privkey,
+            wrong_addr,
         )
 
         txid = node.senddrivechainbundle(
             scid,
             bundle_hash,
-            Decimal("0.1"),
-            False,
-            owner_privkey,
+            owner_addr,
         )
         assert txid
 
