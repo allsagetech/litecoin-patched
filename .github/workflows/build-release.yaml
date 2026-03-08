@@ -310,10 +310,10 @@ jobs:
                 sed -n '1,200p' "${TD}/test_framework.log" 2>/dev/null || true
                 echo ""
                 echo "--- node0 debug.log (tail) ---"
-                tail -n 200 "${TD}/node0/regtest/debug.log" 2>/dev/null || true
+                tail -n 200 "${TD}/node0/signet/debug.log" 2>/dev/null || true
                 echo ""
                 echo "--- node1 debug.log (tail) ---"
-                tail -n 200 "${TD}/node1/regtest/debug.log" 2>/dev/null || true
+                tail -n 200 "${TD}/node1/signet/debug.log" 2>/dev/null || true
               fi
 
               exit 1
