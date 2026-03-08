@@ -54,6 +54,7 @@ class CChainParams
 public:
     struct Options {
         int64_t pow_target_spacing = 0;
+        std::vector<uint8_t> signet_challenge;
     };
 
     enum Base58Type {

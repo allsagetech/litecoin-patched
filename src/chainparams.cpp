@@ -58,6 +58,26 @@ static CBlock CreateGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits
     return CreateGenesisBlock(pszTimestamp, genesisOutputScript, nTime, nNonce, nBits, nVersion, genesisReward);
 }
 
+static CBlock CreateSignetGenesisBlock()
+{
+    const char* pszTimestamp = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks";
+    const CScript genesisOutputScript = CScript() << ParseHex("04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f") << OP_CHECKSIG;
+    return CreateGenesisBlock(pszTimestamp, genesisOutputScript, 1598918400, 52613770, 0x1e0377ae, 1, 50 * COIN);
+}
+
+static const std::vector<uint8_t>& DefaultSignetChallenge()
+{
+    static const std::vector<uint8_t> challenge = ParseHex("512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae");
+    return challenge;
+}
+
+static uint256 DeriveSignetMessageStartHash(const std::vector<uint8_t>& challenge)
+{
+    CHashWriter h(SER_DISK, 0);
+    h << challenge;
+    return h.GetHash();
+}
+
 static CChainParams::Options BuildChainOptions(const ArgsManager& args, const std::string& chain)
 {
     CChainParams::Options options;
@@ -66,11 +86,41 @@ static CChainParams::Options BuildChainOptions(const ArgsManager& args, const st
         options.pow_target_spacing = 2.5 * 60; // 2.5 minutes
     } else if (chain == CBaseChainParams::TESTNET) {
         options.pow_target_spacing = 2.5 * 60; // testnet same as mainnet
+    } else if (chain == CBaseChainParams::SIGNET) {
+        options.pow_target_spacing = 10 * 60; // BIP325 default signet block time
+        options.signet_challenge = DefaultSignetChallenge();
     } else if (chain == CBaseChainParams::REGTEST) {
         options.pow_target_spacing = 2.5 * 60; // regtest default
     } else {
         // Fallback, should not happen for known chains.
         options.pow_target_spacing = 2.5 * 60;
+    }
+
+    if (chain == CBaseChainParams::SIGNET) {
+        if (args.IsArgSet("-signetchallenge")) {
+            const std::string challenge = args.GetArg("-signetchallenge", "");
+            if (!IsHex(challenge)) {
+                throw std::runtime_error(strprintf("Invalid -signetchallenge '%s'. Must be hex.", challenge));
+            }
+
+            options.signet_challenge = ParseHex(challenge);
+            if (options.signet_challenge.empty()) {
+                throw std::runtime_error("Invalid -signetchallenge. Challenge may not be empty.");
+            }
+        }
+
+        if (args.IsArgSet("-signetblocktime")) {
+            if (!args.IsArgSet("-signetchallenge")) {
+                throw std::runtime_error("-signetblocktime requires -signetchallenge to define a custom signet.");
+            }
+
+            int64_t block_time = args.GetArg("-signetblocktime", options.pow_target_spacing);
+            if (block_time <= 0 || block_time > 24 * 60 * 60) {
+                throw std::runtime_error(strprintf(
+                    "Invalid -signetblocktime value %ld (must be between 1 and 86400 seconds)", block_time));
+            }
+            options.pow_target_spacing = block_time;
+        }
     }
 
     if (args.IsArgSet("-powtargetspacing")) {
@@ -328,6 +378,105 @@ public:
 };
 
 /**
+ * Signet
+ */
+class CSigNetParams : public CChainParams {
+public:
+    explicit CSigNetParams(const CChainParams::Options& options) {
+        strNetworkID = CBaseChainParams::SIGNET;
+        consensus.signet_blocks = true;
+        consensus.signet_challenge = options.signet_challenge.empty() ? DefaultSignetChallenge() : options.signet_challenge;
+        consensus.nSubsidyHalvingInterval = 840000;
+        consensus.BIP16Height = 1;
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256();
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        consensus.powLimit = uint256S("00000377ae000000000000000000000000000000000000000000000000000000");
+        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // 2 weeks
+        consensus.nPowTargetSpacing = options.pow_target_spacing;
+        consensus.fPowAllowMinDifficultyBlocks = false;
+        consensus.fPowNoRetargeting = false;
+        consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
+        consensus.nMinerConfirmationWindow = 2016;
+        consensus.nDrivechainVoteWindow = 2016;
+        consensus.nDrivechainApprovalThreshold = 1512;
+        consensus.nDrivechainFinalizationDelay = 2016;
+        consensus.nDrivechainMinRegisterAmount = 1 * COIN;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // Keep Litecoin-specific deployment scheduling aligned with the existing test chain.
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartHeight = 2225664;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeoutHeight = 2435328;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].bit = 4;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartHeight = 2209536;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = 2419200;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight = 2360736;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = 2560320;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].lockin_on_timeout = false;
+
+        consensus.nMinimumChainWork = uint256();
+        consensus.defaultAssumeValid = uint256();
+
+        const uint256 signet_message_start = DeriveSignetMessageStartHash(consensus.signet_challenge);
+        for (size_t i = 0; i < CMessageHeader::MESSAGE_START_SIZE; ++i) {
+            pchMessageStart[i] = signet_message_start.begin()[i];
+        }
+        nDefaultPort = 39335;
+        nPruneAfterHeight = 1000;
+        m_assumed_blockchain_size = 0;
+        m_assumed_chain_state_size = 0;
+
+        genesis = CreateSignetGenesisBlock();
+        consensus.hashGenesisBlock = genesis.GetHash();
+        assert(consensus.hashGenesisBlock == uint256S("0x00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6"));
+        assert(genesis.hashMerkleRoot == uint256S("0x4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b"));
+
+        vFixedSeeds.clear();
+        // This fork does not maintain a baked-in public signet seed list.
+        vSeeds.clear();
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
+        base58Prefixes[SCRIPT_ADDRESS2] = std::vector<unsigned char>(1,58);
+        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
+        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
+        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+
+        bech32_hrp = "tltc";
+        mweb_hrp = "tmweb";
+
+        fDefaultConsistencyChecks = false;
+        fRequireStandard = false;
+        m_is_test_chain = true;
+        m_is_mockable_chain = false;
+
+        checkpointData = {
+            {
+                {0, uint256S("00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6")},
+            }
+        };
+
+        chainTxData = ChainTxData{
+            0,
+            0,
+            0,
+        };
+    }
+};
+
+/**
  * Regression test
  */
 class CRegTestParams : public CChainParams {
@@ -551,8 +700,7 @@ std::unique_ptr<const CChainParams> CreateChainParams(const ArgsManager& args, c
     } else if (chain == CBaseChainParams::TESTNET) {
         return std::unique_ptr<CChainParams>(new CTestNetParams(options));
     } else if (chain == CBaseChainParams::SIGNET) {
-        // TODO: Support SigNet properly. For now map to testnet behavior, but still pass options.
-        return std::unique_ptr<CChainParams>(new CTestNetParams(options));
+        return std::unique_ptr<CChainParams>(new CSigNetParams(options));
     } else if (chain == CBaseChainParams::REGTEST) {
         return std::unique_ptr<CChainParams>(new CRegTestParams(args, options));
     }

@@ -45,13 +45,6 @@ class SignetBasicTest(BitcoinTestFramework):
         self.log.info('getmininginfo')
         mining_info = self.nodes[0].getmininginfo()
         assert_equal(mining_info['blocks'], 0)
-        if mining_info['chain'] == 'test':
-            # This fork currently maps signet chain params to testnet behavior.
-            # Keep this as a smoke test for signet bootstrapping until native signet
-            # params are implemented.
-            with self.nodes[0].assert_debug_log(["Signet derived magic (message start)"]):
-                self.restart_node(0)
-            return
 
         assert_equal(mining_info['chain'], 'signet')
         assert 'currentblocktx' not in mining_info
@@ -73,9 +66,13 @@ class SignetBasicTest(BitcoinTestFramework):
 
         assert_equal(self.nodes[4].submitblock(signet_blocks[0]), 'bad-signet-blksig')
 
-        self.log.info("test that signet logs the network magic on node start")
-        with self.nodes[0].assert_debug_log(["Signet derived magic (message start)"]):
+        self.log.info("test that signet logs the derived network magic on node start")
+        with self.nodes[0].assert_debug_log(["Signet derived magic (message start): 54d26fbd"]):
             self.restart_node(0)
+        with self.nodes[2].assert_debug_log(["Signet derived magic (message start): 0a03cf40"]):
+            self.restart_node(2)
+        with self.nodes[4].assert_debug_log(["Signet derived magic (message start): 7f2df3ca"]):
+            self.restart_node(4)
 
 
 if __name__ == '__main__':
