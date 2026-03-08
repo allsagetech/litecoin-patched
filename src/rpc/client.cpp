@@ -50,8 +50,6 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "senddrivechaindeposit", 2, "amounts" },
     { "senddrivechaindeposit", 3, "subtract_fee" },
     { "senddrivechainbundle", 0, "sidechain_id" },
-    { "senddrivechainbundle", 2, "amount" },
-    { "senddrivechainbundle", 3, "subtractfeefromamount" },
     { "senddrivechainbmmrequest", 0, "sidechain_id" },
     { "senddrivechainbmmrequest", 3, "amount" },
     { "senddrivechainbmmrequest", 4, "subtractfeefromamount" },
