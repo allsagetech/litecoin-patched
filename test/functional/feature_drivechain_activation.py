@@ -25,6 +25,12 @@ def fund_and_sign_script_tx(node, script, amount):
     funded = node.fundrawtransaction(tx.serialize().hex())["hex"]
     return node.signrawtransactionwithwallet(funded)["hex"]
 
+
+def ensure_trusted_balance(node, minimum_balance: Decimal) -> None:
+    """Mine until the wallet has enough trusted balance to fund follow-up RPCs."""
+    while node.getbalances()["mine"]["trusted"] < minimum_balance:
+        node.generatetoaddress(1, node.getnewaddress())
+
 class DrivechainActivationTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
@@ -111,6 +117,7 @@ class DrivechainActivationTest(BitcoinTestFramework):
 
         addr = node.getnewaddress()
         node.generatetoaddress(101, addr)
+        ensure_trusted_balance(node, Decimal("2.0"))
 
         status = self._get_drivechain_status(node)
         self.log.info(f"Initial drivechain status: {status}")
