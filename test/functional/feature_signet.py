@@ -15,6 +15,9 @@ class SignetBasicTest(BitcoinTestFramework):
         self.chain = "signet"
         self.num_nodes = 6
         self.setup_clean_chain = True
+        # Scrypt PoW on signet can take longer than the framework's default
+        # 30-second per-RPC HTTP timeout on shared CI runners.
+        self.rpc_timeout = 240
         shared_args1 = ["-signetchallenge=51"]  # OP_TRUE
         shared_args2 = []  # default challenge
         # We use the exact same keys as the default challenge except as a 2-of-2,
