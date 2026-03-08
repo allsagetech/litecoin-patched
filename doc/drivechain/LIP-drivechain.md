@@ -292,10 +292,10 @@ After activation:
 This specification includes an ownership path:
 
 - `REGISTER` output tag (`0x05`) with owner key hash payload.
-- Compact signature required over `(genesis_hash, sidechain_id, owner_key_hash)`.
+- Compact signature required over `(sidechain_id, owner_key_hash)`.
 - On success, sidechain ownership is bound and owner-auth is enabled.
 - If owner-auth is enabled, each `BUNDLE_COMMIT` MUST carry a valid compact
-  signature over `(genesis_hash, sidechain_id, bundle_hash)` from the registered owner key.
+  signature over `(sidechain_id, bundle_hash)` from the registered owner key.
 - `REGISTER` output value MUST be at least the chain's minimum registration amount.
 
 RPC support:

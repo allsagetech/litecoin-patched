@@ -17,6 +17,13 @@ def get_sidechain(node, scid: int):
     return None
 
 
+def get_single_key_pubkey_hex(node, address: str) -> str:
+    info = node.getaddressinfo(address)
+    if "pubkey" in info:
+        return info["pubkey"]
+    return info["embedded"]["pubkey"]
+
+
 class DrivechainOwnerAuthEnforcement(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
@@ -30,12 +37,12 @@ class DrivechainOwnerAuthEnforcement(BitcoinTestFramework):
 
         node.generatetoaddress(110, node.getnewaddress())
 
-        owner_addr = node.getnewaddress()
-        owner_pubkey = bytes.fromhex(node.getaddressinfo(owner_addr)["pubkey"])
+        owner_addr = node.getnewaddress(address_type="p2sh-segwit")
+        owner_pubkey = bytes.fromhex(get_single_key_pubkey_hex(node, owner_addr))
         owner_key_hash_payload = hash256(owner_pubkey).hex()
         owner_key_hash_rpc = bytes.fromhex(owner_key_hash_payload)[::-1].hex()
 
-        wrong_addr = node.getnewaddress()
+        wrong_addr = node.getnewaddress(address_type="p2sh-segwit")
 
         node.senddrivechainregister(owner_addr, scid, Decimal("1.0"))
         node.generatetoaddress(1, node.getnewaddress())

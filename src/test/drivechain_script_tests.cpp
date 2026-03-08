@@ -143,31 +143,6 @@ BOOST_AUTO_TEST_CASE(bundle_commit_owner_auth_roundtrip)
     BOOST_CHECK(!VerifyDrivechainBundleAuthSig(owner_key_hash, sidechain_id + 1, bundle_hash, info.auth_sig));
 }
 
-BOOST_AUTO_TEST_CASE(bundle_commit_legacy_owner_auth_sig_rejected)
-{
-    const uint8_t sidechain_id = 9;
-    const uint256 bundle_hash = uint256S("abababababababababababababababababababababababababababababababab");
-
-    CKey owner_key;
-    const std::vector<unsigned char> secret(32, 0x33);
-    owner_key.Set(secret.begin(), secret.end(), true);
-    BOOST_REQUIRE(owner_key.IsValid());
-
-    const CPubKey owner_pubkey = owner_key.GetPubKey();
-    const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
-    const uint256 owner_key_hash = Hash(owner_pubkey_bytes);
-
-    CHashWriter legacy_hw(SER_GETHASH, 0);
-    static constexpr unsigned char LEGACY_BUNDLE_AUTH_MAGIC[] = {'D', 'C', 'B', 'A', 0x01};
-    legacy_hw.write((const char*)LEGACY_BUNDLE_AUTH_MAGIC, sizeof(LEGACY_BUNDLE_AUTH_MAGIC));
-    legacy_hw << sidechain_id;
-    legacy_hw << bundle_hash;
-
-    std::vector<unsigned char> legacy_sig;
-    BOOST_REQUIRE(owner_key.SignCompact(legacy_hw.GetHash(), legacy_sig));
-    BOOST_CHECK(!VerifyDrivechainBundleAuthSig(owner_key_hash, sidechain_id, bundle_hash, legacy_sig));
-}
-
 BOOST_AUTO_TEST_CASE(register_owner_auth_roundtrip)
 {
     const uint8_t sidechain_id = 13;
@@ -200,30 +175,6 @@ BOOST_AUTO_TEST_CASE(register_owner_auth_roundtrip)
     BOOST_CHECK(info.auth_sig == auth_sig);
     BOOST_CHECK(VerifyDrivechainRegisterAuthSig(sidechain_id, owner_key_hash, info.auth_sig));
     BOOST_CHECK(!VerifyDrivechainRegisterAuthSig(sidechain_id + 1, owner_key_hash, info.auth_sig));
-}
-
-BOOST_AUTO_TEST_CASE(register_legacy_owner_auth_sig_rejected)
-{
-    const uint8_t sidechain_id = 13;
-
-    CKey owner_key;
-    const std::vector<unsigned char> secret(32, 0x44);
-    owner_key.Set(secret.begin(), secret.end(), true);
-    BOOST_REQUIRE(owner_key.IsValid());
-
-    const CPubKey owner_pubkey = owner_key.GetPubKey();
-    const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
-    const uint256 owner_key_hash = Hash(owner_pubkey_bytes);
-
-    CHashWriter legacy_hw(SER_GETHASH, 0);
-    static constexpr unsigned char LEGACY_REGISTER_AUTH_MAGIC[] = {'D', 'C', 'R', 'A', 0x01};
-    legacy_hw.write((const char*)LEGACY_REGISTER_AUTH_MAGIC, sizeof(LEGACY_REGISTER_AUTH_MAGIC));
-    legacy_hw << sidechain_id;
-    legacy_hw << owner_key_hash;
-
-    std::vector<unsigned char> legacy_sig;
-    BOOST_REQUIRE(owner_key.SignCompact(legacy_hw.GetHash(), legacy_sig));
-    BOOST_CHECK(!VerifyDrivechainRegisterAuthSig(sidechain_id, owner_key_hash, legacy_sig));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

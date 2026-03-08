@@ -23,6 +23,7 @@
 #include <script/descriptor.h>
 #include <script/script.h>
 #include <script/sign.h>
+#include <script/signingprovider.h>
 #include <util/bip32.h>
 #include <util/fees.h>
 #include <util/message.h> // For MessageSign()
@@ -778,19 +779,20 @@ static void GetDrivechainOwnerKeyFromWalletAddress(
         throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must be a valid wallet address");
     }
 
-    CKeyID key_id;
-    if (const auto* pkhash = boost::get<PKHash>(&dest)) {
-        key_id = ToKeyID(*pkhash);
-    } else if (const auto* witness_key_hash = boost::get<WitnessV0KeyHash>(&dest)) {
-        key_id = ToKeyID(*witness_key_hash);
-    } else {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must refer to a single-key address");
-    }
-
     const DestinationAddr dest_addr(dest);
     ScriptPubKeyMan* const spk_man = wallet.GetScriptPubKeyMan(dest_addr);
     if (spk_man == nullptr) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must belong to this wallet");
+    }
+
+    std::unique_ptr<SigningProvider> solving_provider = wallet.GetSolvingProvider(dest_addr);
+    if (!solving_provider) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must refer to a single-key address");
+    }
+
+    const CKeyID key_id = GetKeyForDestination(*solving_provider, dest);
+    if (key_id.IsNull()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must refer to a single-key address");
     }
 
     CPubKey owner_pubkey;

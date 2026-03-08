@@ -37,12 +37,27 @@ class DrivechainReorgSnapshotFallback(BitcoinTestFramework):
         node.generatetoaddress(1, node.getnewaddress())
         node.senddrivechainbundle(scid, bundle_hash, owner_privkey)
         node.generatetoaddress(1, node.getnewaddress())
+        node.generatetoaddress(2, node.getnewaddress())
 
         self.restart_node(0)
         node = self.nodes[0]
 
         before = node.getdrivechaininfo()["state_cache"]
         before_recompute = int(before["recompute_fallbacks"])
+
+        for _ in range(2):
+            old_tip = node.getbestblockhash()
+            node.invalidateblock(old_tip)
+
+            after_info = node.getdrivechaininfo()
+            after_recompute = int(after_info["state_cache"]["recompute_fallbacks"])
+            assert_equal(after_recompute, before_recompute)
+
+            sidechain = get_sidechain(after_info, scid)
+            assert sidechain is not None
+            assert_equal(sidechain["escrow_balance"], 100000000)
+            assert_equal(len(sidechain["bundles"]), 1)
+            assert_equal(sidechain["bundles"][0]["hash"], bundle_hash)
 
         old_tip = node.getbestblockhash()
         node.invalidateblock(old_tip)

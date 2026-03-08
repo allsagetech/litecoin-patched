@@ -34,9 +34,9 @@ def decode_wif_privkey(wif: str):
     raise AssertionError("unexpected WIF payload length")
 
 
-def compute_bundle_auth_message(genesis_hash_hex: str, scid: int, bundle_hash_hex: str) -> bytes:
-    # C++: "DCBA\x01" || genesis_hash(uint256 internal bytes) || scid || bundle_hash(uint256 internal bytes)
-    preimage = b"DCBA\x01" + bytes.fromhex(genesis_hash_hex)[::-1] + bytes([scid]) + bytes.fromhex(bundle_hash_hex)[::-1]
+def compute_bundle_auth_message(scid: int, bundle_hash_hex: str) -> bytes:
+    # C++: "DCBA\x01" || scid || bundle_hash(uint256 internal bytes)
+    preimage = b"DCBA\x01" + bytes([scid]) + bytes.fromhex(bundle_hash_hex)[::-1]
     return hash256(preimage)
 
 
@@ -216,7 +216,7 @@ class DrivechainCheckConnectAlignment(BitcoinTestFramework):
 
         exec_txid = n.senddrivechainexecute(scid, bundle1, withdrawals, True)
         owner_secret, owner_compressed = decode_wif_privkey(owner_privkey)
-        auth_msg = compute_bundle_auth_message(n.getblockhash(0), scid, bundle2)
+        auth_msg = compute_bundle_auth_message(scid, bundle2)
         auth_sig = sign_compact_recoverable(owner_secret, auth_msg, owner_compressed)
         commit2_spk = make_drivechain_script(scid, bundle2, 0x01, auth_sig)
         tx2_hex = create_funded_signed_tx_hex(n, commit2_spk, Decimal("0.1"))
