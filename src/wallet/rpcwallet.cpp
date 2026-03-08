@@ -796,17 +796,8 @@ static void GetDrivechainOwnerKeyFromWalletAddress(
     }
 
     CPubKey owner_pubkey;
-    if (auto* legacy_spk_man = dynamic_cast<LegacyScriptPubKeyMan*>(spk_man)) {
-        if (!legacy_spk_man->GetPubKey(key_id, owner_pubkey) || !legacy_spk_man->GetKey(key_id, out_key)) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "owner_address private key is not available in this wallet");
-        }
-    } else if (auto* descriptor_spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man)) {
-        std::unique_ptr<FlatSigningProvider> keys = descriptor_spk_man->GetSigningProvider(dest_addr.GetScript(), true);
-        if (!keys || !keys->GetPubKey(key_id, owner_pubkey) || !keys->GetKey(key_id, out_key)) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "owner_address private key is not available in this wallet");
-        }
-    } else {
-        throw JSONRPCError(RPC_WALLET_ERROR, "owner_address is managed by an unsupported wallet backend");
+    if (!spk_man->GetKeyForDestination(dest, out_key, owner_pubkey)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "owner_address private key is not available in this wallet");
     }
 
     if (!owner_pubkey.IsValid() || !owner_pubkey.IsCompressed()) {
@@ -930,14 +921,14 @@ static RPCHelpMan senddrivechainregister()
                 CCoinControl coin_control;
                 txid = SendToDrivechainScript(*pwallet, register_script, amount, coin_control, subtract_fee_from_amount);
             } else {
-                auto [auto_txid, auto_sidechain_id] = SendDrivechainRegisterWithAutoId(
+                std::pair<std::string, uint8_t> auto_result = SendDrivechainRegisterWithAutoId(
                     *pwallet,
                     owner_key,
                     owner_key_hash,
                     amount,
                     subtract_fee_from_amount);
-                txid = std::move(auto_txid);
-                sidechain_id = auto_sidechain_id;
+                txid = std::move(auto_result.first);
+                sidechain_id = auto_result.second;
             }
 
             UniValue result(UniValue::VOBJ);

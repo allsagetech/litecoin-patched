@@ -609,6 +609,15 @@ std::unique_ptr<SigningProvider> LegacyScriptPubKeyMan::GetSolvingProvider(const
     return MakeUnique<LegacySigningProvider>(*this);
 }
 
+bool LegacyScriptPubKeyMan::GetKeyForDestination(const CTxDestination& dest, CKey& key, CPubKey& pubkey) const
+{
+    const CKeyID key_id = ::GetKeyForDestination(*this, dest);
+    if (key_id.IsNull()) {
+        return false;
+    }
+    return GetPubKey(key_id, pubkey) && GetKey(key_id, key);
+}
+
 bool LegacyScriptPubKeyMan::CanProvide(const DestinationAddr& dest_addr, SignatureData& sigdata)
 {
     if (dest_addr.IsMWEB()) {
@@ -706,7 +715,7 @@ std::unique_ptr<CKeyMetadata> LegacyScriptPubKeyMan::GetMetadata(const CTxDestin
 {
     LOCK(cs_KeyStore);
 
-    CKeyID key_id = GetKeyForDestination(*this, dest);
+    CKeyID key_id = ::GetKeyForDestination(*this, dest);
     if (!key_id.IsNull()) {
         auto it = mapKeyMetadata.find(key_id);
         if (it != mapKeyMetadata.end()) {
@@ -2251,6 +2260,25 @@ std::unique_ptr<SigningProvider> DescriptorScriptPubKeyMan::GetSolvingProvider(c
     return GetSigningProvider(dest_addr.GetScript(), false);
 }
 
+bool DescriptorScriptPubKeyMan::GetKeyForDestination(const CTxDestination& dest, CKey& key, CPubKey& pubkey) const
+{
+    const DestinationAddr dest_addr(dest);
+    if (dest_addr.IsMWEB()) {
+        return false;
+    }
+
+    std::unique_ptr<FlatSigningProvider> keys = GetSigningProvider(dest_addr.GetScript(), true);
+    if (!keys) {
+        return false;
+    }
+
+    const CKeyID key_id = ::GetKeyForDestination(*keys, dest);
+    if (key_id.IsNull()) {
+        return false;
+    }
+    return keys->GetPubKey(key_id, pubkey) && keys->GetKey(key_id, key);
+}
+
 bool DescriptorScriptPubKeyMan::CanProvide(const DestinationAddr& dest_addr, SignatureData& sigdata)
 {
     return IsMine(dest_addr);
@@ -2366,7 +2394,7 @@ std::unique_ptr<CKeyMetadata> DescriptorScriptPubKeyMan::GetMetadata(const CTxDe
     std::unique_ptr<SigningProvider> provider = GetSigningProvider(GetScriptForDestination(dest));
     if (provider) {
         KeyOriginInfo orig;
-        CKeyID key_id = GetKeyForDestination(*provider, dest);
+        CKeyID key_id = ::GetKeyForDestination(*provider, dest);
         if (provider->GetKeyOrigin(key_id, orig)) {
             LOCK(cs_desc_man);
             std::unique_ptr<CKeyMetadata> meta = MakeUnique<CKeyMetadata>();

@@ -241,6 +241,7 @@ public:
     virtual std::unique_ptr<CKeyMetadata> GetMetadata(const CTxDestination& dest) const { return nullptr; }
 
     virtual std::unique_ptr<SigningProvider> GetSolvingProvider(const DestinationAddr& dest_addr) const { return nullptr; }
+    virtual bool GetKeyForDestination(const CTxDestination& dest, CKey& key, CPubKey& pubkey) const { return false; }
 
     /** Whether this ScriptPubKeyMan can provide a SigningProvider (via GetSolvingProvider) that, combined with
       * sigdata, can produce solving data.
@@ -411,6 +412,7 @@ public:
     bool CanGetAddresses(const KeyPurpose purpose) const override;
 
     std::unique_ptr<SigningProvider> GetSolvingProvider(const DestinationAddr& dest_addr) const override;
+    bool GetKeyForDestination(const CTxDestination& dest, CKey& key, CPubKey& pubkey) const override;
 
     bool CanProvide(const DestinationAddr& dest_addr, SignatureData& sigdata) override;
 
@@ -638,6 +640,7 @@ public:
     bool CanGetAddresses(const KeyPurpose purpose) const override;
 
     std::unique_ptr<SigningProvider> GetSolvingProvider(const DestinationAddr& dest_addr) const override;
+    bool GetKeyForDestination(const CTxDestination& dest, CKey& key, CPubKey& pubkey) const override;
 
     bool CanProvide(const DestinationAddr& dest_addr, SignatureData& sigdata) override;
 
