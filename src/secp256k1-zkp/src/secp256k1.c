@@ -9,6 +9,8 @@
 #pragma warning(disable: 4244 4267 4334)
 #endif
 
+#include "libsecp256k1-config.h"
+
 #include "include/secp256k1.h"
 
 #include "util.h"
