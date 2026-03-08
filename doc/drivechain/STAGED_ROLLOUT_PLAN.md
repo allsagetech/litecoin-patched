@@ -8,6 +8,8 @@ Entry criteria:
 - Drivechain production gates in `PRODUCTION_READINESS.md` are complete.
 - CI green on build + drivechain functional tests.
 - Release checksums and SBOM generated.
+- Public signet bootstrap configuration is published (`challenge`, canonical seed
+  nodes, bootstrap instructions).
 
 Exit criteria:
 - Candidate build signed and archived.
@@ -37,6 +39,7 @@ Checks:
 - Commit/vote/execute flow under real network conditions.
 - Mempool conflict and replacement behavior.
 - Monitoring/alerting coverage and paging path.
+- Seed-node and miner diversity remain healthy across independent operators.
 
 Duration:
 - Minimum 14 days continuous operation.
@@ -44,6 +47,7 @@ Duration:
 Exit criteria:
 - No unresolved consensus or escrow-safety defects.
 - External review feedback triaged and resolved.
+- Burn-in evidence is archived in `doc/drivechain/PUBLIC_SIGNET_RUNBOOK.md`.
 
 ## Phase 3: Mainnet Guarded Launch
 

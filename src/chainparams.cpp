@@ -420,10 +420,10 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = 2419200;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight = 2360736;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = 2560320;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = std::numeric_limits<int>::max();
         consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].lockin_on_timeout = false;
 
         consensus.nMinimumChainWork = uint256();

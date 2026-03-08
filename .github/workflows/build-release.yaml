@@ -284,7 +284,7 @@ jobs:
       - name: build
         run: make -j4
 
-      - name: Run Signet functional test
+      - name: Run Signet functional tests
         env:
           LC_ALL: C
         run: |
@@ -321,6 +321,7 @@ jobs:
           }
 
           run_one feature_signet.py
+          run_one feature_drivechain_signet.py
 
   # ------------------------------------------------------------
   # 3) Drivechain functional tests (everything but master)

@@ -60,12 +60,19 @@ Status model:
 - Status: `ENFORCED`
 - Evidence: `doc/drivechain/STAGED_ROLLOUT_PLAN.md`
 
-11. External security review sign-off
+11. Public signet burn-in
+- Requirement: Drivechain commit/vote/execute flow is validated on the designated
+  public signet with published bootstrap configuration and independent seed/miner
+  operators.
+- Status: `MANUAL`
+- Evidence: `doc/drivechain/PUBLIC_SIGNET_RUNBOOK.md`
+
+12. External security review sign-off
 - Requirement: Independent review and unresolved findings log.
 - Status: `MANUAL`
 - Evidence template: `doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md`
 
-12. Security response program / bounty
+13. Security response program / bounty
 - Requirement: Public reporting path and bounty policy are declared.
 - Status: `MANUAL`
 - Evidence template: `doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md`
