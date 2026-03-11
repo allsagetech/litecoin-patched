@@ -1,1 +1,5 @@
 src/clientversion.cpp export-subst
+*.sh text eol=lf
+*.ac text eol=lf
+*.am text eol=lf
+*.m4 text eol=lf

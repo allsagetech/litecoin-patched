@@ -9,6 +9,7 @@ from enum import Enum
 import argparse
 import logging
 import os
+import pathlib
 import pdb
 import random
 import re
@@ -32,6 +33,18 @@ from .util import (
     p2p_port,
     wait_until_helper,
 )
+
+
+def normalize_config_paths(config):
+    if os.name != 'nt':
+        return
+
+    for key in ('SRCDIR', 'BUILDDIR', 'RPCAUTH'):
+        if config.has_option('environment', key):
+            path = pathlib.PurePosixPath(config['environment'][key])
+            parts = path.parts
+            if len(parts) >= 3 and parts[0] == '/' and parts[1] == 'mnt' and len(parts[2]) == 1:
+                config['environment'][key] = os.path.join(f"{parts[2].upper()}:\\", *parts[3:])
 
 
 class TestStatus(Enum):
@@ -156,7 +169,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                             help="Leave litecoinds and test.* datadir on exit or error")
         parser.add_argument("--noshutdown", dest="noshutdown", default=False, action="store_true",
                             help="Don't stop litecoinds after the test execution")
-        parser.add_argument("--cachedir", dest="cachedir", default=os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../../cache"),
+        parser.add_argument("--cachedir", dest="cachedir", default=os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "cache")),
                             help="Directory for caching pregenerated datadirs (default: %(default)s)")
         parser.add_argument("--tmpdir", dest="tmpdir", help="Root directory for datadirs")
         parser.add_argument("-l", "--loglevel", dest="loglevel", default="INFO",
@@ -171,7 +184,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         parser.add_argument("--coveragedir", dest="coveragedir",
                             help="Write tested RPC commands into this directory")
         parser.add_argument("--configfile", dest="configfile",
-                            default=os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../../config.ini"),
+                            default=os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "config.ini")),
                             help="Location of the test framework config file (default: %(default)s)")
         parser.add_argument("--pdbonfailure", dest="pdbonfailure", default=False, action="store_true",
                             help="Attach a python debugger if test fails")
@@ -206,6 +219,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
 
         config = configparser.ConfigParser()
         config.read_file(open(self.options.configfile))
+        normalize_config_paths(config)
         self.config = config
         fname_bitcoind = os.path.join(
             config["environment"]["BUILDDIR"],

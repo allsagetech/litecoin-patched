@@ -395,7 +395,9 @@ public:
         consensus.CSVHeight = 1;
         consensus.SegwitHeight = 1;
         consensus.MinBIP9WarningHeight = 0;
-        consensus.powLimit = uint256S("00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        // Keep signet cheap to mine so local and CI smoke tests can produce
+        // blocks quickly without depending on long scrypt brute-force runs.
+        consensus.powLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // 2 weeks
         consensus.nPowTargetSpacing = options.pow_target_spacing;
         consensus.fPowAllowMinDifficultyBlocks = true;

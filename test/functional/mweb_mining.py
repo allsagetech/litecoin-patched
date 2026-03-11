@@ -5,10 +5,10 @@
 """Test mining RPCs for MWEB blocks"""
 
 from test_framework.blocktools import (create_coinbase, NORMAL_GBT_REQUEST_PARAMS)
-from test_framework.messages import (CBlock, MWEBBlock)
+from test_framework.messages import (CBlock, CTransaction, FromHex, hex_str_to_bytes)
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
-from test_framework.ltc_util import create_hogex, get_mweb_header, setup_mweb_chain
+from test_framework.ltc_util import setup_mweb_chain
 
 class MWEBMiningTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -27,16 +27,14 @@ class MWEBMiningTest(BitcoinTestFramework):
         gbt = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         next_height = int(gbt["height"])        
 
-        # Build MWEB block
-        mweb_header = get_mweb_header(node)
-        mweb_header.height = next_height
-        mweb_header.rehash()
-        mweb_block = MWEBBlock(mweb_header)
-        
-        # Build coinbase and HogEx txs
+        # Build proposal transactions directly from the template so the
+        # framework doesn't need a local BLAKE3 implementation.
+        assert "mweb" in gbt
         coinbase_tx = create_coinbase(height=next_height)
-        hogex_tx = create_hogex(node, mweb_header.hash)
-        vtx = [coinbase_tx, hogex_tx]
+        coinbase_tx.vout[0].nValue = gbt["coinbasevalue"]
+        vtx = [coinbase_tx]
+        vtx.extend(FromHex(CTransaction(), tx["data"]) for tx in gbt["transactions"])
+        assert vtx[-1].hogex
 
         # Build block proposal
         block = CBlock()
@@ -46,13 +44,16 @@ class MWEBMiningTest(BitcoinTestFramework):
         block.nBits = int(gbt["bits"], 16)
         block.nNonce = 0
         block.vtx = vtx
-        block.mweb_block = mweb_block
         block.hashMerkleRoot = block.calc_merkle_root()
+
+        # Replace the placeholder MWEB-null marker with the template's raw
+        # serialized MWEB block bytes.
+        block_bytes = block.serialize()[:-1] + b"\x01" + hex_str_to_bytes(gbt["mweb"])
 
         # Call getblocktemplate with the block proposal
         self.log.info("getblocktemplate: Test valid block")
         rsp = node.getblocktemplate(template_request={
-            'data': block.serialize().hex(),
+            'data': block_bytes.hex(),
             'mode': 'proposal',
             'rules': ['mweb', 'segwit'],
         })

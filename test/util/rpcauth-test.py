@@ -9,8 +9,29 @@ import configparser
 import hmac
 import importlib
 import os
+import pathlib
 import sys
 import unittest
+
+
+def resolve_rpcauth_path(configured_path):
+    if os.name == 'nt':
+        posix_path = pathlib.PurePosixPath(configured_path)
+        parts = posix_path.parts
+        if len(parts) >= 4 and parts[0] == '/' and parts[1] == 'mnt' and len(parts[2]) == 1:
+            translated = pathlib.Path(f'{parts[2].upper()}:/', *parts[3:])
+            if translated.exists():
+                return translated
+
+    try:
+        path = pathlib.Path(configured_path)
+        if path.exists():
+            return path
+    except OSError:
+        pass
+
+    return pathlib.Path(__file__).resolve().parents[2] / 'share' / 'rpcauth' / 'rpcauth.py'
+
 
 class TestRPCAuth(unittest.TestCase):
     def setUp(self):
@@ -20,7 +41,8 @@ class TestRPCAuth(unittest.TestCase):
             "../config.ini"))
         with open(config_path, encoding="utf8") as config_file:
             config.read_file(config_file)
-        sys.path.insert(0, os.path.dirname(config['environment']['RPCAUTH']))
+        rpcauth_path = resolve_rpcauth_path(config['environment']['RPCAUTH'])
+        sys.path.insert(0, str(rpcauth_path.parent))
         self.rpcauth = importlib.import_module('rpcauth')
 
     def test_generate_salt(self):
