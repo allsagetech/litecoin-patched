@@ -251,13 +251,13 @@ public:
         return FillBlock(ancestor, ancestor_out, lock) & FillBlock(block1, block1_out, lock) & FillBlock(block2, block2_out, lock);
     }
     void findCoins(std::map<COutPoint, Coin>& coins) override { return FindCoins(m_node, coins); }
-    bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, uint256& owner_key_hash) override
+    bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, DrivechainSidechainPolicy& sidechain_policy) override
     {
         LOCK(::cs_main);
         const Sidechain* sc = ::ChainstateActive().GetDrivechainState().GetSidechain(sidechain_id);
         if (!sc) return false;
         owner_auth_required = sc->owner_auth_required;
-        owner_key_hash = sc->owner_key_hash;
+        sidechain_policy = sc->sidechain_policy;
         return true;
     }
     double guessVerificationProgress(const uint256& block_hash) override

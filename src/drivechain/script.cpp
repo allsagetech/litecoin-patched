@@ -8,8 +8,11 @@
 #include <pubkey.h>
 #include <script/script.h>
 #include <script/script_error.h>
+
 #include <algorithm>
 #include <crypto/common.h>
+#include <limits>
+#include <set>
 
 namespace {
 
@@ -17,6 +20,7 @@ static constexpr unsigned char BMM_REQUEST_MAGIC[] = {0x00, 0xbf, 0x00};
 static constexpr unsigned char BMM_ACCEPT_MAGIC[] = {0xd1, 0x61, 0x73, 0x68};
 static constexpr unsigned char BUNDLE_AUTH_MAGIC[] = {'D', 'C', 'B', 'A', 0x01};
 static constexpr unsigned char REGISTER_AUTH_MAGIC[] = {'D', 'C', 'R', 'A', 0x01};
+static constexpr unsigned char POLICY_HASH_MAGIC[] = {'D', 'C', 'P', 'A', 0x01};
 
 static bool DecodeSinglePushAfterOpReturn(const CScript& scriptPubKey, std::vector<unsigned char>& out_payload)
 {
@@ -38,6 +42,71 @@ static bool DecodeSinglePushAfterOpReturn(const CScript& scriptPubKey, std::vect
     return true;
 }
 
+static void WriteLE64(std::vector<unsigned char>& out, uint64_t v)
+{
+    out.resize(8);
+    out[0] = (v >> 0) & 0xff;
+    out[1] = (v >> 8) & 0xff;
+    out[2] = (v >> 16) & 0xff;
+    out[3] = (v >> 24) & 0xff;
+    out[4] = (v >> 32) & 0xff;
+    out[5] = (v >> 40) & 0xff;
+    out[6] = (v >> 48) & 0xff;
+    out[7] = (v >> 56) & 0xff;
+}
+
+static bool RecoverCompactSigKeyHash(
+    const uint256& msg,
+    Span<const unsigned char> compact_sig,
+    uint256& out_key_hash)
+{
+    if (compact_sig.size() != CPubKey::COMPACT_SIGNATURE_SIZE) {
+        return false;
+    }
+
+    CPubKey recovered_pubkey;
+    std::vector<unsigned char> sig(compact_sig.begin(), compact_sig.end());
+    if (!recovered_pubkey.RecoverCompact(msg, sig)) {
+        return false;
+    }
+
+    const std::vector<unsigned char> pubkey_bytes(recovered_pubkey.begin(), recovered_pubkey.end());
+    out_key_hash = Hash(pubkey_bytes);
+    return true;
+}
+
+static bool HasDistinctThresholdMatches(
+    const DrivechainSidechainPolicy& policy,
+    const uint256& msg,
+    const std::vector<std::vector<unsigned char>>& compact_sigs)
+{
+    if (!policy.RequiresOwnerAuth() ||
+        policy.owner_key_hashes.size() > MAX_DRIVECHAIN_OWNER_KEYS ||
+        policy.auth_threshold > policy.owner_key_hashes.size() ||
+        compact_sigs.size() < policy.auth_threshold) {
+        return false;
+    }
+
+    std::set<uint256> matched_hashes;
+    for (const auto& sig : compact_sigs) {
+        uint256 recovered_key_hash;
+        if (!RecoverCompactSigKeyHash(msg, sig, recovered_key_hash)) {
+            return false;
+        }
+
+        if (std::find(policy.owner_key_hashes.begin(), policy.owner_key_hashes.end(), recovered_key_hash) ==
+            policy.owner_key_hashes.end()) {
+            return false;
+        }
+
+        if (!matched_hashes.insert(recovered_key_hash).second) {
+            return false;
+        }
+    }
+
+    return matched_hashes.size() >= policy.auth_threshold;
+}
+
 } // namespace
 
 bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info)
@@ -49,7 +118,8 @@ bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& o
     // [3]: PUSHDATA(32)  -> payload (bundle_hash / etc)
     // [4]: PUSHDATA(1)   -> kind_tag
     // [5]: (EXECUTE only) PUSHDATA(4) -> n_withdrawals (LE32)
-    // [5]: (BUNDLE_COMMIT/REGISTER optional) PUSHDATA(65) -> compact auth signature
+    // [5]: (REGISTER only) PUSHDATA(policy)
+    // [5..n]: (BUNDLE_COMMIT/REGISTER optional) PUSHDATA(65) -> compact auth signatures
 
     CScript::const_iterator pc = scriptPubKey.begin();
     opcodetype opcode;
@@ -85,6 +155,7 @@ bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& o
     info.payload = payload;
     info.n_withdrawals = 0;
     info.auth_sig.clear();
+    info.auth_sigs.clear();
 
     switch (tag) {
         case 0x00: info.kind = DrivechainScriptInfo::Kind::DEPOSIT;       break;
@@ -108,13 +179,31 @@ bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& o
         if (info.n_withdrawals == 0) {
             return false;
         }
-    } else if ((info.kind == DrivechainScriptInfo::Kind::BUNDLE_COMMIT ||
-                info.kind == DrivechainScriptInfo::Kind::REGISTER) &&
-               pc != scriptPubKey.end()) {
-        if (!scriptPubKey.GetOp(pc, opcode, vch) || vch.size() != CPubKey::COMPACT_SIGNATURE_SIZE) {
+    } else if (info.kind == DrivechainScriptInfo::Kind::REGISTER) {
+        if (!scriptPubKey.GetOp(pc, opcode, vch)) {
             return false;
         }
-        info.auth_sig = vch;
+        if (!DecodeDrivechainSidechainPolicy(vch, info.sidechain_policy)) {
+            return false;
+        }
+
+        while (pc != scriptPubKey.end()) {
+            if (!scriptPubKey.GetOp(pc, opcode, vch) || vch.size() != CPubKey::COMPACT_SIGNATURE_SIZE) {
+                return false;
+            }
+            info.auth_sigs.push_back(vch);
+        }
+    } else if (info.kind == DrivechainScriptInfo::Kind::BUNDLE_COMMIT) {
+        while (pc != scriptPubKey.end()) {
+            if (!scriptPubKey.GetOp(pc, opcode, vch) || vch.size() != CPubKey::COMPACT_SIGNATURE_SIZE) {
+                return false;
+            }
+            info.auth_sigs.push_back(vch);
+        }
+    }
+
+    if (!info.auth_sigs.empty()) {
+        info.auth_sig = info.auth_sigs.front();
     }
 
     if (pc != scriptPubKey.end()) {
@@ -123,6 +212,93 @@ bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& o
 
     out_info = info;
     return true;
+}
+
+std::vector<unsigned char> EncodeDrivechainSidechainPolicy(const DrivechainSidechainPolicy& policy)
+{
+    std::vector<unsigned char> out;
+    out.reserve(18 + (policy.owner_key_hashes.size() * 32));
+
+    out.push_back(policy.auth_threshold);
+    out.push_back(static_cast<unsigned char>(policy.owner_key_hashes.size()));
+
+    std::vector<unsigned char> max_escrow_bytes;
+    WriteLE64(max_escrow_bytes, static_cast<uint64_t>(policy.max_escrow_amount));
+    out.insert(out.end(), max_escrow_bytes.begin(), max_escrow_bytes.end());
+
+    std::vector<unsigned char> max_bundle_bytes;
+    WriteLE64(max_bundle_bytes, static_cast<uint64_t>(policy.max_bundle_withdrawal));
+    out.insert(out.end(), max_bundle_bytes.begin(), max_bundle_bytes.end());
+
+    for (const uint256& key_hash : policy.owner_key_hashes) {
+        out.insert(out.end(), key_hash.begin(), key_hash.end());
+    }
+
+    return out;
+}
+
+bool DecodeDrivechainSidechainPolicy(Span<const unsigned char> policy_bytes, DrivechainSidechainPolicy& out_policy)
+{
+    if (policy_bytes.size() < 18) {
+        return false;
+    }
+
+    DrivechainSidechainPolicy policy;
+    policy.auth_threshold = policy_bytes[0];
+    const size_t key_count = policy_bytes[1];
+    if (key_count == 0 || key_count > MAX_DRIVECHAIN_OWNER_KEYS) {
+        return false;
+    }
+    if (policy.auth_threshold == 0 || policy.auth_threshold > key_count) {
+        return false;
+    }
+    if (policy_bytes.size() != 18 + (key_count * 32)) {
+        return false;
+    }
+
+    const uint64_t max_escrow = ReadLE64(policy_bytes.data() + 2);
+    const uint64_t max_bundle_withdrawal = ReadLE64(policy_bytes.data() + 10);
+    if (max_escrow == 0 || max_bundle_withdrawal == 0) {
+        return false;
+    }
+    if (max_bundle_withdrawal > max_escrow) {
+        return false;
+    }
+    if (max_escrow > std::numeric_limits<CAmount>::max() ||
+        max_bundle_withdrawal > std::numeric_limits<CAmount>::max()) {
+        return false;
+    }
+    policy.max_escrow_amount = static_cast<CAmount>(max_escrow);
+    policy.max_bundle_withdrawal = static_cast<CAmount>(max_bundle_withdrawal);
+    if (!MoneyRange(policy.max_escrow_amount) || !MoneyRange(policy.max_bundle_withdrawal)) {
+        return false;
+    }
+
+    policy.owner_key_hashes.reserve(key_count);
+    for (size_t i = 0; i < key_count; ++i) {
+        uint256 key_hash;
+        std::copy(
+            policy_bytes.begin() + 18 + (i * 32),
+            policy_bytes.begin() + 18 + ((i + 1) * 32),
+            key_hash.begin());
+        if (!policy.owner_key_hashes.empty() && !(policy.owner_key_hashes.back() < key_hash)) {
+            return false;
+        }
+        policy.owner_key_hashes.push_back(key_hash);
+    }
+
+    out_policy = policy;
+    return true;
+}
+
+uint256 ComputeDrivechainSidechainPolicyHash(const DrivechainSidechainPolicy& policy)
+{
+    const std::vector<unsigned char> encoded_policy = EncodeDrivechainSidechainPolicy(policy);
+
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)POLICY_HASH_MAGIC, sizeof(POLICY_HASH_MAGIC));
+    hw.write((const char*)encoded_policy.data(), encoded_policy.size());
+    return hw.GetHash();
 }
 
 uint256 ComputeDrivechainBundleAuthMessage(uint8_t scid, const uint256& bundle_hash)
@@ -134,56 +310,33 @@ uint256 ComputeDrivechainBundleAuthMessage(uint8_t scid, const uint256& bundle_h
     return hw.GetHash();
 }
 
-bool VerifyDrivechainBundleAuthSig(
-    const uint256& owner_key_hash,
+bool VerifyDrivechainBundleAuthSigs(
+    const DrivechainSidechainPolicy& policy,
     uint8_t scid,
     const uint256& bundle_hash,
-    Span<const unsigned char> compact_sig)
+    const std::vector<std::vector<unsigned char>>& compact_sigs)
 {
-    if (compact_sig.size() != CPubKey::COMPACT_SIGNATURE_SIZE) {
-        return false;
-    }
-
-    CPubKey recovered_pubkey;
-    std::vector<unsigned char> sig(compact_sig.begin(), compact_sig.end());
     const uint256 msg = ComputeDrivechainBundleAuthMessage(scid, bundle_hash);
-    if (!recovered_pubkey.RecoverCompact(msg, sig)) {
-        return false;
-    }
-
-    const std::vector<unsigned char> pubkey_bytes(recovered_pubkey.begin(), recovered_pubkey.end());
-    const uint256 recovered_key_hash = Hash(pubkey_bytes);
-    return recovered_key_hash == owner_key_hash;
+    return HasDistinctThresholdMatches(policy, msg, compact_sigs);
 }
 
-uint256 ComputeDrivechainRegisterAuthMessage(uint8_t scid, const uint256& owner_key_hash)
+uint256 ComputeDrivechainRegisterAuthMessage(uint8_t scid, const uint256& owner_policy_hash)
 {
     CHashWriter hw(SER_GETHASH, 0);
     hw.write((const char*)REGISTER_AUTH_MAGIC, sizeof(REGISTER_AUTH_MAGIC));
     hw << scid;
-    hw << owner_key_hash;
+    hw << owner_policy_hash;
     return hw.GetHash();
 }
 
-bool VerifyDrivechainRegisterAuthSig(
+bool VerifyDrivechainRegisterAuthSigs(
     uint8_t scid,
-    const uint256& owner_key_hash,
-    Span<const unsigned char> compact_sig)
+    const DrivechainSidechainPolicy& policy,
+    const std::vector<std::vector<unsigned char>>& compact_sigs)
 {
-    if (compact_sig.size() != CPubKey::COMPACT_SIGNATURE_SIZE) {
-        return false;
-    }
-
-    CPubKey recovered_pubkey;
-    std::vector<unsigned char> sig(compact_sig.begin(), compact_sig.end());
-    const uint256 msg = ComputeDrivechainRegisterAuthMessage(scid, owner_key_hash);
-    if (!recovered_pubkey.RecoverCompact(msg, sig)) {
-        return false;
-    }
-
-    const std::vector<unsigned char> pubkey_bytes(recovered_pubkey.begin(), recovered_pubkey.end());
-    const uint256 recovered_key_hash = Hash(pubkey_bytes);
-    return recovered_key_hash == owner_key_hash;
+    const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(policy);
+    const uint256 msg = ComputeDrivechainRegisterAuthMessage(scid, policy_hash);
+    return HasDistinctThresholdMatches(policy, msg, compact_sigs);
 }
 
 bool DecodeDrivechainBmmRequestScript(const CScript& scriptPubKey, DrivechainBmmRequestInfo& out_info)

@@ -6,21 +6,26 @@ Use this checklist before public testnet/mainnet deployment.
 
 - Verify `CheckDrivechainBlock` and `DrivechainState::ConnectBlock` reject/accept identically for:
   - DEPOSIT / BUNDLE_COMMIT / VOTE / EXECUTE
-  - REGISTER owner-auth binding
+  - REGISTER policy-hash binding
   - Reorg edge cases and same-block ordering edge cases
 - Verify activation boundary behavior on both forward activation and reorg deactivation.
 - Verify vote window, approval threshold, and expiration schedule invariants.
+- Verify deposit and execute cap failures match between mempool policy and block validation.
 
 ## Ownership / Authorization
 
+- Confirm REGISTER policy hash covers threshold, owner key hashes, and both cap values.
 - Confirm REGISTER signature verification cannot be bypassed.
 - Confirm duplicate registration of an existing sidechain ID is rejected.
-- Confirm owner-auth sidechains require valid owner signatures on bundle commits.
+- Confirm owner-auth sidechains require valid distinct owner signatures on bundle commits.
+- Confirm duplicate signatures do not satisfy `auth_threshold`.
 - Confirm malformed/partial compact signatures are rejected consistently (mempool + block).
 
 ## Escrow / Execute Safety
 
+- Confirm deposits cannot raise escrow above `max_escrow_amount`.
 - Confirm execute withdrawal sum cannot exceed effective escrow.
+- Confirm execute withdrawal sum cannot exceed `max_bundle_withdrawal`.
 - Confirm execute bundle hash must match exact withdrawal set and ordering.
 - Confirm no drivechain outputs are allowed inside EXECUTE withdrawal windows.
 
@@ -32,8 +37,10 @@ Use this checklist before public testnet/mainnet deployment.
 
 ## RPC / UX Safety
 
-- Confirm `getdrivechaininfo` owner hash fields are unambiguous (`owner_key_hash` vs payload order).
+- Confirm `getdrivechaininfo` exposes unambiguous policy fields (`policy_hash`,
+  `owner_key_hashes`, payload-order companions, threshold, and caps).
 - Confirm wallet RPCs fail with clear errors on invalid sidechain IDs and malformed inputs.
+- Confirm wallet RPCs fail with clear errors on insufficient or unauthorized owner address sets.
 - Confirm auto-selected sidechain IDs from `senddrivechainregister` are deterministic and documented.
 
 ## Adversarial Testing

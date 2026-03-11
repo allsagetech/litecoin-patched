@@ -12,6 +12,7 @@
 #include <coins.h>
 #include <consensus/validation.h>
 #include <core_io.h>
+#include <drivechain/script.h>
 #include <drivechain/state.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
@@ -1585,8 +1586,27 @@ static UniValue getdrivechaininfo(const JSONRPCRequest& request)
             o.pushKV("is_active", sc.is_active);
             o.pushKV("owner_auth_required", sc.owner_auth_required);
             if (sc.owner_auth_required) {
-                o.pushKV("owner_key_hash", sc.owner_key_hash.GetHex());
-                o.pushKV("owner_key_hash_payload", HexStr(std::vector<unsigned char>(sc.owner_key_hash.begin(), sc.owner_key_hash.end())));
+                const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(sc.sidechain_policy);
+                o.pushKV("policy_hash", policy_hash.GetHex());
+                o.pushKV("policy_hash_payload", HexStr(std::vector<unsigned char>(policy_hash.begin(), policy_hash.end())));
+                o.pushKV("auth_threshold", static_cast<int>(sc.sidechain_policy.auth_threshold));
+
+                UniValue owner_key_hashes(UniValue::VARR);
+                UniValue owner_key_hashes_payload(UniValue::VARR);
+                for (const uint256& key_hash : sc.sidechain_policy.owner_key_hashes) {
+                    owner_key_hashes.push_back(key_hash.GetHex());
+                    owner_key_hashes_payload.push_back(HexStr(std::vector<unsigned char>(key_hash.begin(), key_hash.end())));
+                }
+                o.pushKV("owner_key_hashes", owner_key_hashes);
+                o.pushKV("owner_key_hashes_payload", owner_key_hashes_payload);
+                o.pushKV("max_escrow_amount", sc.sidechain_policy.max_escrow_amount);
+                o.pushKV("max_bundle_withdrawal", sc.sidechain_policy.max_bundle_withdrawal);
+
+                if (sc.sidechain_policy.owner_key_hashes.size() == 1) {
+                    const uint256& owner_key_hash = sc.sidechain_policy.owner_key_hashes.front();
+                    o.pushKV("owner_key_hash", owner_key_hash.GetHex());
+                    o.pushKV("owner_key_hash_payload", HexStr(std::vector<unsigned char>(owner_key_hash.begin(), owner_key_hash.end())));
+                }
             }
 
             UniValue bundles(UniValue::VARR);

@@ -10,24 +10,38 @@ This runbook documents practical operator flow for the Drivechain implementation
 
 ## 2. Register Sidechain Ownership
 
-Use `senddrivechainregister` with an owner address from the loaded wallet.
+Use `senddrivechainregister` with one owner address or a JSON array of owner
+addresses from the loaded wallet.
 
 - Preferred: omit `sidechain_id` so wallet auto-selects the lowest unused ID.
 - Optional: pass explicit `sidechain_id` when coordinated externally.
-- The wallet must hold the corresponding private key and be unlocked.
+- The wallet must hold every corresponding private key and be unlocked.
+- Set `auth_threshold`, `max_escrow_amount`, and `max_bundle_withdrawal`
+  explicitly for production sidechains.
 
 Example:
 
 ```bash
-litecoin-cli senddrivechainregister "<owner_address>"
+litecoin-cli senddrivechainregister \
+  "[\"<owner_address_a>\",\"<owner_address_b>\"]" \
+  7 \
+  1.0 \
+  false \
+  2 \
+  100.0 \
+  25.0
 ```
 
 Response includes:
 
 - `txid`
 - `sidechain_id`
-- `owner_key_hash` (RPC uint256 display order)
-- `owner_key_hash_payload` (raw script payload byte order)
+- `policy_hash` / `policy_hash_payload`
+- `auth_threshold`
+- `owner_key_hashes` / `owner_key_hashes_payload`
+- `max_escrow_amount`
+- `max_bundle_withdrawal`
+- `owner_key_hash` / `owner_key_hash_payload` only for legacy 1-of-1 compatibility
 
 Mine/confirm this transaction before publishing bundle commits for that sidechain.
 
@@ -42,7 +56,8 @@ litecoin-cli senddrivechaindeposit <sidechain_id> <payload_hex_32b> "[1.0]"
 Notes:
 
 - Deposit payloads are sidechain-defined and opaque to Litecoin consensus.
-- Owner-auth sidechains require owner signatures on `BUNDLE_COMMIT`, not owner-hash-shaped deposit payloads.
+- Deposit payloads do not participate in owner auth.
+- Deposits that would exceed the registered `max_escrow_amount` are rejected.
 - Confirm deposits before attempting execute paths that depend on escrow.
 
 ## 4. Commit / Vote / Execute
@@ -51,12 +66,17 @@ Notes:
 - Vote is miner/template-driven (`-drivechainvote`, `getblocktemplate.drivechainvotes`)
 - Execute approved bundle: `senddrivechainexecute`
 
-Owner-auth sidechains require an owner signature on `BUNDLE_COMMIT`, provided by the wallet key for the supplied owner address.
+Owner-auth sidechains require enough owner signatures to satisfy the registered
+`auth_threshold`, provided by the wallet keys for the supplied owner address set.
+`senddrivechainbundle` accepts a single owner address or a JSON array of owner addresses.
+`senddrivechainexecute` remains subject to the registered `max_bundle_withdrawal`.
 `senddrivechainbundle` creates zero-value commit outputs so the RPC path does not burn funds.
 
 ## 5. Health / Debug Checks
 
-- `getdrivechaininfo`: sidechain state, bundle windows, owner-auth fields, cache stats.
+- `getdrivechaininfo`: sidechain state, bundle windows, `policy_hash`,
+  `auth_threshold`, `owner_key_hashes`, cap fields, legacy single-owner
+  compatibility fields, and cache stats.
 - `getblockchaininfo`: softfork state.
 - Monitor rejection reasons in debug logs and RPC errors (`drivechain-*` / `dc-*`).
 
@@ -70,6 +90,7 @@ Owner-auth sidechains require an owner signature on `BUNDLE_COMMIT`, provided by
 
 - Keep owner keys in dedicated operational wallets/HSM flows where possible.
 - Do not reuse owner keys across production sidechains or across networks.
+- Review `max_escrow_amount` and `max_bundle_withdrawal` before every rollout.
 - Treat sidechain ID assignment as coordinated governance, not first-come social consensus.
 
 ## 8. Production References

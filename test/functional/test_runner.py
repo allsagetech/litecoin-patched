@@ -267,6 +267,7 @@ BASE_SCRIPTS = [
     'drivechain_vote_single_per_sidechain.py',
     'drivechain_vote_arg_validation.py',
     'drivechain_owner_auth_enforcement.py',
+    'drivechain_policy_auth_caps.py',
     'drivechain_owner_auth_restart_reorg.py',
     'drivechain_register_auto_id.py',
     'drivechain_register_mempool_conflict.py',

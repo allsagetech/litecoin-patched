@@ -13,6 +13,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
 #include <vector>
 
 BOOST_FIXTURE_TEST_SUITE(drivechain_script_tests, BasicTestingSetup)
@@ -121,6 +122,12 @@ BOOST_AUTO_TEST_CASE(bundle_commit_owner_auth_roundtrip)
     const CPubKey owner_pubkey = owner_key.GetPubKey();
     const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
     const uint256 owner_key_hash = Hash(owner_pubkey_bytes);
+    const DrivechainSidechainPolicy policy{
+        /*auth_threshold=*/1,
+        /*owner_key_hashes=*/{owner_key_hash},
+        /*max_escrow_amount=*/100 * COIN,
+        /*max_bundle_withdrawal=*/25 * COIN,
+    };
 
     const uint256 auth_msg = ComputeDrivechainBundleAuthMessage(sidechain_id, bundle_hash);
     std::vector<unsigned char> auth_sig;
@@ -139,8 +146,9 @@ BOOST_AUTO_TEST_CASE(bundle_commit_owner_auth_roundtrip)
     BOOST_CHECK_EQUAL(info.sidechain_id, sidechain_id);
     BOOST_CHECK(info.payload == bundle_hash);
     BOOST_CHECK(info.auth_sig == auth_sig);
-    BOOST_CHECK(VerifyDrivechainBundleAuthSig(owner_key_hash, sidechain_id, bundle_hash, info.auth_sig));
-    BOOST_CHECK(!VerifyDrivechainBundleAuthSig(owner_key_hash, sidechain_id + 1, bundle_hash, info.auth_sig));
+    BOOST_REQUIRE_EQUAL(info.auth_sigs.size(), 1U);
+    BOOST_CHECK(VerifyDrivechainBundleAuthSigs(policy, sidechain_id, bundle_hash, info.auth_sigs));
+    BOOST_CHECK(!VerifyDrivechainBundleAuthSigs(policy, sidechain_id + 1, bundle_hash, info.auth_sigs));
 }
 
 BOOST_AUTO_TEST_CASE(register_owner_auth_roundtrip)
@@ -155,26 +163,95 @@ BOOST_AUTO_TEST_CASE(register_owner_auth_roundtrip)
     const CPubKey owner_pubkey = owner_key.GetPubKey();
     const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
     const uint256 owner_key_hash = Hash(owner_pubkey_bytes);
+    const DrivechainSidechainPolicy policy{
+        /*auth_threshold=*/1,
+        /*owner_key_hashes=*/{owner_key_hash},
+        /*max_escrow_amount=*/250 * COIN,
+        /*max_bundle_withdrawal=*/40 * COIN,
+    };
+    const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(policy);
 
-    const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(sidechain_id, owner_key_hash);
+    const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(sidechain_id, policy_hash);
     std::vector<unsigned char> auth_sig;
     BOOST_REQUIRE(owner_key.SignCompact(auth_msg, auth_sig));
 
     const std::vector<unsigned char> sidechain_v{sidechain_id};
-    const std::vector<unsigned char> payload(owner_key_hash.begin(), owner_key_hash.end());
+    const std::vector<unsigned char> payload(policy_hash.begin(), policy_hash.end());
     const std::vector<unsigned char> tag{0x05};
+    const std::vector<unsigned char> encoded_policy = EncodeDrivechainSidechainPolicy(policy);
 
     CScript script;
-    script << OP_RETURN << OP_DRIVECHAIN << sidechain_v << payload << tag << auth_sig;
+    script << OP_RETURN << OP_DRIVECHAIN << sidechain_v << payload << tag << encoded_policy << auth_sig;
 
     DrivechainScriptInfo info;
     BOOST_REQUIRE(DecodeDrivechainScript(script, info));
     BOOST_CHECK(info.kind == DrivechainScriptInfo::Kind::REGISTER);
     BOOST_CHECK_EQUAL(info.sidechain_id, sidechain_id);
-    BOOST_CHECK(info.payload == owner_key_hash);
+    BOOST_CHECK(info.payload == policy_hash);
     BOOST_CHECK(info.auth_sig == auth_sig);
-    BOOST_CHECK(VerifyDrivechainRegisterAuthSig(sidechain_id, owner_key_hash, info.auth_sig));
-    BOOST_CHECK(!VerifyDrivechainRegisterAuthSig(sidechain_id + 1, owner_key_hash, info.auth_sig));
+    BOOST_REQUIRE_EQUAL(info.auth_sigs.size(), 1U);
+    BOOST_CHECK_EQUAL(info.sidechain_policy.auth_threshold, policy.auth_threshold);
+    BOOST_CHECK(info.sidechain_policy.owner_key_hashes == policy.owner_key_hashes);
+    BOOST_CHECK_EQUAL(info.sidechain_policy.max_escrow_amount, policy.max_escrow_amount);
+    BOOST_CHECK_EQUAL(info.sidechain_policy.max_bundle_withdrawal, policy.max_bundle_withdrawal);
+    BOOST_CHECK(VerifyDrivechainRegisterAuthSigs(sidechain_id, info.sidechain_policy, info.auth_sigs));
+    BOOST_CHECK(!VerifyDrivechainRegisterAuthSigs(sidechain_id + 1, info.sidechain_policy, info.auth_sigs));
+}
+
+BOOST_AUTO_TEST_CASE(sidechain_policy_roundtrip_rejects_unsorted_keys)
+{
+    DrivechainSidechainPolicy policy;
+    policy.auth_threshold = 2;
+    policy.max_escrow_amount = 100 * COIN;
+    policy.max_bundle_withdrawal = 25 * COIN;
+    policy.owner_key_hashes = {
+        uint256S("1111111111111111111111111111111111111111111111111111111111111111"),
+        uint256S("2222222222222222222222222222222222222222222222222222222222222222"),
+    };
+
+    const std::vector<unsigned char> encoded = EncodeDrivechainSidechainPolicy(policy);
+    DrivechainSidechainPolicy decoded_policy;
+    BOOST_REQUIRE(DecodeDrivechainSidechainPolicy(encoded, decoded_policy));
+    BOOST_CHECK(decoded_policy.owner_key_hashes == policy.owner_key_hashes);
+
+    std::swap(policy.owner_key_hashes[0], policy.owner_key_hashes[1]);
+    BOOST_CHECK(!DecodeDrivechainSidechainPolicy(EncodeDrivechainSidechainPolicy(policy), decoded_policy));
+}
+
+BOOST_AUTO_TEST_CASE(threshold_bundle_auth_requires_distinct_keys)
+{
+    const uint8_t sidechain_id = 4;
+    const uint256 bundle_hash = uint256S("abababababababababababababababababababababababababababababababab");
+
+    CKey owner_key_a;
+    const std::vector<unsigned char> secret_a(32, 0x31);
+    owner_key_a.Set(secret_a.begin(), secret_a.end(), true);
+    BOOST_REQUIRE(owner_key_a.IsValid());
+
+    CKey owner_key_b;
+    const std::vector<unsigned char> secret_b(32, 0x41);
+    owner_key_b.Set(secret_b.begin(), secret_b.end(), true);
+    BOOST_REQUIRE(owner_key_b.IsValid());
+
+    const CPubKey owner_pubkey_a = owner_key_a.GetPubKey();
+    const CPubKey owner_pubkey_b = owner_key_b.GetPubKey();
+    const uint256 owner_key_hash_a = Hash(std::vector<unsigned char>(owner_pubkey_a.begin(), owner_pubkey_a.end()));
+    const uint256 owner_key_hash_b = Hash(std::vector<unsigned char>(owner_pubkey_b.begin(), owner_pubkey_b.end()));
+
+    DrivechainSidechainPolicy policy;
+    policy.auth_threshold = 2;
+    policy.owner_key_hashes = {std::min(owner_key_hash_a, owner_key_hash_b), std::max(owner_key_hash_a, owner_key_hash_b)};
+    policy.max_escrow_amount = 100 * COIN;
+    policy.max_bundle_withdrawal = 30 * COIN;
+
+    const uint256 auth_msg = ComputeDrivechainBundleAuthMessage(sidechain_id, bundle_hash);
+    std::vector<unsigned char> auth_sig_a;
+    std::vector<unsigned char> auth_sig_b;
+    BOOST_REQUIRE(owner_key_a.SignCompact(auth_msg, auth_sig_a));
+    BOOST_REQUIRE(owner_key_b.SignCompact(auth_msg, auth_sig_b));
+
+    BOOST_CHECK(!VerifyDrivechainBundleAuthSigs(policy, sidechain_id, bundle_hash, {auth_sig_a, auth_sig_a}));
+    BOOST_CHECK(VerifyDrivechainBundleAuthSigs(policy, sidechain_id, bundle_hash, {auth_sig_a, auth_sig_b}));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

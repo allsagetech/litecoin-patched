@@ -7,6 +7,7 @@
 
 #include <amount.h>
 #include <consensus/params.h>
+#include <drivechain/policy.h>
 #include <map>
 #include <serialize.h>
 #include <uint256.h>
@@ -37,14 +38,14 @@ struct Sidechain
     CAmount escrow_balance{0};
     int creation_height{-1};
     bool is_active{true};
-    uint256 owner_key_hash; // Hash256(compressed pubkey) authorized for bundle commits.
     bool owner_auth_required{false};
+    DrivechainSidechainPolicy sidechain_policy;
 
     std::map<uint256, Bundle> bundles;
 
     SERIALIZE_METHODS(Sidechain, obj)
     {
-        READWRITE(obj.id, obj.escrow_balance, obj.creation_height, obj.is_active, obj.owner_key_hash, obj.owner_auth_required, obj.bundles);
+        READWRITE(obj.id, obj.escrow_balance, obj.creation_height, obj.is_active, obj.owner_auth_required, obj.sidechain_policy, obj.bundles);
     }
 };
 

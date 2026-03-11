@@ -15,7 +15,7 @@ This proposal defines Litecoin-native, miner-enforced sidechains. LTC is locked 
 This soft fork adds a new opcode (`OP_DRIVECHAIN`) and new output type (`TxoutType::DRIVECHAIN`) which enable six operations:
 
 1. **DEPOSIT** - Lock LTC into a sidechain escrow
-2. **REGISTER** - Bind sidechain ownership to an owner key hash
+2. **REGISTER** - Bind sidechain ownership to a policy hash
 3. **BUNDLE_COMMIT** - Publish a hash of a sidechain withdrawal bundle
 4. **VOTE_YES** - Cast a miner approval vote for bundle finalization (coinbase only)
 5. **VOTE_NO** - Cast an explicit miner rejection signal (coinbase only)
@@ -291,17 +291,30 @@ After activation:
 
 This specification includes an ownership path:
 
-- `REGISTER` output tag (`0x05`) with owner key hash payload.
-- Compact signature required over `(sidechain_id, owner_key_hash)`.
+- `REGISTER` output tag (`0x05`) with a 32-byte `policy_hash` payload.
+- The next push in the `REGISTER` script encodes the sidechain policy:
+  - `auth_threshold`
+  - sorted unique `owner_key_hashes`
+  - `max_escrow_amount`
+  - `max_bundle_withdrawal`
+- `REGISTER` MUST carry at least `auth_threshold` distinct compact signatures
+  over `(sidechain_id, policy_hash)` from keys included in the policy.
 - On success, sidechain ownership is bound and owner-auth is enabled.
-- If owner-auth is enabled, each `BUNDLE_COMMIT` MUST carry a valid compact
-  signature over `(sidechain_id, bundle_hash)` from the registered owner key.
+- If owner-auth is enabled, each `BUNDLE_COMMIT` MUST carry at least
+  `auth_threshold` distinct compact signatures over `(sidechain_id, bundle_hash)`
+  from registered owner keys.
+- DEPOSITs that would raise `escrow_balance` above `max_escrow_amount` are invalid.
+- EXECUTEs whose withdrawal sum exceeds `max_bundle_withdrawal` are invalid.
 - `REGISTER` output value MUST be at least the chain's minimum registration amount.
 
 RPC support:
 
-- `senddrivechainregister` registers a sidechain owner key using a wallet-held owner address.
+- `senddrivechainregister` registers a sidechain policy using one wallet-held
+  owner address or a JSON array of wallet-held owner addresses, with optional
+  threshold and cap arguments.
 - If `sidechain_id` is omitted, the wallet selects the lowest currently unused ID.
+- `senddrivechainbundle` accepts one owner address or a JSON array of owner
+  addresses and signs the bundle commit with all supplied keys.
 
 ---
 

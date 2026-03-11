@@ -5,6 +5,7 @@
 #ifndef BITCOIN_INTERFACES_CHAIN_H
 #define BITCOIN_INTERFACES_CHAIN_H
 
+#include <drivechain/policy.h>
 #include <optional.h>               // For Optional and nullopt
 #include <primitives/transaction.h> // For CTransactionRef
 #include <util/settings.h>          // For util::SettingsValue
@@ -158,9 +159,9 @@ public:
     //! populates the values.
     virtual void findCoins(std::map<COutPoint, Coin>& coins) = 0;
 
-    //! Look up registered sidechain owner-auth data from active chain state.
+    //! Look up registered sidechain owner-auth policy data from active chain state.
     //! Returns false if the sidechain is not registered.
-    virtual bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, uint256& owner_key_hash) = 0;
+    virtual bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, DrivechainSidechainPolicy& sidechain_policy) = 0;
 
     //! Estimate fraction of total transactions verified if blocks up to
     //! the specified block hash are verified.

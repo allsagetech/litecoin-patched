@@ -50,6 +50,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <univalue.h>
 
 
@@ -751,28 +752,81 @@ static bool IsDrivechainRegisterSidechainExistsError(const UniValue& err)
            message.get_str().find("drivechain-register-sidechain-exists") != std::string::npos;
 }
 
+struct DrivechainOwnerKeyEntry
+{
+    CKey key;
+    uint256 key_hash;
+};
+
+static void PushDrivechainPolicyResult(UniValue& out, const DrivechainSidechainPolicy& policy)
+{
+    const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(policy);
+    out.pushKV("policy_hash", policy_hash.GetHex());
+    out.pushKV("policy_hash_payload", HexStr(std::vector<unsigned char>(policy_hash.begin(), policy_hash.end())));
+    out.pushKV("auth_threshold", static_cast<int>(policy.auth_threshold));
+
+    UniValue owner_key_hashes(UniValue::VARR);
+    UniValue owner_key_hashes_payload(UniValue::VARR);
+    for (const uint256& key_hash : policy.owner_key_hashes) {
+        owner_key_hashes.push_back(key_hash.GetHex());
+        owner_key_hashes_payload.push_back(HexStr(std::vector<unsigned char>(key_hash.begin(), key_hash.end())));
+    }
+    out.pushKV("owner_key_hashes", owner_key_hashes);
+    out.pushKV("owner_key_hashes_payload", owner_key_hashes_payload);
+    out.pushKV("max_escrow_amount", policy.max_escrow_amount);
+    out.pushKV("max_bundle_withdrawal", policy.max_bundle_withdrawal);
+
+    if (policy.owner_key_hashes.size() == 1) {
+        const uint256& owner_key_hash = policy.owner_key_hashes.front();
+        out.pushKV("owner_key_hash", owner_key_hash.GetHex());
+        out.pushKV("owner_key_hash_payload", HexStr(std::vector<unsigned char>(owner_key_hash.begin(), owner_key_hash.end())));
+    }
+}
+
 static CScript BuildDrivechainRegisterScript(
     uint8_t scid,
-    const uint256& owner_key_hash,
-    Span<const unsigned char> auth_sig)
+    const DrivechainSidechainPolicy& policy,
+    const std::vector<std::vector<unsigned char>>& auth_sigs)
 {
     const std::vector<unsigned char> scid_v{scid};
-    const std::vector<unsigned char> payload(owner_key_hash.begin(), owner_key_hash.end());
+    const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(policy);
+    const std::vector<unsigned char> payload(policy_hash.begin(), policy_hash.end());
     const std::vector<unsigned char> tag{0x05};
+    const std::vector<unsigned char> encoded_policy = EncodeDrivechainSidechainPolicy(policy);
 
     CScript script;
-    script << OP_RETURN << OP_DRIVECHAIN << scid_v << payload << tag;
-    if (!auth_sig.empty()) {
-        script << std::vector<unsigned char>(auth_sig.begin(), auth_sig.end());
+    script << OP_RETURN << OP_DRIVECHAIN << scid_v << payload << tag << encoded_policy;
+    for (const auto& auth_sig : auth_sigs) {
+        if (!auth_sig.empty()) {
+            script << auth_sig;
+        }
     }
     return script;
 }
 
-static void GetDrivechainOwnerKeyFromWalletAddress(
+static CScript BuildDrivechainBundleScript(
+    uint8_t scid,
+    const uint256& bundle_hash,
+    const std::vector<std::vector<unsigned char>>& auth_sigs)
+{
+    const std::vector<unsigned char> scid_v{scid};
+    const std::vector<unsigned char> payload(bundle_hash.begin(), bundle_hash.end());
+    const std::vector<unsigned char> tag{0x01};
+
+    CScript script;
+    script << OP_RETURN << OP_DRIVECHAIN << scid_v << payload << tag;
+    for (const auto& auth_sig : auth_sigs) {
+        if (!auth_sig.empty()) {
+            script << auth_sig;
+        }
+    }
+    return script;
+}
+
+static void GetDrivechainOwnerKeyEntryFromWalletAddress(
     const CWallet& wallet,
     const std::string& owner_address,
-    CKey& out_key,
-    uint256& out_owner_key_hash)
+    DrivechainOwnerKeyEntry& out_entry)
 {
     const CTxDestination dest = DecodeDestination(owner_address);
     if (!IsValidDestination(dest)) {
@@ -796,7 +850,7 @@ static void GetDrivechainOwnerKeyFromWalletAddress(
     }
 
     CPubKey owner_pubkey;
-    if (!spk_man->GetKeyForDestination(dest, out_key, owner_pubkey)) {
+    if (!spk_man->GetKeyForDestination(dest, out_entry.key, owner_pubkey)) {
         throw JSONRPCError(RPC_WALLET_ERROR, "owner_address private key is not available in this wallet");
     }
 
@@ -805,25 +859,133 @@ static void GetDrivechainOwnerKeyFromWalletAddress(
     }
 
     const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
-    out_owner_key_hash = Hash(owner_pubkey_bytes);
+    out_entry.key_hash = Hash(owner_pubkey_bytes);
+}
+
+static std::vector<DrivechainOwnerKeyEntry> GetDrivechainOwnerKeyEntriesFromWalletParam(
+    const CWallet& wallet,
+    const UniValue& owner_param)
+{
+    std::vector<std::string> owner_addresses;
+    if (owner_param.isStr()) {
+        const std::string owner_arg = owner_param.get_str();
+        UniValue parsed_owner_array;
+        if (!owner_arg.empty() && owner_arg.front() == '[' &&
+            parsed_owner_array.read(owner_arg) && parsed_owner_array.isArray()) {
+            for (size_t i = 0; i < parsed_owner_array.size(); ++i) {
+                if (!parsed_owner_array[i].isStr()) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses array must contain only wallet address strings");
+                }
+                owner_addresses.push_back(parsed_owner_array[i].get_str());
+            }
+        } else {
+            owner_addresses.push_back(owner_arg);
+        }
+    } else if (owner_param.isArray()) {
+        for (size_t i = 0; i < owner_param.size(); ++i) {
+            if (!owner_param[i].isStr()) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses array must contain only wallet address strings");
+            }
+            owner_addresses.push_back(owner_param[i].get_str());
+        }
+    } else {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses must be a wallet address or an array of wallet addresses");
+    }
+
+    if (owner_addresses.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses must not be empty");
+    }
+    if (owner_addresses.size() > MAX_DRIVECHAIN_OWNER_KEYS) {
+        throw JSONRPCError(
+            RPC_INVALID_PARAMETER,
+            strprintf("owner_addresses must contain at most %u entries", MAX_DRIVECHAIN_OWNER_KEYS));
+    }
+
+    std::vector<DrivechainOwnerKeyEntry> owner_keys;
+    owner_keys.reserve(owner_addresses.size());
+    for (const std::string& owner_address : owner_addresses) {
+        DrivechainOwnerKeyEntry entry;
+        GetDrivechainOwnerKeyEntryFromWalletAddress(wallet, owner_address, entry);
+        owner_keys.push_back(std::move(entry));
+    }
+
+    std::sort(owner_keys.begin(), owner_keys.end(), [](const DrivechainOwnerKeyEntry& a, const DrivechainOwnerKeyEntry& b) {
+        return a.key_hash < b.key_hash;
+    });
+
+    for (size_t i = 1; i < owner_keys.size(); ++i) {
+        if (owner_keys[i - 1].key_hash == owner_keys[i].key_hash) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses must resolve to distinct public keys");
+        }
+    }
+
+    return owner_keys;
+}
+
+static std::vector<std::vector<unsigned char>> SignDrivechainAuthMessage(
+    const std::vector<DrivechainOwnerKeyEntry>& owner_keys,
+    const uint256& auth_msg,
+    const char* failure_message)
+{
+    std::vector<std::vector<unsigned char>> auth_sigs;
+    auth_sigs.reserve(owner_keys.size());
+    for (const DrivechainOwnerKeyEntry& owner_key : owner_keys) {
+        std::vector<unsigned char> auth_sig;
+        if (!owner_key.key.SignCompact(auth_msg, auth_sig)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, failure_message);
+        }
+        auth_sigs.push_back(std::move(auth_sig));
+    }
+    return auth_sigs;
+}
+
+static DrivechainSidechainPolicy BuildDrivechainSidechainPolicy(
+    const std::vector<DrivechainOwnerKeyEntry>& owner_keys,
+    int auth_threshold,
+    CAmount max_escrow_amount,
+    CAmount max_bundle_withdrawal)
+{
+    if (auth_threshold <= 0 || auth_threshold > owner_keys.size() || auth_threshold > MAX_DRIVECHAIN_OWNER_KEYS) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "auth_threshold must be between 1 and the number of owner keys");
+    }
+    if (max_escrow_amount <= 0) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "max_escrow_amount must be greater than 0");
+    }
+    if (max_bundle_withdrawal <= 0) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "max_bundle_withdrawal must be greater than 0");
+    }
+    if (max_bundle_withdrawal > max_escrow_amount) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "max_bundle_withdrawal must not exceed max_escrow_amount");
+    }
+
+    DrivechainSidechainPolicy policy;
+    policy.auth_threshold = static_cast<uint8_t>(auth_threshold);
+    policy.max_escrow_amount = max_escrow_amount;
+    policy.max_bundle_withdrawal = max_bundle_withdrawal;
+    policy.owner_key_hashes.reserve(owner_keys.size());
+    for (const DrivechainOwnerKeyEntry& owner_key : owner_keys) {
+        policy.owner_key_hashes.push_back(owner_key.key_hash);
+    }
+    return policy;
 }
 
 static std::pair<std::string, uint8_t> SendDrivechainRegisterWithAutoId(
     CWallet& wallet,
-    const CKey& owner_key,
-    const uint256& owner_key_hash,
+    const std::vector<DrivechainOwnerKeyEntry>& owner_keys,
+    const DrivechainSidechainPolicy& policy,
     CAmount amount,
     bool subtract_fee_from_amount)
 {
     for (int scid_i = 0; scid_i <= 255; ++scid_i) {
         const uint8_t sidechain_id = static_cast<uint8_t>(scid_i);
-        const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(sidechain_id, owner_key_hash);
-        std::vector<unsigned char> auth_sig;
-        if (!owner_key.SignCompact(auth_msg, auth_sig)) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "failed to create registration authorization signature");
-        }
-
-        const CScript register_script = BuildDrivechainRegisterScript(sidechain_id, owner_key_hash, auth_sig);
+        const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(
+            sidechain_id,
+            ComputeDrivechainSidechainPolicyHash(policy));
+        const std::vector<std::vector<unsigned char>> auth_sigs = SignDrivechainAuthMessage(
+            owner_keys,
+            auth_msg,
+            "failed to create registration authorization signature");
+        const CScript register_script = BuildDrivechainRegisterScript(sidechain_id, policy, auth_sigs);
         CCoinControl coin_control;
         try {
             const std::string txid = SendToDrivechainScript(
@@ -847,28 +1009,37 @@ static RPCHelpMan senddrivechainregister()
     return RPCHelpMan{
         "senddrivechainregister",
         "Create, fund, sign and broadcast a Drivechain REGISTER transaction.\n"
-        "This is the secure sidechain ownership path: the wallet signs the registration binding with the owner address key.\n"
+        "This is the secure sidechain ownership path: the wallet signs the registration binding with one or more wallet-held owner keys.\n"
+        "Owner keys are canonicalized by key hash before the sidechain policy hash is computed.\n"
         "If sidechain_id is omitted, the wallet picks the lowest currently unused id from 0-255.\n",
         std::vector<RPCArg>{
-            {"owner_address", RPCArg::Type::STR, RPCArg::Optional::NO, "Wallet address whose compressed public key becomes the registered owner key"},
+            {"owner_addresses", RPCArg::Type::STR, RPCArg::Optional::NO, "Wallet owner address, or a JSON array of wallet owner addresses, whose compressed public keys become the registered owner policy"},
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional sidechain id (0-255). If omitted, lowest unused id is selected."},
             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Amount to attach to register output (default: 1.0)"},
             {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+            {"auth_threshold", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Required distinct owner signatures. Default: number of owner keys provided."},
+            {"max_escrow_amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Maximum total escrow balance allowed for this sidechain (default: network MAX_MONEY)."},
+            {"max_bundle_withdrawal", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Maximum withdrawal amount allowed in a single EXECUTE bundle (default: max_escrow_amount)."},
         },
         RPCResult{RPCResult::Type::OBJ, "", "",
             {
                 {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
                 {RPCResult::Type::NUM, "sidechain_id", "Registered sidechain id"},
-                {RPCResult::Type::STR_HEX, "owner_key_hash", "Owner key hash in RPC uint256 display format"},
-                {RPCResult::Type::STR_HEX, "owner_key_hash_payload", "Owner key hash in raw script payload byte order"},
+                {RPCResult::Type::STR_HEX, "policy_hash", "Sidechain policy hash in RPC uint256 display format"},
+                {RPCResult::Type::STR_HEX, "policy_hash_payload", "Sidechain policy hash in raw script payload byte order"},
+                {RPCResult::Type::NUM, "auth_threshold", "Required distinct owner signatures"},
+                {RPCResult::Type::NUM, "max_escrow_amount", "Maximum total escrow balance in satoshis"},
+                {RPCResult::Type::NUM, "max_bundle_withdrawal", "Maximum per-bundle withdrawal in satoshis"},
+                {RPCResult::Type::STR_HEX, "owner_key_hash", "Legacy single-owner compatibility field. Present only for 1-of-1 policies."},
+                {RPCResult::Type::STR_HEX, "owner_key_hash_payload", "Legacy single-owner compatibility field in raw script payload byte order."},
             }},
         RPCExamples{
             HelpExampleCli("senddrivechainregister",
                 "\"rltc1q...\"") +
             HelpExampleCli("senddrivechainregister",
-                "\"rltc1q...\" 7 1.0") +
+                "\"[\\\"rltc1q...\\\",\\\"rltc1q...\\\"]\" 7 1.0 false 2 100.0 25.0") +
             HelpExampleRpc("senddrivechainregister",
-                "\"rltc1q...\", 7, 1.0")
+                "[\"rltc1q...\",\"rltc1q...\"], 7, 1.0, false, 2, 100.0, 25.0")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
@@ -900,31 +1071,53 @@ static RPCHelpMan senddrivechainregister()
                 subtract_fee_from_amount = request.params[3].get_bool();
             }
 
-            std::string txid;
-            uint8_t sidechain_id = 0;
             LOCK(pwallet->cs_wallet);
             EnsureWalletIsUnlocked(pwallet);
 
-            CKey owner_key;
-            uint256 owner_key_hash;
-            GetDrivechainOwnerKeyFromWalletAddress(*pwallet, request.params[0].get_str(), owner_key, owner_key_hash);
+            const std::vector<DrivechainOwnerKeyEntry> owner_keys =
+                GetDrivechainOwnerKeyEntriesFromWalletParam(*pwallet, request.params[0]);
+
+            int auth_threshold = owner_keys.size();
+            if (request.params.size() > 4 && !request.params[4].isNull()) {
+                auth_threshold = request.params[4].get_int();
+            }
+
+            CAmount max_escrow_amount = MAX_MONEY;
+            if (request.params.size() > 5 && !request.params[5].isNull()) {
+                max_escrow_amount = AmountFromValue(request.params[5]);
+            }
+
+            CAmount max_bundle_withdrawal = max_escrow_amount;
+            if (request.params.size() > 6 && !request.params[6].isNull()) {
+                max_bundle_withdrawal = AmountFromValue(request.params[6]);
+            }
+
+            const DrivechainSidechainPolicy policy = BuildDrivechainSidechainPolicy(
+                owner_keys,
+                auth_threshold,
+                max_escrow_amount,
+                max_bundle_withdrawal);
+
+            std::string txid;
+            uint8_t sidechain_id = 0;
 
             if (maybe_sidechain_id) {
                 sidechain_id = *maybe_sidechain_id;
-                const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(sidechain_id, owner_key_hash);
-                std::vector<unsigned char> auth_sig;
-                if (!owner_key.SignCompact(auth_msg, auth_sig)) {
-                    throw JSONRPCError(RPC_WALLET_ERROR, "failed to create registration authorization signature");
-                }
-
-                const CScript register_script = BuildDrivechainRegisterScript(sidechain_id, owner_key_hash, auth_sig);
+                const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(
+                    sidechain_id,
+                    ComputeDrivechainSidechainPolicyHash(policy));
+                const std::vector<std::vector<unsigned char>> auth_sigs = SignDrivechainAuthMessage(
+                    owner_keys,
+                    auth_msg,
+                    "failed to create registration authorization signature");
+                const CScript register_script = BuildDrivechainRegisterScript(sidechain_id, policy, auth_sigs);
                 CCoinControl coin_control;
                 txid = SendToDrivechainScript(*pwallet, register_script, amount, coin_control, subtract_fee_from_amount);
             } else {
                 std::pair<std::string, uint8_t> auto_result = SendDrivechainRegisterWithAutoId(
                     *pwallet,
-                    owner_key,
-                    owner_key_hash,
+                    owner_keys,
+                    policy,
                     amount,
                     subtract_fee_from_amount);
                 txid = std::move(auto_result.first);
@@ -934,8 +1127,7 @@ static RPCHelpMan senddrivechainregister()
             UniValue result(UniValue::VOBJ);
             result.pushKV("txid", txid);
             result.pushKV("sidechain_id", static_cast<int>(sidechain_id));
-            result.pushKV("owner_key_hash", owner_key_hash.GetHex());
-            result.pushKV("owner_key_hash_payload", HexStr(std::vector<unsigned char>(owner_key_hash.begin(), owner_key_hash.end())));
+            PushDrivechainPolicyResult(result, policy);
             return result;
         },
     };
@@ -1018,7 +1210,7 @@ static RPCHelpMan senddrivechainbundle()
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
-            {"owner_address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Wallet address used to sign the owner authorization. Required when the registered sidechain has owner auth enabled."},
+            {"owner_addresses", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Wallet owner address, or a JSON array of wallet owner addresses, used to sign the owner authorization. Required when the registered sidechain has owner auth enabled."},
         },
         RPCResult{
             RPCResult::Type::STR_HEX, "txid", "The transaction id"
@@ -1026,8 +1218,11 @@ static RPCHelpMan senddrivechainbundle()
         RPCExamples{
             HelpExampleCli("senddrivechainbundle",
                            "1 0000000000000000000000000000000000000000000000000000000000000000 \"rltc1q...\"") +
+            HelpExampleCli("senddrivechainbundle",
+                           "1 0000000000000000000000000000000000000000000000000000000000000000 "
+                           "\"[\\\"rltc1q...\\\",\\\"rltc1q...\\\"]\"") +
             HelpExampleRpc("senddrivechainbundle",
-                           "1, \"0000...0000\", \"rltc1q...\"")
+                           "1, \"0000...0000\", [\"rltc1q...\", \"rltc1q...\"]")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
@@ -1045,50 +1240,48 @@ static RPCHelpMan senddrivechainbundle()
             uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
 
             const uint256 bundle_hash = ParseHashV(request.params[1], "bundle_hash");
-            std::vector<unsigned char> bundle_vec(bundle_hash.begin(), bundle_hash.end());
-
-            const bool owner_address_provided = request.params.size() > 2 && !request.params[2].isNull();
-            std::vector<unsigned char> auth_sig;
+            const bool owner_addresses_provided = request.params.size() > 2 && !request.params[2].isNull();
             bool owner_auth_required = false;
-            uint256 registered_owner_key_hash;
+            DrivechainSidechainPolicy registered_policy;
             if (pwallet->HaveChain()) {
-                if (pwallet->chain().getDrivechainSidechain(sidechain_id, owner_auth_required, registered_owner_key_hash) &&
+                if (pwallet->chain().getDrivechainSidechain(sidechain_id, owner_auth_required, registered_policy) &&
                     owner_auth_required) {
-                    if (!owner_address_provided) {
-                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address is required for registered sidechains with owner auth");
+                    if (!owner_addresses_provided) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses are required for registered sidechains with owner auth");
                     }
                 }
             }
 
-            if (owner_address_provided) {
+            std::vector<std::vector<unsigned char>> auth_sigs;
+            if (owner_addresses_provided) {
                 LOCK(pwallet->cs_wallet);
                 EnsureWalletIsUnlocked(pwallet);
 
-                CKey owner_key;
-                uint256 owner_key_hash;
-                GetDrivechainOwnerKeyFromWalletAddress(*pwallet, request.params[2].get_str(), owner_key, owner_key_hash);
+                const std::vector<DrivechainOwnerKeyEntry> owner_keys =
+                    GetDrivechainOwnerKeyEntriesFromWalletParam(*pwallet, request.params[2]);
 
-                if (owner_auth_required && owner_key_hash != registered_owner_key_hash) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address does not match the registered owner key");
+                if (owner_auth_required) {
+                    if (owner_keys.size() < registered_policy.auth_threshold) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses do not satisfy the registered auth_threshold");
+                    }
+                    for (const DrivechainOwnerKeyEntry& owner_key : owner_keys) {
+                        if (std::find(
+                                registered_policy.owner_key_hashes.begin(),
+                                registered_policy.owner_key_hashes.end(),
+                                owner_key.key_hash) == registered_policy.owner_key_hashes.end()) {
+                            throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses contain a key that is not part of the registered owner policy");
+                        }
+                    }
                 }
 
                 const uint256 auth_msg = ComputeDrivechainBundleAuthMessage(sidechain_id, bundle_hash);
-                if (!owner_key.SignCompact(auth_msg, auth_sig)) {
-                    throw JSONRPCError(RPC_WALLET_ERROR, "failed to create owner authorization signature");
-                }
+                auth_sigs = SignDrivechainAuthMessage(
+                    owner_keys,
+                    auth_msg,
+                    "failed to create owner authorization signature");
             }
 
-            // Build drivechain script:
-            // OP_DRIVECHAIN <sidechain_id> <bundle_hash> <tag=0x01>
-            CScript script;
-            script << OP_RETURN
-                << OP_DRIVECHAIN
-                << std::vector<unsigned char>{ sidechain_id }
-                << bundle_vec
-                << std::vector<unsigned char>{ 0x01 }; // BUNDLE_COMMIT tag
-            if (!auth_sig.empty()) {
-                script << auth_sig;
-            }
+            const CScript script = BuildDrivechainBundleScript(sidechain_id, bundle_hash, auth_sigs);
 
             CCoinControl coin_control;
 
@@ -5577,9 +5770,9 @@ static const CRPCCommand commands[] =
     { "wallet",             "setwalletflag",                    &setwalletflag,                 {"flag","value"} },
     { "wallet",             "signmessage",                      &signmessage,                   {"address","message"} },
     { "wallet",             "signrawtransactionwithwallet",     &signrawtransactionwithwallet,  {"hexstring","prevtxs","sighashtype"} },
-    { "wallet",             "senddrivechainregister",           &senddrivechainregister,        {"owner_address", "sidechain_id", "amount", "subtractfeefromamount"} },
+    { "wallet",             "senddrivechainregister",           &senddrivechainregister,        {"owner_addresses", "sidechain_id", "amount", "subtractfeefromamount", "auth_threshold", "max_escrow_amount", "max_bundle_withdrawal"} },
     { "wallet",             "senddrivechaindeposit",            &senddrivechaindeposit,         {"sidechain_id", "payload", "amounts", "subtract_fee"} },
-    { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "owner_address"} },
+    { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "owner_addresses"} },
     { "wallet",             "senddrivechainbmmrequest",         &senddrivechainbmmrequest,      {"sidechain_id", "side_block_hash", "prev_main_block_hash", "amount", "subtractfeefromamount"} },
     { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id", "bundle_hash", "withdrawals", "allow_unbroadcast"} },
     { "wallet",             "unloadwallet",                     &unloadwallet,                  {"wallet_name", "load_on_startup"} },

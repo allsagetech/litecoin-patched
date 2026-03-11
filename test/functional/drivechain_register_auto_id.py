@@ -40,6 +40,7 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
 
         reg = n.senddrivechainregister(owner_addr)
         assert_equal(int(reg["sidechain_id"]), 0)
+        assert_equal(reg["auth_threshold"], 1)
         assert_equal(reg["owner_key_hash_payload"], owner_key_hash_payload)
         assert_equal(reg["owner_key_hash"], owner_key_hash_rpc)
 
@@ -48,6 +49,9 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
         sc = get_sidechain(n, 0)
         assert sc is not None
         assert_equal(sc["owner_auth_required"], True)
+        assert_equal(sc["auth_threshold"], 1)
+        assert_equal(sc["owner_key_hashes_payload"], [owner_key_hash_payload])
+        assert_equal(sc["owner_key_hashes"], [owner_key_hash_rpc])
         assert_equal(sc["owner_key_hash_payload"], owner_key_hash_payload)
         assert_equal(sc["owner_key_hash"], owner_key_hash_rpc)
 
@@ -67,7 +71,7 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
         bundle_hash = "44" * 32
         assert_raises_rpc_error(
             -8,
-            "owner_address is required for registered sidechains with owner auth",
+            "owner_addresses are required for registered sidechains with owner auth",
             n.senddrivechainbundle,
             0,
             bundle_hash,
@@ -76,7 +80,7 @@ class DrivechainRegisterAutoId(BitcoinTestFramework):
         wrong_addr = n.getnewaddress()
         assert_raises_rpc_error(
             -8,
-            "owner_address does not match the registered owner key",
+            "owner_addresses contain a key that is not part of the registered owner policy",
             n.senddrivechainbundle,
             0,
             bundle_hash,

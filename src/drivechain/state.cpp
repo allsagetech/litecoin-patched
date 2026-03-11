@@ -219,15 +219,16 @@ bool DrivechainState::ConnectBlock(
                                              "drivechain-unknown-sidechain");
                     }
                     Sidechain& sc = sc_it->second;
+                    if (sc.sidechain_policy.max_escrow_amount < sc.escrow_balance ||
+                        sc.escrow_balance > sc.sidechain_policy.max_escrow_amount - txout.nValue) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-escrow-cap-exceeded");
+                    }
                     sc.escrow_balance += txout.nValue;
                     break;
                 }
 
                 case DrivechainScriptInfo::Kind::REGISTER: {
-                    if (info.payload.IsNull()) {
-                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
-                                             "drivechain-register-null-owner");
-                    }
                     if (txout.nValue < params.nDrivechainMinRegisterAmount) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                              "drivechain-register-amount-too-low");
@@ -236,17 +237,25 @@ bool DrivechainState::ConnectBlock(
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                              "drivechain-register-sidechain-exists");
                     }
-                    if (info.auth_sig.empty()) {
+                    if (info.sidechain_policy.owner_key_hashes.empty()) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-register-null-owner");
+                    }
+                    if (ComputeDrivechainSidechainPolicyHash(info.sidechain_policy) != info.payload) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                             "drivechain-register-policy-mismatch");
+                    }
+                    if (info.auth_sigs.size() < info.sidechain_policy.auth_threshold) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                              "drivechain-register-auth-missing");
                     }
-                    if (!VerifyDrivechainRegisterAuthSig(info.sidechain_id, info.payload, info.auth_sig)) {
+                    if (!VerifyDrivechainRegisterAuthSigs(info.sidechain_id, info.sidechain_policy, info.auth_sigs)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                              "drivechain-register-auth-invalid");
                     }
                     auto& sc = GetOrCreateSidechain(info.sidechain_id, height);
-                    sc.owner_key_hash = info.payload;
-                    sc.owner_auth_required = true;
+                    sc.owner_auth_required = info.sidechain_policy.RequiresOwnerAuth();
+                    sc.sidechain_policy = info.sidechain_policy;
                     registered_sidechains_in_block.insert(info.sidechain_id);
                     break;
                 }
@@ -263,11 +272,11 @@ bool DrivechainState::ConnectBlock(
                     }
                     Sidechain& sc = sc_it->second;
                     if (sc.owner_auth_required) {
-                        if (info.auth_sig.empty()) {
+                        if (info.auth_sigs.size() < sc.sidechain_policy.auth_threshold) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                                  "drivechain-owner-auth-missing");
                         }
-                        if (!VerifyDrivechainBundleAuthSig(sc.owner_key_hash, info.sidechain_id, info.payload, info.auth_sig)) {
+                        if (!VerifyDrivechainBundleAuthSigs(sc.sidechain_policy, info.sidechain_id, info.payload, info.auth_sigs)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                                  "drivechain-owner-auth-invalid");
                         }
@@ -427,6 +436,10 @@ bool DrivechainState::ConnectBlock(
                                          "drivechain-withdrawal-script-too-big");
                 }
                 withdraw_sum += w.nValue;
+            }
+            if (withdraw_sum > sc.sidechain_policy.max_bundle_withdrawal) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                     "drivechain-bundle-withdraw-cap-exceeded");
             }
 
             for (size_t j = m + 1 + (size_t)n; j < tx->vout.size(); ++j) {

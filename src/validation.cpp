@@ -755,6 +755,7 @@ namespace {
         const int height = pindex->nHeight;
 
         std::map<uint8_t, CAmount> deposits_in_block_total;
+        std::map<uint8_t, CAmount> deposits_applied_in_block;
         std::map<uint8_t, CAmount> executes_in_block;
         std::set<std::pair<uint8_t, uint256>> executed_bundles_in_block;
         std::set<uint8_t> voted_sidechains_in_coinbase;
@@ -801,13 +802,16 @@ namespace {
                         if (sc == nullptr) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-unknown-sidechain");
                         }
+                        const CAmount deposits_so_far = deposits_applied_in_block[info.sidechain_id];
+                        if (sc->sidechain_policy.max_escrow_amount < sc->escrow_balance ||
+                            sc->escrow_balance > sc->sidechain_policy.max_escrow_amount - deposits_so_far - txout.nValue) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-escrow-cap-exceeded");
+                        }
+                        deposits_applied_in_block[info.sidechain_id] = deposits_so_far + txout.nValue;
                         break;
                     }
 
                     case DrivechainScriptInfo::Kind::REGISTER: {
-                        if (info.payload.IsNull()) {
-                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-null-owner");
-                        }
                         if (txout.nValue < params.nDrivechainMinRegisterAmount) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-amount-too-low");
                         }
@@ -815,10 +819,16 @@ namespace {
                             !registered_sidechains_in_block.insert(info.sidechain_id).second) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-sidechain-exists");
                         }
-                        if (info.auth_sig.empty()) {
+                        if (info.sidechain_policy.owner_key_hashes.empty()) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-null-owner");
+                        }
+                        if (ComputeDrivechainSidechainPolicyHash(info.sidechain_policy) != info.payload) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-policy-mismatch");
+                        }
+                        if (info.auth_sigs.size() < info.sidechain_policy.auth_threshold) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-auth-missing");
                         }
-                        if (!VerifyDrivechainRegisterAuthSig(info.sidechain_id, info.payload, info.auth_sig)) {
+                        if (!VerifyDrivechainRegisterAuthSigs(info.sidechain_id, info.sidechain_policy, info.auth_sigs)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-auth-invalid");
                         }
                         break;
@@ -835,10 +845,10 @@ namespace {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-unknown-sidechain");
                         }
                         if (sc->owner_auth_required) {
-                            if (info.auth_sig.empty()) {
+                            if (info.auth_sigs.size() < sc->sidechain_policy.auth_threshold) {
                                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-owner-auth-missing");
                             }
-                            if (!VerifyDrivechainBundleAuthSig(sc->owner_key_hash, info.sidechain_id, info.payload, info.auth_sig)) {
+                            if (!VerifyDrivechainBundleAuthSigs(sc->sidechain_policy, info.sidechain_id, info.payload, info.auth_sigs)) {
                                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-owner-auth-invalid");
                             }
                         }
@@ -962,6 +972,10 @@ namespace {
                     withdraw_sum += w.nValue;
                 }
 
+                if (withdraw_sum > sc->sidechain_policy.max_bundle_withdrawal) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-bundle-withdraw-cap-exceeded");
+                }
+
                 // No drivechain outputs after the withdrawal window either.
                 for (size_t j = m + 1 + (size_t)n; j < tx->vout.size(); ++j) {
                     if (IsDrivechainOutput(tx->vout[j].scriptPubKey)) {
@@ -1052,6 +1066,7 @@ namespace {
         DrivechainBmmRequestInfo bmm_request_info;
         const uint256 expected_prev_main_hash = pindexPrev ? pindexPrev->GetBlockHash() : uint256();
         std::set<uint8_t> registered_sidechains_in_tx;
+        std::map<uint8_t, CAmount> deposits_in_tx;
 
         for (size_t out_i = 0; out_i < tx.vout.size(); ++out_i) {
             DrivechainScriptInfo info;
@@ -1071,9 +1086,6 @@ namespace {
                     break;
 
                 case DrivechainScriptInfo::Kind::REGISTER: {
-                    if (info.payload.IsNull()) {
-                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-null-owner");
-                    }
                     if (tx.vout[out_i].nValue < params.nDrivechainMinRegisterAmount) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-amount-too-low");
                     }
@@ -1081,10 +1093,16 @@ namespace {
                         !registered_sidechains_in_tx.insert(info.sidechain_id).second) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-sidechain-exists");
                     }
-                    if (info.auth_sig.empty()) {
+                    if (info.sidechain_policy.owner_key_hashes.empty()) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-null-owner");
+                    }
+                    if (ComputeDrivechainSidechainPolicyHash(info.sidechain_policy) != info.payload) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-policy-mismatch");
+                    }
+                    if (info.auth_sigs.size() < info.sidechain_policy.auth_threshold) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-auth-missing");
                     }
-                    if (!VerifyDrivechainRegisterAuthSig(info.sidechain_id, info.payload, info.auth_sig)) {
+                    if (!VerifyDrivechainRegisterAuthSigs(info.sidechain_id, info.sidechain_policy, info.auth_sigs)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-auth-invalid");
                     }
                     break;
@@ -1099,10 +1117,10 @@ namespace {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-unknown-sidechain");
                     }
                     if (sc->owner_auth_required) {
-                        if (info.auth_sig.empty()) {
+                        if (info.auth_sigs.size() < sc->sidechain_policy.auth_threshold) {
                             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-owner-auth-missing");
                         }
-                        if (!VerifyDrivechainBundleAuthSig(sc->owner_key_hash, info.sidechain_id, info.payload, info.auth_sig)) {
+                        if (!VerifyDrivechainBundleAuthSigs(sc->sidechain_policy, info.sidechain_id, info.payload, info.auth_sigs)) {
                             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-owner-auth-invalid");
                         }
                     }
@@ -1127,6 +1145,12 @@ namespace {
                     if (sc == nullptr) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-unknown-sidechain");
                     }
+                    const CAmount deposits_so_far = deposits_in_tx[info.sidechain_id];
+                    if (sc->sidechain_policy.max_escrow_amount < sc->escrow_balance ||
+                        sc->escrow_balance > sc->sidechain_policy.max_escrow_amount - deposits_so_far - tx.vout[out_i].nValue) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-escrow-cap-exceeded");
+                    }
+                    deposits_in_tx[info.sidechain_id] = deposits_so_far + tx.vout[out_i].nValue;
                     break;
                 }
 
@@ -1208,6 +1232,9 @@ namespace {
 
         if (computed != execute_info.payload) {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-bundlehash-mismatch");
+        }
+        if (withdraw_sum > sc->sidechain_policy.max_bundle_withdrawal) {
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-bundle-withdraw-cap-exceeded");
         }
         if (sc->escrow_balance < withdraw_sum) {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-escrow-insufficient");

@@ -5,10 +5,12 @@
 #ifndef DRIVECHAIN_SCRIPT_H
 #define DRIVECHAIN_SCRIPT_H
 
+#include <drivechain/policy.h>
+
 #include <cstdint>
 #include <span.h>
-#include <uint256.h>
 #include <script/script.h>
+#include <uint256.h>
 #include <vector>
 
 struct DrivechainScriptInfo
@@ -27,7 +29,9 @@ struct DrivechainScriptInfo
     uint8_t sidechain_id{0};
     uint256 payload;
     uint32_t n_withdrawals{0};
-    std::vector<unsigned char> auth_sig; // Compact 65-byte signature for BUNDLE_COMMIT/REGISTER auth.
+    std::vector<unsigned char> auth_sig; // First compact auth signature, kept for legacy callers/tests.
+    std::vector<std::vector<unsigned char>> auth_sigs;
+    DrivechainSidechainPolicy sidechain_policy;
 };
 
 struct DrivechainBmmRequestInfo
@@ -46,6 +50,9 @@ struct DrivechainBmmAcceptInfo
 bool DecodeDrivechainScript(const CScript& scriptPubKey, DrivechainScriptInfo& out_info);
 bool DecodeDrivechainBmmRequestScript(const CScript& scriptPubKey, DrivechainBmmRequestInfo& out_info);
 bool DecodeDrivechainBmmAcceptScript(const CScript& scriptPubKey, DrivechainBmmAcceptInfo& out_info);
+std::vector<unsigned char> EncodeDrivechainSidechainPolicy(const DrivechainSidechainPolicy& policy);
+bool DecodeDrivechainSidechainPolicy(Span<const unsigned char> policy_bytes, DrivechainSidechainPolicy& out_policy);
+uint256 ComputeDrivechainSidechainPolicyHash(const DrivechainSidechainPolicy& policy);
 
 // OP_RETURN OP_DRIVECHAIN <scid> <bundle_hash> <tag=0x03> <n_withdrawals LE32>
 CScript BuildDrivechainExecuteScript(uint8_t scid, const uint256& bundle_hash, uint32_t n_withdrawals);
@@ -53,15 +60,15 @@ CScript BuildDrivechainBmmRequestScript(uint8_t scid, const uint256& side_block_
 CScript BuildDrivechainBmmAcceptScript(uint8_t scid, const uint256& side_block_hash);
 
 uint256 ComputeDrivechainBundleAuthMessage(uint8_t scid, const uint256& bundle_hash);
-bool VerifyDrivechainBundleAuthSig(
-    const uint256& owner_key_hash,
+bool VerifyDrivechainBundleAuthSigs(
+    const DrivechainSidechainPolicy& policy,
     uint8_t scid,
     const uint256& bundle_hash,
-    Span<const unsigned char> compact_sig);
-uint256 ComputeDrivechainRegisterAuthMessage(uint8_t scid, const uint256& owner_key_hash);
-bool VerifyDrivechainRegisterAuthSig(
+    const std::vector<std::vector<unsigned char>>& compact_sigs);
+uint256 ComputeDrivechainRegisterAuthMessage(uint8_t scid, const uint256& owner_policy_hash);
+bool VerifyDrivechainRegisterAuthSigs(
     uint8_t scid,
-    const uint256& owner_key_hash,
-    Span<const unsigned char> compact_sig);
+    const DrivechainSidechainPolicy& policy,
+    const std::vector<std::vector<unsigned char>>& compact_sigs);
 
 #endif

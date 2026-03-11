@@ -26,9 +26,10 @@ Status model:
 - Evidence: `drivechain_softfork_*`, `drivechain_reorg_*`, `drivechain_restart_*`
 
 4. Ownership/registration conflict coverage
-- Requirement: Register auth, duplicate ID, mempool conflict, and confirmation ordering tests pass.
+- Requirement: Register policy hash auth, duplicate ID, threshold owner-auth, cap enforcement,
+  mempool conflict, and confirmation ordering tests pass.
 - Status: `ENFORCED`
-- Evidence: `drivechain_register_*`, `drivechain_owner_auth_*`
+- Evidence: `drivechain_register_*`, `drivechain_owner_auth_*`, `drivechain_policy_auth_caps.py`
 
 5. Fuzz harness availability
 - Requirement: Drivechain script parser/builders are fuzzed.
@@ -51,7 +52,7 @@ Status model:
 - Evidence: `.github/workflows/build-release.yaml`
 
 9. Incident + rollback runbooks
-- Requirement: Chain split, rollback, and owner key compromise procedures are documented.
+- Requirement: Chain split, rollback, threshold owner key compromise, and cap-violation procedures are documented.
 - Status: `ENFORCED`
 - Evidence: `doc/drivechain/INCIDENT_RESPONSE_RUNBOOK.md`
 

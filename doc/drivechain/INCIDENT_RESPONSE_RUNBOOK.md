@@ -40,15 +40,15 @@ This runbook covers operational response for high-severity Drivechain incidents.
 - Revalidate Drivechain state from recomputation path after rollback.
 5. Do not resume normal operations until all upgraded nodes converge.
 
-## Owner Key Compromise
+## Owner Policy Key Compromise
 
-1. Assume compromised key can authorize malicious bundle commits.
-2. Stop submitting owner-auth bundle commits from compromised key immediately.
+1. Assume a compromised owner key, or a compromised quorum of owner keys, can authorize malicious bundle commits.
+2. Stop submitting owner-auth bundle commits from compromised keys immediately.
 3. Coordinate emergency sidechain migration:
 - Register new sidechain ownership on a new sidechain ID.
 - Halt old sidechain commit flow.
 4. Publish compromise notice to operators and require key rotation evidence.
-5. Archive forensic timeline and compromised key fingerprint.
+5. Archive forensic timeline, compromised key hashes, and affected threshold/cap policy.
 
 ## Controlled Rollback Procedure
 
