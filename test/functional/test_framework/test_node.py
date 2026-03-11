@@ -215,6 +215,7 @@ class TestNode():
         """Sets up an RPC connection to the litecoind process. Returns False if unable to connect."""
         # Poll at a rate of four times per second
         poll_per_s = 4
+        rpc = None
         for _ in range(poll_per_s * self.rpc_timeout):
             if self.process.poll() is not None:
                 raise FailedToStartError(self._node_msg(
@@ -252,7 +253,15 @@ class TestNode():
                 self.log.debug("RPC successfully started")
                 if self.use_cli:
                     return
-                self.rpc = rpc
+
+                # Keep a short timeout while probing startup, then reconnect
+                # with the full configured timeout for the actual test RPCs.
+                self.rpc = get_rpc_proxy(
+                    rpc_url(self.datadir, self.index, self.chain, self.rpchost),
+                    self.index,
+                    timeout=self.rpc_timeout,
+                    coveragedir=self.coverage_dir,
+                )
                 self.rpc_connected = True
                 self.url = self.rpc.url
                 return
