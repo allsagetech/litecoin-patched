@@ -21,6 +21,7 @@ by tests, compromising their intended effect.
 import binascii
 from codecs import encode
 import copy
+import functools
 import hashlib
 from io import BytesIO
 import math
@@ -29,7 +30,6 @@ import socket
 import struct
 import time
 
-import litecoin_scrypt
 from test_framework.siphash import siphash256
 from test_framework.util import hex_str_to_bytes, assert_equal
 
@@ -37,6 +37,36 @@ MIN_VERSION_SUPPORTED = 60001
 MY_VERSION = 70017  # past wtxid relay
 MY_SUBVERSION = b"/python-p2p-tester:0.0.3/"
 MY_RELAY = 1 # from version 70001 onwards, fRelay should be appended to version messages (BIP37)
+
+
+class _HashlibLitecoinScrypt:
+    @staticmethod
+    def getPoWHash(header):
+        return hashlib.scrypt(header, salt=header, n=1024, r=1, p=1, maxmem=0, dklen=32)
+
+
+@functools.lru_cache(maxsize=1)
+def _get_litecoin_scrypt():
+    try:
+        import litecoin_scrypt
+    except ImportError:
+        try:
+            from . import litecoin_scrypt
+        except ImportError:
+            return _HashlibLitecoinScrypt()
+        return litecoin_scrypt
+    return litecoin_scrypt
+
+
+@functools.lru_cache(maxsize=1)
+def _get_blake3_module():
+    try:
+        import blake3
+    except ImportError as error:
+        raise ModuleNotFoundError(
+            "blake3 is required to compute MWEB hashes"
+        ) from error
+    return blake3
 
 MAX_LOCATOR_SZ = 101
 MAX_BLOCK_BASE_SIZE = 1000000
@@ -763,7 +793,7 @@ class CBlockHeader:
             r += struct.pack("<I", self.nNonce)
             self.sha256 = uint256_from_str(hash256(r))
             self.hash = encode(hash256(r)[::-1], 'hex_codec').decode('ascii')
-            self.scrypt256 = uint256_from_str(litecoin_scrypt.getPoWHash(r))
+            self.scrypt256 = uint256_from_str(_get_litecoin_scrypt().getPoWHash(r))
 
     def rehash(self):
         self.sha256 = None
@@ -1925,8 +1955,6 @@ class msg_cfcheckpt:
 
 """------------MWEB------------"""
 
-import blake3 as BLAKE3
-
 def hex_reverse(h):
     return "".join(reversed([h[i:i+2] for i in range(0, len(h), 2)]))
 
@@ -1975,7 +2003,7 @@ class Hash:
 
 
 def blake3(s):
-    return Hash.from_rev_hex(BLAKE3.blake3(s).hexdigest())
+    return Hash.from_rev_hex(_get_blake3_module().blake3(s).hexdigest())
 
 def ser_varint(n):
     r = b""
@@ -2058,7 +2086,7 @@ class MWEBInput:
         if self.features & 2:
             self.extradata = deser_fixed_bytes(f, deser_compact_size(f))
         self.signature = deser_signature(f)
-        self.rehash()
+        self.hash = None
 
     def serialize(self):
         r = b""
@@ -2101,7 +2129,7 @@ class MWEBOutputMessage:
         self.extradata = None
         if self.features & 2:
             self.extradata = deser_fixed_bytes(f, deser_compact_size(f))
-        self.rehash()
+        self.hash = None
 
     def serialize(self):
         r = b""
@@ -2140,7 +2168,7 @@ class MWEBOutput:
         self.message.deserialize(f)
         self.proof = deser_fixed_bytes(f, 675)
         self.signature = deser_signature(f)
-        self.rehash()
+        self.hash = None
 
     def serialize(self):
         r = b""
@@ -2176,7 +2204,7 @@ class MWEBCompactOutput:
         self.message.deserialize(f)
         self.proof_hash = Hash.deserialize(f)
         self.signature = deser_signature(f)
-        self.rehash()
+        self.hash = None
 
     def serialize(self):
         r = b""
@@ -2229,7 +2257,7 @@ class MWEBKernel:
             self.extradata = deser_fixed_bytes(f, deser_compact_size(f))
         self.excess = deser_pubkey(f)
         self.signature = deser_signature(f)
-        self.rehash()
+        self.hash = None
 
     def serialize(self):
         r = b""
@@ -2295,7 +2323,7 @@ class MWEBTransaction:
         self.kernel_offset = Hash.deserialize(f)
         self.stealth_offset = Hash.deserialize(f)
         self.body.deserialize(f)
-        self.rehash()
+        self.hash = None
 
     def serialize(self):
         r = b""
@@ -2335,7 +2363,10 @@ class MWEBHeader:
         self.stealth_offset = Hash.from_rev_hex(mweb_json['stealth_offset'])
         self.num_txos = mweb_json['num_txos']
         self.num_kernels = mweb_json['num_kernels']
-        self.rehash()
+        if 'hash' in mweb_json:
+            self.hash = Hash.from_rev_hex(mweb_json['hash'])
+        else:
+            self.rehash()
 
     def deserialize(self, f):
         self.height = deser_varint(f)
@@ -2346,7 +2377,7 @@ class MWEBHeader:
         self.stealth_offset = Hash.deserialize(f)
         self.num_txos = deser_varint(f)
         self.num_kernels = deser_varint(f)
-        self.rehash()
+        self.hash = None
 
     def serialize(self):
         r = b""
@@ -2369,7 +2400,17 @@ class MWEBHeader:
             (self.height, repr(self.output_root), repr(self.kernel_root), repr(self.leafset_root), repr(self.kernel_offset), repr(self.stealth_offset), self.num_txos, self.num_kernels, repr(self.hash)))
 
     def __eq__(self, other):
-        return isinstance(other, MWEBHeader) and self.hash == other.hash
+        return (
+            isinstance(other, MWEBHeader)
+            and self.height == other.height
+            and self.output_root == other.output_root
+            and self.kernel_root == other.kernel_root
+            and self.leafset_root == other.leafset_root
+            and self.kernel_offset == other.kernel_offset
+            and self.stealth_offset == other.stealth_offset
+            and self.num_txos == other.num_txos
+            and self.num_kernels == other.num_kernels
+        )
 
 class MWEBBlock:
     __slots__ = ("header", "body")
@@ -2381,7 +2422,6 @@ class MWEBBlock:
     def deserialize(self, f):
         self.header.deserialize(f)
         self.body.deserialize(f)
-        self.rehash()
 
     def serialize(self):
         r = b""

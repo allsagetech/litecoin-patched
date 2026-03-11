@@ -16,14 +16,29 @@ import difflib
 import json
 import logging
 import os
+import pathlib
 import pprint
 import subprocess
 import sys
 
+def normalize_config_paths(config):
+    if os.name != 'nt':
+        return
+
+    for key in ('SRCDIR', 'BUILDDIR', 'RPCAUTH'):
+        if config.has_option('environment', key):
+            path = pathlib.PurePosixPath(config['environment'][key])
+            parts = path.parts
+            if len(parts) >= 3 and parts[0] == '/' and parts[1] == 'mnt' and len(parts[2]) == 1:
+                config['environment'][key] = os.path.join(f"{parts[2].upper()}:\\", *parts[3:])
+
 def main():
     config = configparser.ConfigParser()
     config.optionxform = str
-    config.read_file(open(os.path.join(os.path.dirname(__file__), "../config.ini"), encoding="utf8"))
+    config_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', 'config.ini'))
+    with open(config_path, encoding="utf8") as config_file:
+        config.read_file(config_file)
+    normalize_config_paths(config)
     env_conf = dict(config.items('environment'))
 
     parser = argparse.ArgumentParser(description=__doc__)
