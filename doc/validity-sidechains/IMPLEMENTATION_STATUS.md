@@ -172,13 +172,17 @@ It also now has functional wallet/RPC coverage for:
   losing-fork censorship recovery data does not survive reorg
 - competing-fork rollback of stale-deposit reclaim state so reclaimable
   deposits reappear deterministically after losing-fork rollback
+- competing-fork rollback of losing-fork registration and deposit state so
+  orphaned sidechains disappear and the same sidechain id can be reused
 
 What is still missing or incomplete:
 
 - full functional coverage for the new validity-sidechain transaction families
 - real verifier test vectors
 - DA failure-mode tests against a non-scaffold batch path
-- broad reorg coverage for the complete validity-sidechain flow
+- additional adversarial and long-range reorg coverage beyond the current
+  registration, deposit, force-exit, batch, withdrawal, reclaim, and
+  escape-exit rollback scenarios
 
 ## 7. Trustless And Activation Roadmap
 
