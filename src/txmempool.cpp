@@ -80,7 +80,7 @@ static bool MatchValidityWithdrawalPayouts(
         const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawal_proofs[i].withdrawal;
         if (IsDrivechainOutput(txout.scriptPubKey) ||
             txout.nValue != withdrawal.amount ||
-            Hash(txout.scriptPubKey.begin(), txout.scriptPubKey.end()) != withdrawal.destination_commitment) {
+            Hash(txout.scriptPubKey) != withdrawal.destination_commitment) {
             return false;
         }
         if (out_total > MAX_MONEY - withdrawal.amount) {
@@ -113,7 +113,7 @@ static bool MatchValidityEscapeExitPayouts(
         const ValiditySidechainEscapeExitLeaf& exit = exit_proofs[i].exit;
         if (IsDrivechainOutput(txout.scriptPubKey) ||
             txout.nValue != exit.amount ||
-            Hash(txout.scriptPubKey.begin(), txout.scriptPubKey.end()) != exit.destination_commitment) {
+            Hash(txout.scriptPubKey) != exit.destination_commitment) {
             return false;
         }
         if (out_total > MAX_MONEY - exit.amount) {

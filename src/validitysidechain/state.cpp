@@ -87,7 +87,7 @@ static uint256 ComputeQueueConsumeRoot(
 
 static uint256 ComputeScriptCommitment(const CScript& script)
 {
-    return Hash(script.begin(), script.end());
+    return Hash(script);
 }
 
 static void RefreshQueueState(ValiditySidechain& sidechain, int height)

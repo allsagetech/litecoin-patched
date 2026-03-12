@@ -782,7 +782,7 @@ namespace {
 
     static uint256 ComputeScriptCommitment(const CScript& script)
     {
-        return Hash(script.begin(), script.end());
+        return Hash(script);
     }
 
     static bool MatchValidityWithdrawalPayouts(

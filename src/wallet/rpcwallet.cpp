@@ -1195,7 +1195,7 @@ static CScript ParseRpcScriptObject(const UniValue& obj, const std::string& cont
 
 static uint256 ComputeRpcScriptCommitment(const CScript& script)
 {
-    return Hash(script.begin(), script.end());
+    return Hash(script);
 }
 
 static bool GetValiditySidechainFromChain(CWallet& wallet, uint8_t sidechain_id, ValiditySidechain& out_sidechain)

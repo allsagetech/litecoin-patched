@@ -54,7 +54,7 @@ ValiditySidechainDepositData MakeDeposit(const uint256& deposit_id, const CScrip
     deposit.deposit_id = deposit_id;
     deposit.amount = amount;
     deposit.destination_commitment = uint256S("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
-    deposit.refund_script_commitment = Hash(refund_script.begin(), refund_script.end());
+    deposit.refund_script_commitment = Hash(refund_script);
     deposit.nonce = 12;
     return deposit;
 }
@@ -79,7 +79,7 @@ ValiditySidechainWithdrawalLeaf MakeWithdrawalLeaf(const uint256& withdrawal_id,
     ValiditySidechainWithdrawalLeaf withdrawal;
     withdrawal.withdrawal_id = withdrawal_id;
     withdrawal.amount = amount;
-    withdrawal.destination_commitment = Hash(destination_script.begin(), destination_script.end());
+    withdrawal.destination_commitment = Hash(destination_script);
     return withdrawal;
 }
 
@@ -135,7 +135,7 @@ ValiditySidechainForceExitData MakeForceExitRequest(const uint256& account_id, c
     request.account_id = account_id;
     request.exit_asset_id = uint256S("2424242424242424242424242424242424242424242424242424242424242424");
     request.max_exit_amount = amount;
-    request.destination_commitment = Hash(destination_script.begin(), destination_script.end());
+    request.destination_commitment = Hash(destination_script);
     request.nonce = 77;
     return request;
 }
@@ -145,7 +145,7 @@ ValiditySidechainEscapeExitLeaf MakeEscapeExitLeaf(const uint256& exit_id, const
     ValiditySidechainEscapeExitLeaf exit;
     exit.exit_id = exit_id;
     exit.amount = amount;
-    exit.destination_commitment = Hash(destination_script.begin(), destination_script.end());
+    exit.destination_commitment = Hash(destination_script);
     return exit;
 }
 
