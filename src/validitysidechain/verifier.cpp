@@ -30,7 +30,7 @@ ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const V
         return ValiditySidechainBatchVerifierMode::DISABLED;
     }
     if (supported->scaffolding_only) {
-        return ValiditySidechainBatchVerifierMode::SCAFFOLD_NOOP_ONLY;
+        return ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY;
     }
     return ValiditySidechainBatchVerifierMode::DISABLED;
 }
@@ -40,8 +40,8 @@ const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVer
     switch (mode) {
         case ValiditySidechainBatchVerifierMode::DISABLED:
             return "disabled";
-        case ValiditySidechainBatchVerifierMode::SCAFFOLD_NOOP_ONLY:
-            return "scaffold_noop_only";
+        case ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY:
+            return "scaffold_queue_prefix_only";
     }
 
     return "unknown";
@@ -109,15 +109,12 @@ bool VerifyValiditySidechainBatch(
         return FailValidation(error, "data root does not match published chunks");
     }
 
-    if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_NOOP_ONLY) {
+    if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY) {
         return FailValidation(error, "proof verifier is not implemented for this profile");
     }
 
     if (!proof_bytes.empty()) {
         return FailValidation(error, "scaffold verifier requires empty proof bytes");
-    }
-    if (public_inputs.consumed_queue_messages != 0) {
-        return FailValidation(error, "scaffold verifier does not allow queue consumption yet");
     }
     if (public_inputs.new_state_root != current_state_root) {
         return FailValidation(error, "scaffold verifier only allows no-op state root updates");
@@ -128,9 +125,8 @@ bool VerifyValiditySidechainBatch(
     if (public_inputs.data_root != current_data_root) {
         return FailValidation(error, "scaffold verifier only allows no-op data roots");
     }
-    if (public_inputs.l1_message_root_before != current_l1_message_root ||
-        public_inputs.l1_message_root_after != current_l1_message_root) {
-        return FailValidation(error, "scaffold verifier only allows no-op queue roots");
+    if (public_inputs.l1_message_root_before != current_l1_message_root) {
+        return FailValidation(error, "batch queue root before does not match current queue root");
     }
     if (public_inputs.data_size != 0 || !data_chunks.empty()) {
         return FailValidation(error, "scaffold verifier requires empty DA payload");

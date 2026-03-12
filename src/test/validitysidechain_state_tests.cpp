@@ -20,6 +20,8 @@
 
 namespace {
 
+static constexpr unsigned char TEST_QUEUE_CONSUME_MAGIC[] = {'V', 'S', 'C', 'Q', 'C', 0x01};
+
 ValiditySidechainConfig MakeSupportedConfig()
 {
     const SupportedValiditySidechainConfig& supported = GetSupportedValiditySidechainConfigs().front();
@@ -98,6 +100,47 @@ ValiditySidechainEscapeExitLeaf MakeEscapeExitLeaf(const uint256& exit_id, const
     exit.amount = amount;
     exit.destination_commitment = Hash(destination_script.begin(), destination_script.end());
     return exit;
+}
+
+uint256 ComputeQueueConsumeRootForTest(
+    uint8_t sidechain_id,
+    const uint256& prior_root,
+    const ValiditySidechainQueueEntry& entry)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)TEST_QUEUE_CONSUME_MAGIC, sizeof(TEST_QUEUE_CONSUME_MAGIC));
+    hw << sidechain_id;
+    hw << prior_root;
+    hw << entry.queue_index;
+    hw << entry.message_kind;
+    hw << entry.message_id;
+    hw << entry.message_hash;
+    return hw.GetHash();
+}
+
+uint256 ComputeConsumedQueueRootForTest(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages)
+{
+    uint256 root = sidechain.queue_state.root;
+    uint64_t next_queue_index = sidechain.queue_state.head_index;
+
+    for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
+        const auto queue_it = sidechain.queue_entries.find(next_queue_index);
+        if (queue_it == sidechain.queue_entries.end()) {
+            BOOST_FAIL("missing queue entry while computing test queue root");
+            return uint256();
+        }
+        if (queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            BOOST_FAIL("non-pending queue entry while computing test queue root");
+            return uint256();
+        }
+        root = ComputeQueueConsumeRootForTest(sidechain_id, root, queue_it->second);
+        ++next_queue_index;
+    }
+
+    return root;
 }
 
 void InstallAcceptedWithdrawalBatch(
@@ -495,11 +538,108 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_scaffold_state_or_queue_changes)
         BOOST_REQUIRE(sidechain != nullptr);
         ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
         public_inputs.consumed_queue_messages = 1;
-        public_inputs.l1_message_root_after = uint256S("0505050505050505050505050505050505050505050505050505050505050505");
+        public_inputs.l1_message_root_after = sidechain->queue_state.root;
 
         std::string error;
         BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, {}, {}, &error));
-        BOOST_CHECK_EQUAL(error, "scaffold verifier does not allow queue consumption yet");
+        BOOST_CHECK_EQUAL(error, "batch queue root after does not match consumed prefix");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_records)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 14, /* registration_height= */ 500, config));
+
+    const CScript refund_script = CScript() << OP_TRUE;
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("3434343434343434343434343434343434343434343434343434343434343434"),
+        refund_script,
+        4 * COIN);
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 14, /* deposit_height= */ 501, deposit));
+
+    const CScript destination_script = CScript() << OP_10;
+    const ValiditySidechainForceExitData request = MakeForceExitRequest(
+        uint256S("3535353535353535353535353535353535353535353535353535353535353535"),
+        destination_script,
+        2 * COIN);
+    BOOST_REQUIRE(state.AddForceExitRequest(/* sidechain_id= */ 14, /* request_height= */ 502, request));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(14);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.consumed_queue_messages = 2;
+    public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 14, /* consumed_queue_messages= */ 2);
+
+    std::string error;
+    BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 14, /* accepted_height= */ 503, public_inputs, {}, {}, &error));
+    BOOST_CHECK(error.empty());
+
+    sidechain = state.GetSidechain(14);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->latest_batch_number, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.head_index, 2U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_message_count, 0U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_deposit_count, 0U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_force_exit_count, 0U);
+    BOOST_REQUIRE(state.GetPendingDeposit(14, deposit.deposit_id) == nullptr);
+    BOOST_REQUIRE(state.GetPendingForceExit(14, ComputeValiditySidechainForceExitHash(/* scid= */ 14, request)) == nullptr);
+    BOOST_REQUIRE(sidechain->queue_entries.at(0).status == ValiditySidechainQueueEntry::STATUS_CONSUMED);
+    BOOST_REQUIRE(sidechain->queue_entries.at(1).status == ValiditySidechainQueueEntry::STATUS_CONSUMED);
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_requires_matured_force_exit_consumption)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 15, /* registration_height= */ 540, config));
+
+    const CScript refund_script = CScript() << OP_TRUE << OP_DROP;
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("3636363636363636363636363636363636363636363636363636363636363636"),
+        refund_script,
+        3 * COIN);
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 15, /* deposit_height= */ 541, deposit));
+
+    const CScript destination_script = CScript() << OP_11;
+    const ValiditySidechainForceExitData request = MakeForceExitRequest(
+        uint256S("3737373737373737373737373737373737373737373737373737373737373737"),
+        destination_script,
+        1 * COIN);
+    BOOST_REQUIRE(state.AddForceExitRequest(/* sidechain_id= */ 15, /* request_height= */ 542, request));
+
+    CBlock idle_block;
+    CBlockIndex idle_index;
+    idle_index.nHeight = 542 + config.force_inclusion_delay;
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(idle_block, &idle_index, validation_state));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(15);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.matured_force_exit_count, 1U);
+
+    {
+        ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+        public_inputs.consumed_queue_messages = 1;
+        public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 15, /* consumed_queue_messages= */ 1);
+
+        std::string error;
+        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 15, /* accepted_height= */ idle_index.nHeight, public_inputs, {}, {}, &error));
+        BOOST_CHECK_EQUAL(error, "batch must consume all matured force-exit requests in reachable queue prefix");
+    }
+
+    {
+        sidechain = state.GetSidechain(15);
+        BOOST_REQUIRE(sidechain != nullptr);
+        ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+        public_inputs.consumed_queue_messages = 2;
+        public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 15, /* consumed_queue_messages= */ 2);
+
+        std::string error;
+        BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 15, /* accepted_height= */ idle_index.nHeight, public_inputs, {}, {}, &error));
+        BOOST_CHECK(error.empty());
     }
 }
 

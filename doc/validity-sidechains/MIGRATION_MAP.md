@@ -386,8 +386,10 @@ Current branch status:
 - accepted-batch state tracking, batch-number monotonicity, queue-prefix
   transition plumbing, and mempool duplicate tracking now exist for
   `COMMIT_VALIDITY_BATCH`
-- the current verifier mode is explicitly `scaffold_noop_only`, which allows
-  only no-op batch commits while the real zk verifier path is still missing
+- the current verifier mode is explicitly `scaffold_queue_prefix_only`, which
+  allows deterministic queue-prefix consumption with no proof bytes and no
+  state-root / withdrawal-root changes while the real zk verifier path is still
+  missing
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking
@@ -404,9 +406,9 @@ Current branch status:
   plumbing availability
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   though ancestor snapshot replay is still drivechain-only
-- trustless proof verification, DA-carrying batches, queue-consuming batches,
-  force-inclusion enforcement, verified withdrawals, and per-proof escape-exit
-  paths are still outstanding
+- trustless proof verification, DA-carrying batches, proof-backed queue
+  consumption, full force-inclusion enforcement, verified withdrawals, and
+  per-proof escape-exit paths are still outstanding
 
 ## 8. Bottom Line
 

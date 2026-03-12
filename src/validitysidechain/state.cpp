@@ -308,7 +308,71 @@ static bool ConsumeQueuePrefix(
         return false;
     }
 
+    std::vector<uint256> consumed_deposit_ids;
+    std::vector<uint256> consumed_force_exit_ids;
+    consumed_deposit_ids.reserve(consumed_queue_messages);
+    consumed_force_exit_ids.reserve(consumed_queue_messages);
+
     uint64_t next_queue_index = sidechain.queue_state.head_index;
+    for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
+        const auto queue_it = sidechain.queue_entries.find(next_queue_index);
+        if (queue_it == sidechain.queue_entries.end() ||
+            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            if (error != nullptr) {
+                *error = "batch queue entry changed during consumption";
+            }
+            return false;
+        }
+
+        switch (queue_it->second.message_kind) {
+            case ValiditySidechainQueueEntry::MESSAGE_DEPOSIT: {
+                const auto pending_it = sidechain.pending_deposits.find(queue_it->second.message_id);
+                if (pending_it == sidechain.pending_deposits.end()) {
+                    if (error != nullptr) {
+                        *error = "pending deposit record missing for consumed queue entry";
+                    }
+                    return false;
+                }
+                if (pending_it->second.queue_index != queue_it->second.queue_index ||
+                    pending_it->second.message_hash != queue_it->second.message_hash) {
+                    if (error != nullptr) {
+                        *error = "pending deposit record does not match consumed queue entry";
+                    }
+                    return false;
+                }
+                consumed_deposit_ids.push_back(queue_it->second.message_id);
+                break;
+            }
+
+            case ValiditySidechainQueueEntry::MESSAGE_FORCE_EXIT: {
+                const auto pending_it = sidechain.pending_force_exits.find(queue_it->second.message_id);
+                if (pending_it == sidechain.pending_force_exits.end()) {
+                    if (error != nullptr) {
+                        *error = "pending force-exit record missing for consumed queue entry";
+                    }
+                    return false;
+                }
+                if (pending_it->second.queue_index != queue_it->second.queue_index ||
+                    pending_it->second.request_hash != queue_it->second.message_hash) {
+                    if (error != nullptr) {
+                        *error = "pending force-exit record does not match consumed queue entry";
+                    }
+                    return false;
+                }
+                consumed_force_exit_ids.push_back(queue_it->second.message_id);
+                break;
+            }
+
+            default:
+                if (error != nullptr) {
+                    *error = "unknown queue entry kind in consumed prefix";
+                }
+                return false;
+        }
+        ++next_queue_index;
+    }
+
+    next_queue_index = sidechain.queue_state.head_index;
     for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
         auto queue_it = sidechain.queue_entries.find(next_queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
@@ -322,7 +386,91 @@ static bool ConsumeQueuePrefix(
         ++next_queue_index;
     }
 
+    for (const auto& deposit_id : consumed_deposit_ids) {
+        sidechain.pending_deposits.erase(deposit_id);
+    }
+    for (const auto& request_hash : consumed_force_exit_ids) {
+        sidechain.pending_force_exits.erase(request_hash);
+    }
+
     sidechain.queue_state.root = root_after;
+    return true;
+}
+
+static bool ComputeRequiredConsumedQueueMessages(
+    const ValiditySidechain& sidechain,
+    int accepted_height,
+    uint32_t& out_required,
+    std::string* error)
+{
+    if (accepted_height < 0) {
+        if (error != nullptr) {
+            *error = "accepted height must be non-negative";
+        }
+        return false;
+    }
+
+    out_required = 0;
+    uint32_t reachable_prefix_size = 0;
+    uint64_t next_queue_index = sidechain.queue_state.head_index;
+
+    while (true) {
+        const auto queue_it = sidechain.queue_entries.find(next_queue_index);
+        if (queue_it == sidechain.queue_entries.end() ||
+            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            break;
+        }
+
+        ++reachable_prefix_size;
+        switch (queue_it->second.message_kind) {
+            case ValiditySidechainQueueEntry::MESSAGE_DEPOSIT: {
+                const auto pending_it = sidechain.pending_deposits.find(queue_it->second.message_id);
+                if (pending_it == sidechain.pending_deposits.end()) {
+                    if (error != nullptr) {
+                        *error = "pending deposit record missing for queue entry";
+                    }
+                    return false;
+                }
+                if (pending_it->second.queue_index != queue_it->second.queue_index ||
+                    pending_it->second.message_hash != queue_it->second.message_hash) {
+                    if (error != nullptr) {
+                        *error = "pending deposit record does not match queue entry";
+                    }
+                    return false;
+                }
+                break;
+            }
+
+            case ValiditySidechainQueueEntry::MESSAGE_FORCE_EXIT: {
+                const auto pending_it = sidechain.pending_force_exits.find(queue_it->second.message_id);
+                if (pending_it == sidechain.pending_force_exits.end()) {
+                    if (error != nullptr) {
+                        *error = "pending force-exit record missing for queue entry";
+                    }
+                    return false;
+                }
+                if (pending_it->second.queue_index != queue_it->second.queue_index ||
+                    pending_it->second.request_hash != queue_it->second.message_hash) {
+                    if (error != nullptr) {
+                        *error = "pending force-exit record does not match queue entry";
+                    }
+                    return false;
+                }
+                if (accepted_height >= pending_it->second.request_height + static_cast<int>(sidechain.config.force_inclusion_delay)) {
+                    out_required = reachable_prefix_size;
+                }
+                break;
+            }
+
+            default:
+                if (error != nullptr) {
+                    *error = "unknown queue entry kind";
+                }
+                return false;
+        }
+        ++next_queue_index;
+    }
+
     return true;
 }
 
@@ -724,6 +872,20 @@ bool ValiditySidechainState::AcceptBatch(
 
     uint256 expected_l1_message_root_after;
     std::string queue_error;
+    uint32_t required_consumed_queue_messages = 0;
+    if (!ComputeRequiredConsumedQueueMessages(*sidechain, accepted_height, required_consumed_queue_messages, &queue_error)) {
+        if (error != nullptr) {
+            *error = queue_error;
+        }
+        return false;
+    }
+    if (public_inputs.consumed_queue_messages < required_consumed_queue_messages) {
+        if (error != nullptr) {
+            *error = "batch must consume all matured force-exit requests in reachable queue prefix";
+        }
+        return false;
+    }
+
     if (!ComputeConsumedQueueRoot(*sidechain, sidechain_id, public_inputs.consumed_queue_messages, expected_l1_message_root_after, &queue_error)) {
         if (error != nullptr) {
             *error = queue_error;

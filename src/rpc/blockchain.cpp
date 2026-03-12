@@ -1698,7 +1698,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("max_deposit_reclaim_delay", static_cast<int64_t>(supported.max_deposit_reclaim_delay));
     result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
-    result.pushKV("batch_verifier_mode", supported.scaffolding_only ? "scaffold_noop_only" : "disabled");
+    result.pushKV("batch_verifier_mode", supported.scaffolding_only ? "scaffold_queue_prefix_only" : "disabled");
     return result;
 }
 
@@ -1793,7 +1793,7 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("registration_validation_available", true);
     result.pushKV("force_exit_request_available", true);
     result.pushKV("batch_validation_available", true);
-    result.pushKV("batch_validation_mode", "scaffold_noop_only");
+    result.pushKV("batch_validation_mode", "scaffold_queue_prefix_only");
     result.pushKV("verified_withdrawal_execution_available", true);
     result.pushKV("verified_withdrawal_execution_mode", "full_list_root_only_scaffold");
     result.pushKV("escape_exit_available", true);

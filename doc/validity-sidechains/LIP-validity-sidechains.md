@@ -474,8 +474,12 @@ Current scaffold implementation note:
   exposed by RPC
 - duplicate force-exit request hashes are rejected in mempool and block
   validation
-- the current scaffold verifier still does not consume queue messages in
-  `COMMIT_VALIDITY_BATCH`, so force-inclusion enforcement is not complete yet
+- scaffold `COMMIT_VALIDITY_BATCH` now supports deterministic queue-prefix
+  consumption with no proof bytes and no state-root / withdrawal-root changes
+- matured force-exit requests in the currently reachable pending queue prefix
+  must be consumed by an accepted scaffold batch
+- full trustless force-inclusion still requires real proof verification of the
+  sidechain transition, not just deterministic L1 queue accounting
 
 ---
 
