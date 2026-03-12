@@ -79,10 +79,19 @@ Target role:
   `src/validitysidechain/script.*`
 - or keep the files temporarily and replace the tag set with:
   - `REGISTER_VALIDITY_SIDECHAIN`
+  - `DEPOSIT_TO_VALIDITY_SIDECHAIN`
   - `COMMIT_VALIDITY_BATCH`
   - `EXECUTE_VERIFIED_WITHDRAWALS`
   - `REQUEST_FORCE_EXIT`
+  - `RECLAIM_STALE_DEPOSIT`
   - `EXECUTE_ESCAPE_EXIT`
+
+Phase 1 scaffold note:
+
+- the new script layer should keep a non-overlapping temporary tag range while
+  the legacy drivechain parser is still compiled
+- a parser/builder module at `src/validitysidechain/script.*` can land before
+  any consensus activation as long as it does not claim trustless enforcement
 
 Delete:
 
@@ -346,15 +355,21 @@ If implementation starts from the current branch, the highest-signal sequence is
 2. Introduce a new `validitysidechain` module instead of overloading the
    existing `drivechain` module indefinitely.
 3. Define the exact binary encoding for:
-   - registration config
-   - deposit queue messages
    - queue head / tombstone handling
-   - batch public inputs
    - DA chunk commitments
    - withdrawal leaves
    - escape-exit leaves
 4. Add a verifier abstraction with a single supported proof family first.
 5. Write unit tests for parsing and state transitions before touching wallet RPCs.
+
+Current branch status:
+
+- registration config encoding exists in `src/validitysidechain/script.*`
+- deposit queue message encoding exists in `src/validitysidechain/script.*`
+- batch public-input encoding exists in `src/validitysidechain/script.*`
+- force-exit request encoding exists in `src/validitysidechain/script.*`
+- queue tombstone, withdrawal leaf, DA chunk, and escape-exit encodings remain
+  to be specified
 
 ## 8. Bottom Line
 

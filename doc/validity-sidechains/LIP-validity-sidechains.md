@@ -192,15 +192,17 @@ OP_DRIVECHAIN
 
 | Tag  | Meaning |
 |------|---------|
-| 0x05 | DEPOSIT_TO_VALIDITY_SIDECHAIN |
 | 0x06 | REGISTER_VALIDITY_SIDECHAIN |
-| 0x07 | COMMIT_VALIDITY_BATCH |
-| 0x08 | EXECUTE_VERIFIED_WITHDRAWALS |
-| 0x09 | REQUEST_FORCE_EXIT |
-| 0x0A | EXECUTE_ESCAPE_EXIT |
+| 0x07 | DEPOSIT_TO_VALIDITY_SIDECHAIN |
+| 0x08 | COMMIT_VALIDITY_BATCH |
+| 0x09 | EXECUTE_VERIFIED_WITHDRAWALS |
+| 0x0A | REQUEST_FORCE_EXIT |
 | 0x0B | RECLAIM_STALE_DEPOSIT |
+| 0x0C | EXECUTE_ESCAPE_EXIT |
 
-Legacy drivechain tags are not part of this draft's trustless withdrawal model.
+The temporary tag range begins at `0x06` so the staged migration does not
+collide with the legacy drivechain `REGISTER` tag `0x05` while both parsers
+still exist in the codebase.
 
 ---
 
@@ -222,16 +224,18 @@ The next pushed data item after the tag encodes:
 - circuit_family_id
 - verifier_id
 - public_input_version
-- initial_state_root
-- initial_withdrawal_root
 - state_root_format
+- deposit_message_format
 - withdrawal_leaf_format
 - balance_leaf_format
 - data_availability_mode
 - max_batch_data_bytes
+- max_proof_bytes
 - force_inclusion_delay
 - deposit_reclaim_delay
 - escape_hatch_delay
+- initial_state_root
+- initial_withdrawal_root
 
 Consensus rules:
 

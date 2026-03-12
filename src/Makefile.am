@@ -212,6 +212,7 @@ BITCOIN_CORE_H = \
   mweb/mweb_wallet.h \
   drivechain/script.h \
   drivechain/state.h \
+  validitysidechain/script.h \
   validitysidechain/state.h \
   net.h \
   net_permissions.h \
@@ -546,6 +547,8 @@ libbitcoin_consensus_a_SOURCES = \
   script/script_error.h \
   drivechain/script.cpp \
   drivechain/script.h \
+  validitysidechain/script.cpp \
+  validitysidechain/script.h \
   serialize.h \
   span.h \
   tinyformat.h \
