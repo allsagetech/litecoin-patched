@@ -179,7 +179,7 @@ uint256 ComputeConsumedQueueRootForTest(
             BOOST_FAIL("missing queue entry while computing test queue root");
             return uint256();
         }
-        if (queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+        if (queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             BOOST_FAIL("non-pending queue entry while computing test queue root");
             return uint256();
         }
@@ -393,7 +393,7 @@ BOOST_AUTO_TEST_CASE(add_deposit_and_reclaim_updates_queue_state)
     BOOST_CHECK_EQUAL(sidechain->queue_state.head_index, 1U);
     BOOST_REQUIRE(state.GetPendingDeposit(3, deposit.deposit_id) == nullptr);
     BOOST_REQUIRE_EQUAL(sidechain->pending_deposits.size(), 0U);
-    BOOST_REQUIRE(sidechain->queue_entries.at(0).status == ValiditySidechainQueueEntry::STATUS_TOMBSTONED);
+    BOOST_REQUIRE(sidechain->queue_entries.at(0).status == ValiditySidechainQueueEntry::QUEUE_STATUS_TOMBSTONED);
 }
 
 BOOST_AUTO_TEST_CASE(connect_block_handles_deposit_and_reclaim)
@@ -767,8 +767,8 @@ BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_recor
     BOOST_CHECK_EQUAL(sidechain->queue_state.pending_force_exit_count, 0U);
     BOOST_REQUIRE(state.GetPendingDeposit(14, deposit.deposit_id) == nullptr);
     BOOST_REQUIRE(state.GetPendingForceExit(14, ComputeValiditySidechainForceExitHash(/* scid= */ 14, request)) == nullptr);
-    BOOST_REQUIRE(sidechain->queue_entries.at(0).status == ValiditySidechainQueueEntry::STATUS_CONSUMED);
-    BOOST_REQUIRE(sidechain->queue_entries.at(1).status == ValiditySidechainQueueEntry::STATUS_CONSUMED);
+    BOOST_REQUIRE(sidechain->queue_entries.at(0).status == ValiditySidechainQueueEntry::QUEUE_STATUS_CONSUMED);
+    BOOST_REQUIRE(sidechain->queue_entries.at(1).status == ValiditySidechainQueueEntry::QUEUE_STATUS_CONSUMED);
 }
 
 BOOST_AUTO_TEST_CASE(accept_batch_requires_matured_force_exit_consumption)

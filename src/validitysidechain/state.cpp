@@ -100,7 +100,7 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
 
     for (const auto& [queue_index, entry] : sidechain.queue_entries) {
         (void)queue_index;
-        if (entry.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+        if (entry.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             continue;
         }
 
@@ -118,7 +118,7 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
         if (it == sidechain.queue_entries.end()) {
             break;
         }
-        if (it->second.status == ValiditySidechainQueueEntry::STATUS_PENDING) {
+        if (it->second.status == ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             break;
         }
         ++sidechain.queue_state.head_index;
@@ -128,7 +128,7 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
         (void)deposit_id;
         const auto queue_it = sidechain.queue_entries.find(pending_deposit.queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
-            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             continue;
         }
         if (height >= pending_deposit.deposit_height + static_cast<int>(sidechain.config.deposit_reclaim_delay)) {
@@ -140,7 +140,7 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
         (void)request_hash;
         const auto queue_it = sidechain.queue_entries.find(pending_force_exit.queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
-            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             continue;
         }
         if (height >= pending_force_exit.request_height + static_cast<int>(sidechain.config.force_inclusion_delay)) {
@@ -283,7 +283,7 @@ static bool ComputeConsumedQueueRoot(
             }
             return false;
         }
-        if (queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+        if (queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             if (error != nullptr) {
                 *error = "batch queue consumption is not a contiguous pending prefix";
             }
@@ -317,7 +317,7 @@ static bool ConsumeQueuePrefix(
     for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
         const auto queue_it = sidechain.queue_entries.find(next_queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
-            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             if (error != nullptr) {
                 *error = "batch queue entry changed during consumption";
             }
@@ -376,13 +376,13 @@ static bool ConsumeQueuePrefix(
     for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
         auto queue_it = sidechain.queue_entries.find(next_queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
-            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             if (error != nullptr) {
                 *error = "batch queue entry changed during consumption";
             }
             return false;
         }
-        queue_it->second.status = ValiditySidechainQueueEntry::STATUS_CONSUMED;
+        queue_it->second.status = ValiditySidechainQueueEntry::QUEUE_STATUS_CONSUMED;
         ++next_queue_index;
     }
 
@@ -417,7 +417,7 @@ static bool ComputeRequiredConsumedQueueMessages(
     while (true) {
         const auto queue_it = sidechain.queue_entries.find(next_queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
-            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             break;
         }
 
@@ -653,7 +653,7 @@ bool ValiditySidechainState::AddDeposit(
     ValiditySidechainQueueEntry entry;
     entry.queue_index = NextQueueIndex(*sidechain);
     entry.message_kind = ValiditySidechainQueueEntry::MESSAGE_DEPOSIT;
-    entry.status = ValiditySidechainQueueEntry::STATUS_PENDING;
+    entry.status = ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING;
     entry.message_id = deposit.deposit_id;
     entry.message_hash = ComputeValiditySidechainDepositMessageHash(sidechain_id, deposit);
     entry.created_height = deposit_height;
@@ -713,7 +713,7 @@ bool ValiditySidechainState::AddForceExitRequest(
     ValiditySidechainQueueEntry entry;
     entry.queue_index = NextQueueIndex(*sidechain);
     entry.message_kind = ValiditySidechainQueueEntry::MESSAGE_FORCE_EXIT;
-    entry.status = ValiditySidechainQueueEntry::STATUS_PENDING;
+    entry.status = ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING;
     entry.message_id = request_hash;
     entry.message_hash = request_hash;
     entry.created_height = request_height;
@@ -783,14 +783,14 @@ bool ValiditySidechainState::ReclaimDeposit(
         }
         return false;
     }
-    if (queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+    if (queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
         if (error != nullptr) {
             *error = "pending deposit queue entry already finalized";
         }
         return false;
     }
 
-    queue_it->second.status = ValiditySidechainQueueEntry::STATUS_TOMBSTONED;
+    queue_it->second.status = ValiditySidechainQueueEntry::QUEUE_STATUS_TOMBSTONED;
     sidechain->queue_state.root = ComputeQueueTombstoneRoot(sidechain_id, sidechain->queue_state.root, queue_it->second);
     sidechain->escrow_balance -= deposit.amount;
     sidechain->pending_deposits.erase(pending_it);

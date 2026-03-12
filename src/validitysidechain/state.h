@@ -201,14 +201,14 @@ struct ValiditySidechainQueueEntry
     };
 
     enum Status : uint8_t {
-        STATUS_PENDING = 0,
-        STATUS_CONSUMED = 1,
-        STATUS_TOMBSTONED = 2,
+        QUEUE_STATUS_PENDING = 0,
+        QUEUE_STATUS_CONSUMED = 1,
+        QUEUE_STATUS_TOMBSTONED = 2,
     };
 
     uint64_t queue_index{0};
     uint8_t message_kind{0};
-    uint8_t status{STATUS_PENDING};
+    uint8_t status{QUEUE_STATUS_PENDING};
     uint256 message_id;
     uint256 message_hash;
     int created_height{-1};
