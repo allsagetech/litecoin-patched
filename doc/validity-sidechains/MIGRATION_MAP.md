@@ -376,8 +376,8 @@ Current branch status:
   mempool admission, block prevalidation, and chainstate application
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration-prevalidation availability
-- validity-sidechain rollback currently relies on active-chain recompute; no
-  dedicated persistence snapshot format exists yet
+- validity-sidechain tip snapshots now persist across connect/load/disconnect,
+  though ancestor snapshot replay is still drivechain-only
 - queue tombstone, withdrawal leaf, DA chunk, and escape-exit encodings remain
   to be specified
 

@@ -170,9 +170,11 @@ namespace {
     static const std::pair<char, std::string> DB_DRIVECHAIN_STATE_KEY = std::make_pair('D', "state");
     static const std::pair<char, std::string> DB_DRIVECHAIN_STATE_RING_KEY = std::make_pair('D', "state-ring");
     static constexpr char DB_DRIVECHAIN_STATE_BY_HASH_PREFIX = 'E';
+    static const std::pair<char, std::string> DB_VALIDITY_SIDECHAIN_STATE_KEY = std::make_pair('V', "state");
     static constexpr size_t DRIVECHAIN_STATE_CACHE_MAX_ENTRIES = 4096;
     static constexpr size_t DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES = 4096;
     static constexpr size_t DRIVECHAIN_STATE_SNAPSHOT_SEARCH_LIMIT = DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES;
+    static constexpr size_t VALIDITY_SIDECHAIN_STATE_CACHE_MAX_ENTRIES = 4096;
     static std::map<uint256, DrivechainState> g_drivechain_state_cache;
     static std::deque<uint256> g_drivechain_state_cache_order;
     static std::deque<uint256> g_drivechain_state_persisted_order;
@@ -181,6 +183,8 @@ namespace {
     static uint64_t g_drivechain_state_cache_misses{0};
     static uint64_t g_drivechain_state_recompute_fallbacks{0};
     static uint64_t g_drivechain_state_snapshots_written{0};
+    static std::map<uint256, ValiditySidechainState> g_validitysidechain_state_cache;
+    static std::deque<uint256> g_validitysidechain_state_cache_order;
 
     struct DrivechainStateSnapshot
     {
@@ -188,6 +192,17 @@ namespace {
         DrivechainState state;
 
         SERIALIZE_METHODS(DrivechainStateSnapshot, obj)
+        {
+            READWRITE(obj.tip_hash, obj.state);
+        }
+    };
+
+    struct ValiditySidechainStateSnapshot
+    {
+        uint256 tip_hash;
+        ValiditySidechainState state;
+
+        SERIALIZE_METHODS(ValiditySidechainStateSnapshot, obj)
         {
             READWRITE(obj.tip_hash, obj.state);
         }
@@ -259,6 +274,37 @@ namespace {
         CacheDrivechainStateForHash(tip_hash, chainstate.GetDrivechainState());
     }
 
+    static void CacheValiditySidechainStateForHash(
+        const uint256& tip_hash,
+        const ValiditySidechainState& validitysidechain_state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        if (g_validitysidechain_state_cache.find(tip_hash) == g_validitysidechain_state_cache.end()) {
+            g_validitysidechain_state_cache_order.push_back(tip_hash);
+        }
+        g_validitysidechain_state_cache[tip_hash] = validitysidechain_state;
+
+        while (g_validitysidechain_state_cache_order.size() > VALIDITY_SIDECHAIN_STATE_CACHE_MAX_ENTRIES) {
+            const uint256 evict_hash = g_validitysidechain_state_cache_order.front();
+            g_validitysidechain_state_cache_order.pop_front();
+            g_validitysidechain_state_cache.erase(evict_hash);
+        }
+    }
+
+    static void CacheValiditySidechainStateForTip(const CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
+        if (tip == nullptr) {
+            return;
+        }
+
+        const uint256 tip_hash = tip->GetBlockHash();
+        CacheValiditySidechainStateForHash(tip_hash, chainstate.GetValiditySidechainState());
+    }
+
     static bool RestoreDrivechainStateForTipFromCache(CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
@@ -285,6 +331,43 @@ namespace {
 
         ++g_drivechain_state_cache_hits;
         chainstate.GetDrivechainState() = it->second;
+        return true;
+    }
+
+    static bool LoadPersistedValiditySidechainStateSnapshot(
+        ValiditySidechainStateSnapshot& out_snapshot) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+        if (pblocktree == nullptr) {
+            return false;
+        }
+        return pblocktree->Read(DB_VALIDITY_SIDECHAIN_STATE_KEY, out_snapshot);
+    }
+
+    static bool RestoreValiditySidechainStateForTipFromCache(CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
+        if (tip == nullptr) {
+            chainstate.GetValiditySidechainState() = ValiditySidechainState();
+            return true;
+        }
+
+        const auto it = g_validitysidechain_state_cache.find(tip->GetBlockHash());
+        if (it != g_validitysidechain_state_cache.end()) {
+            chainstate.GetValiditySidechainState() = it->second;
+            return true;
+        }
+
+        ValiditySidechainStateSnapshot persisted_snapshot;
+        if (!LoadPersistedValiditySidechainStateSnapshot(persisted_snapshot) ||
+            persisted_snapshot.tip_hash != tip->GetBlockHash()) {
+            return false;
+        }
+
+        chainstate.GetValiditySidechainState() = std::move(persisted_snapshot.state);
+        CacheValiditySidechainStateForTip(chainstate);
         return true;
     }
     CBlockIndex* pindexBestInvalid = nullptr;
@@ -1480,6 +1563,29 @@ namespace {
         return true;
     }
 
+    static bool LoadPersistedValiditySidechainStateForTip(CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
+        if (tip == nullptr || pblocktree == nullptr) {
+            return false;
+        }
+
+        ValiditySidechainStateSnapshot snapshot;
+        if (!LoadPersistedValiditySidechainStateSnapshot(snapshot)) {
+            return false;
+        }
+
+        if (snapshot.tip_hash != tip->GetBlockHash()) {
+            return false;
+        }
+
+        chainstate.GetValiditySidechainState() = std::move(snapshot.state);
+        CacheValiditySidechainStateForTip(chainstate);
+        return true;
+    }
+
     static bool PersistDrivechainStateForTip(const CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         AssertLockHeld(cs_main);
@@ -1531,6 +1637,26 @@ namespace {
 
         ++g_drivechain_state_snapshots_written;
         CacheDrivechainStateForTip(chainstate);
+        return true;
+    }
+
+    static bool PersistValiditySidechainStateForTip(const CChainState& chainstate) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        if (pblocktree == nullptr) {
+            return false;
+        }
+
+        ValiditySidechainStateSnapshot snapshot;
+        const CBlockIndex* tip = chainstate.m_chain.Tip();
+        snapshot.tip_hash = tip ? tip->GetBlockHash() : uint256();
+        snapshot.state = chainstate.GetValiditySidechainState();
+        if (!pblocktree->Write(DB_VALIDITY_SIDECHAIN_STATE_KEY, snapshot)) {
+            return false;
+        }
+
+        CacheValiditySidechainStateForTip(chainstate);
         return true;
     }
 
@@ -4192,8 +4318,13 @@ bool CChainState::DisconnectTip(
         if (!PersistDrivechainStateForTip(*this)) {
             return false;
         }
-        BlockValidationState validity_recompute_state;
-        if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, validity_recompute_state)) {
+        if (!RestoreValiditySidechainStateForTipFromCache(*this)) {
+            BlockValidationState validity_recompute_state;
+            if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, validity_recompute_state)) {
+                return false;
+            }
+        }
+        if (!PersistValiditySidechainStateForTip(*this)) {
             return false;
         }
     }
@@ -4308,6 +4439,9 @@ bool CChainState::ConnectTip(BlockValidationState& state, const CChainParams& ch
     RemoveStaleDrivechainBmmRequests(m_mempool, m_chain.Tip());
     if (!PersistDrivechainStateForTip(*this)) {
         return AbortNode(state, "Failed to persist drivechain state after connecting block");
+    }
+    if (!PersistValiditySidechainStateForTip(*this)) {
+        return AbortNode(state, "Failed to persist validity-sidechain state after connecting block");
     }
     UpdateTip(m_mempool, pindexNew, chainparams);
 
@@ -4435,9 +4569,16 @@ bool CChainState::ActivateBestChainStep(BlockValidationState& state, const CChai
         AbortNode(state, "Failed to persist drivechain state after disconnecting blocks; see debug.log for details");
         return false;
     }
-    if (fBlocksDisconnected && !RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, state)) {
+    if (fBlocksDisconnected && !RestoreValiditySidechainStateForTipFromCache(*this)) {
+        if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, state)) {
+            UpdateMempoolForReorg(m_mempool, disconnectpool, false);
+            AbortNode(state, "Failed to recompute validity-sidechain state after disconnecting blocks; see debug.log for details");
+            return false;
+        }
+    }
+    if (fBlocksDisconnected && !PersistValiditySidechainStateForTip(*this)) {
         UpdateMempoolForReorg(m_mempool, disconnectpool, false);
-        AbortNode(state, "Failed to recompute validity-sidechain state after disconnecting blocks; see debug.log for details");
+        AbortNode(state, "Failed to persist validity-sidechain state after disconnecting blocks; see debug.log for details");
         return false;
     }
 
@@ -6014,9 +6155,16 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
         GuessVerificationProgress(chainparams.TxData(), tip));
 
     if (LoadPersistedDrivechainStateForTip(*this)) {
+        if (LoadPersistedValiditySidechainStateForTip(*this)) {
+            return true;
+        }
+
         BlockValidationState validity_recompute_state;
         if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, validity_recompute_state)) {
             return error("%s: validity-sidechain state recompute failed (%s)", __func__, validity_recompute_state.ToString());
+        }
+        if (!PersistValiditySidechainStateForTip(*this)) {
+            return error("%s: validity-sidechain state persist failed", __func__);
         }
         return true;
     }
@@ -6031,6 +6179,9 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
     }
     if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, dc_recompute_state)) {
         return error("%s: validity-sidechain state recompute failed (%s)", __func__, dc_recompute_state.ToString());
+    }
+    if (!PersistValiditySidechainStateForTip(*this)) {
+        return error("%s: validity-sidechain state persist failed", __func__);
     }
     return true;
 }
