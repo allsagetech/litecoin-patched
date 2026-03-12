@@ -223,6 +223,12 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
         },
     };
     const uint256 withdrawal_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
+    std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
+    for (uint32_t i = 0; i < withdrawals.size(); ++i) {
+        ValiditySidechainWithdrawalProof proof;
+        BOOST_REQUIRE(BuildValiditySidechainWithdrawalProof(withdrawals, i, proof));
+        withdrawal_proofs.push_back(std::move(proof));
+    }
     const std::vector<ValiditySidechainEscapeExitLeaf> exits{
         {
             uint256S("1313131313131313131313131313131313131313131313131313131313131313"),
@@ -240,18 +246,22 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
     {
         ValiditySidechainScriptInfo info;
         BOOST_REQUIRE(DecodeValiditySidechainScript(
-            BuildValiditySidechainExecuteScript(sidechain_id, batch_number, withdrawal_root, withdrawals),
+            BuildValiditySidechainExecuteScript(sidechain_id, batch_number, withdrawal_root, withdrawal_proofs),
             info));
         BOOST_CHECK(info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS);
         BOOST_CHECK(info.payload == ComputeValiditySidechainAcceptedBatchId(sidechain_id, batch_number, withdrawal_root));
-        BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), withdrawals.size());
+        BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), withdrawal_proofs.size());
 
-        std::vector<ValiditySidechainWithdrawalLeaf> decoded_withdrawals;
-        BOOST_REQUIRE(DecodeValiditySidechainExecuteMetadata(info, decoded_withdrawals));
-        BOOST_REQUIRE_EQUAL(decoded_withdrawals.size(), withdrawals.size());
-        BOOST_CHECK(decoded_withdrawals[0].withdrawal_id == withdrawals[0].withdrawal_id);
-        BOOST_CHECK_EQUAL(decoded_withdrawals[1].amount, withdrawals[1].amount);
-        BOOST_CHECK(decoded_withdrawals[1].destination_commitment == withdrawals[1].destination_commitment);
+        std::vector<ValiditySidechainWithdrawalProof> decoded_withdrawal_proofs;
+        BOOST_REQUIRE(DecodeValiditySidechainExecuteMetadata(info, decoded_withdrawal_proofs));
+        BOOST_REQUIRE_EQUAL(decoded_withdrawal_proofs.size(), withdrawal_proofs.size());
+        BOOST_CHECK(decoded_withdrawal_proofs[0].withdrawal.withdrawal_id == withdrawals[0].withdrawal_id);
+        BOOST_CHECK_EQUAL(decoded_withdrawal_proofs[1].withdrawal.amount, withdrawals[1].amount);
+        BOOST_CHECK(decoded_withdrawal_proofs[1].withdrawal.destination_commitment == withdrawals[1].destination_commitment);
+        BOOST_CHECK_EQUAL(decoded_withdrawal_proofs[0].leaf_index, 0U);
+        BOOST_CHECK_EQUAL(decoded_withdrawal_proofs[0].leaf_count, static_cast<uint32_t>(withdrawals.size()));
+        BOOST_CHECK(VerifyValiditySidechainWithdrawalProof(decoded_withdrawal_proofs[0], withdrawal_root));
+        BOOST_CHECK(VerifyValiditySidechainWithdrawalProof(decoded_withdrawal_proofs[1], withdrawal_root));
     }
 
     {

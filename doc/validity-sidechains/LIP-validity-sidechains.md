@@ -432,13 +432,13 @@ required.
 
 Current scaffold implementation note:
 
-- the current branch does not yet implement Merkle inclusion proofs
-- `EXECUTE_VERIFIED_WITHDRAWALS` therefore uses a temporary full-list mode:
-  - the transaction must carry the full ordered withdrawal leaf list
-  - Litecoin recomputes the withdrawal root from that full list
-  - the recomputed root must equal the accepted batch `withdrawal_root`
+- the current branch now implements deterministic Merkle-style withdrawal
+  inclusion proofs for `EXECUTE_VERIFIED_WITHDRAWALS`
+- the transaction carries one proof object per executed withdrawal leaf
+- Litecoin verifies each proof against the accepted batch `withdrawal_root`
 - per-withdrawal replay protection is enforced by executed withdrawal IDs
-- this is execution plumbing, not the final trustless inclusion-proof design
+- this is still execution plumbing because the accepted batch itself is not yet
+  proven by a real zk verifier
 
 ---
 

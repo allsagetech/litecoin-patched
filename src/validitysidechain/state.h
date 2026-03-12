@@ -137,6 +137,14 @@ struct ValiditySidechainWithdrawalLeaf
     }
 };
 
+struct ValiditySidechainWithdrawalProof
+{
+    ValiditySidechainWithdrawalLeaf withdrawal;
+    uint32_t leaf_index{0};
+    uint32_t leaf_count{0};
+    std::vector<uint256> sibling_hashes;
+};
+
 struct ValiditySidechainEscapeExitLeaf
 {
     uint256 exit_id;
@@ -340,7 +348,7 @@ public:
     bool ExecuteWithdrawals(
         uint8_t sidechain_id,
         const uint256& accepted_batch_id,
-        const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+        const std::vector<ValiditySidechainWithdrawalProof>& withdrawal_proofs,
         std::string* error = nullptr);
     bool ExecuteEscapeExits(
         uint8_t sidechain_id,

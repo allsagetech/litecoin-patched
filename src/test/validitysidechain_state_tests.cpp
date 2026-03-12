@@ -82,6 +82,22 @@ ValiditySidechainWithdrawalLeaf MakeWithdrawalLeaf(const uint256& withdrawal_id,
     return withdrawal;
 }
 
+std::vector<ValiditySidechainWithdrawalProof> BuildWithdrawalProofsForTest(
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)
+{
+    std::vector<ValiditySidechainWithdrawalProof> proofs;
+    proofs.reserve(withdrawals.size());
+    for (uint32_t i = 0; i < withdrawals.size(); ++i) {
+        ValiditySidechainWithdrawalProof proof;
+        if (!BuildValiditySidechainWithdrawalProof(withdrawals, i, proof)) {
+            BOOST_FAIL("failed to build withdrawal proof for test");
+            return {};
+        }
+        proofs.push_back(std::move(proof));
+    }
+    return proofs;
+}
+
 ValiditySidechainForceExitData MakeForceExitRequest(const uint256& account_id, const CScript& destination_script, CAmount amount = 2 * COIN)
 {
     ValiditySidechainForceExitData request;
@@ -665,9 +681,10 @@ BOOST_AUTO_TEST_CASE(execute_withdrawals_marks_ids_and_reduces_escrow)
         /* scid= */ 8,
         /* batch_number= */ 1,
         ComputeValiditySidechainWithdrawalRoot(withdrawals));
+    const std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs = BuildWithdrawalProofsForTest(withdrawals);
 
     std::string error;
-    BOOST_REQUIRE(state.ExecuteWithdrawals(/* sidechain_id= */ 8, accepted_batch_id, withdrawals, &error));
+    BOOST_REQUIRE(state.ExecuteWithdrawals(/* sidechain_id= */ 8, accepted_batch_id, withdrawal_proofs, &error));
     BOOST_CHECK(error.empty());
 
     sidechain = state.GetSidechain(8);
@@ -677,8 +694,40 @@ BOOST_AUTO_TEST_CASE(execute_withdrawals_marks_ids_and_reduces_escrow)
     BOOST_CHECK(state.HasExecutedWithdrawal(8, withdrawals[0].withdrawal_id));
     BOOST_CHECK(state.HasExecutedWithdrawal(8, withdrawals[1].withdrawal_id));
 
-    BOOST_CHECK(!state.ExecuteWithdrawals(/* sidechain_id= */ 8, accepted_batch_id, withdrawals, &error));
+    BOOST_CHECK(!state.ExecuteWithdrawals(/* sidechain_id= */ 8, accepted_batch_id, withdrawal_proofs, &error));
     BOOST_CHECK_EQUAL(error, "withdrawal id already executed");
+}
+
+BOOST_AUTO_TEST_CASE(execute_withdrawals_rejects_invalid_merkle_proof)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 16, /* registration_height= */ 560, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(16);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 5 * COIN;
+
+    const CScript payout_a = CScript() << OP_12;
+    const CScript payout_b = CScript() << OP_13;
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawals{
+        MakeWithdrawalLeaf(uint256S("3838383838383838383838383838383838383838383838383838383838383838"), payout_a, 1 * COIN),
+        MakeWithdrawalLeaf(uint256S("3939393939393939393939393939393939393939393939393939393939393939"), payout_b, 2 * COIN),
+    };
+    InstallAcceptedWithdrawalBatch(state, /* sidechain_id= */ 16, /* batch_number= */ 1, withdrawals, /* accepted_height= */ 561);
+
+    const uint256 accepted_batch_id = ComputeValiditySidechainAcceptedBatchId(
+        /* scid= */ 16,
+        /* batch_number= */ 1,
+        ComputeValiditySidechainWithdrawalRoot(withdrawals));
+    std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs = BuildWithdrawalProofsForTest(withdrawals);
+    BOOST_REQUIRE(!withdrawal_proofs.empty());
+    BOOST_REQUIRE(!withdrawal_proofs.front().sibling_hashes.empty());
+    withdrawal_proofs.front().sibling_hashes[0] = uint256S("3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a");
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteWithdrawals(/* sidechain_id= */ 16, accepted_batch_id, withdrawal_proofs, &error));
+    BOOST_CHECK_EQUAL(error, "withdrawal proof does not match accepted withdrawal root");
 }
 
 BOOST_AUTO_TEST_CASE(connect_block_handles_verified_withdrawal_execution)
@@ -698,6 +747,7 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_verified_withdrawal_execution)
         MakeWithdrawalLeaf(uint256S("2323232323232323232323232323232323232323232323232323232323232323"), payout_b, 2 * COIN),
     };
     InstallAcceptedWithdrawalBatch(state, /* sidechain_id= */ 9, /* batch_number= */ 1, withdrawals, /* accepted_height= */ 351);
+    const std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs = BuildWithdrawalProofsForTest(withdrawals);
 
     CMutableTransaction tx;
     tx.vout.emplace_back(
@@ -706,7 +756,7 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_verified_withdrawal_execution)
             /* scid= */ 9,
             /* batch_number= */ 1,
             ComputeValiditySidechainWithdrawalRoot(withdrawals),
-            withdrawals));
+            withdrawal_proofs));
     tx.vout.emplace_back(1 * COIN, payout_a);
     tx.vout.emplace_back(2 * COIN, payout_b);
 

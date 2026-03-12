@@ -17,6 +17,8 @@ static constexpr unsigned char CONFIG_HASH_MAGIC[] = {'V', 'S', 'C', 'F', 0x01};
 static constexpr unsigned char DEPOSIT_HASH_MAGIC[] = {'V', 'S', 'C', 'D', 0x01};
 static constexpr unsigned char BATCH_HASH_MAGIC[] = {'V', 'S', 'C', 'B', 0x01};
 static constexpr unsigned char WITHDRAWAL_ROOT_MAGIC[] = {'V', 'S', 'C', 'W', 0x01};
+static constexpr unsigned char WITHDRAWAL_LEAF_HASH_MAGIC[] = {'V', 'S', 'C', 'W', 0x02};
+static constexpr unsigned char WITHDRAWAL_NODE_HASH_MAGIC[] = {'V', 'S', 'C', 'W', 0x03};
 static constexpr unsigned char ESCAPE_EXIT_ROOT_MAGIC[] = {'V', 'S', 'C', 'E', 0x01};
 static constexpr unsigned char FORCE_EXIT_HASH_MAGIC[] = {'V', 'S', 'C', 'X', 0x01};
 static constexpr unsigned char ACCEPTED_BATCH_ID_MAGIC[] = {'V', 'S', 'C', 'A', 0x01};
@@ -26,6 +28,7 @@ static constexpr size_t VALIDITY_SIDECHAIN_CONFIG_BYTES = 94;
 static constexpr size_t VALIDITY_SIDECHAIN_DEPOSIT_BYTES = 112;
 static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 204;
 static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES = 72;
+static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES = 80;
 static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_LEAF_BYTES = 72;
 static constexpr size_t VALIDITY_SIDECHAIN_FORCE_EXIT_BYTES = 112;
 
@@ -91,6 +94,24 @@ static uint256 HashWithOptionalSidechainId(
         hw << *sidechain_id;
     }
     hw.write((const char*)bytes.data(), bytes.size());
+    return hw.GetHash();
+}
+
+static uint256 ComputeWithdrawalMerkleParent(const uint256& left, const uint256& right)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)WITHDRAWAL_NODE_HASH_MAGIC, sizeof(WITHDRAWAL_NODE_HASH_MAGIC));
+    hw << left;
+    hw << right;
+    return hw.GetHash();
+}
+
+static uint256 FinalizeWithdrawalRoot(uint32_t leaf_count, const uint256& merkle_root)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)WITHDRAWAL_ROOT_MAGIC, sizeof(WITHDRAWAL_ROOT_MAGIC));
+    hw << leaf_count;
+    hw << merkle_root;
     return hw.GetHash();
 }
 
@@ -260,12 +281,12 @@ CScript BuildValiditySidechainExecuteScript(
     uint8_t scid,
     uint32_t batch_number,
     const uint256& withdrawal_root,
-    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)
+    const std::vector<ValiditySidechainWithdrawalProof>& withdrawal_proofs)
 {
     std::vector<std::vector<unsigned char>> metadata_pushes;
-    metadata_pushes.reserve(withdrawals.size());
-    for (const auto& withdrawal : withdrawals) {
-        metadata_pushes.push_back(EncodeValiditySidechainWithdrawalLeaf(withdrawal));
+    metadata_pushes.reserve(withdrawal_proofs.size());
+    for (const auto& proof : withdrawal_proofs) {
+        metadata_pushes.push_back(EncodeValiditySidechainWithdrawalProof(proof));
     }
 
     return BuildValiditySidechainScript(
@@ -524,39 +545,199 @@ bool DecodeValiditySidechainWithdrawalLeaf(
     return true;
 }
 
+std::vector<unsigned char> EncodeValiditySidechainWithdrawalProof(const ValiditySidechainWithdrawalProof& proof)
+{
+    std::vector<unsigned char> out;
+    out.reserve(VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES + (proof.sibling_hashes.size() * UINT256_BYTES));
+
+    AppendLE32(out, proof.leaf_index);
+    AppendLE32(out, proof.leaf_count);
+    const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainWithdrawalLeaf(proof.withdrawal);
+    out.insert(out.end(), encoded_leaf.begin(), encoded_leaf.end());
+    for (const auto& sibling_hash : proof.sibling_hashes) {
+        AppendUint256(out, sibling_hash);
+    }
+
+    return out;
+}
+
+bool DecodeValiditySidechainWithdrawalProof(
+    Span<const unsigned char> proof_bytes,
+    ValiditySidechainWithdrawalProof& out_proof)
+{
+    if (proof_bytes.size() < VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES ||
+        ((proof_bytes.size() - VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES) % UINT256_BYTES) != 0) {
+        return false;
+    }
+
+    ValiditySidechainWithdrawalProof proof;
+    proof.leaf_index = ReadLE32(proof_bytes.data());
+    proof.leaf_count = ReadLE32(proof_bytes.data() + sizeof(uint32_t));
+    if (proof.leaf_count == 0 || proof.leaf_index >= proof.leaf_count) {
+        return false;
+    }
+    if (!DecodeValiditySidechainWithdrawalLeaf(
+            proof_bytes.subspan(sizeof(uint32_t) * 2, VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES),
+            proof.withdrawal)) {
+        return false;
+    }
+
+    const size_t sibling_count = (proof_bytes.size() - VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES) / UINT256_BYTES;
+    proof.sibling_hashes.reserve(sibling_count);
+    size_t offset = VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES;
+    for (size_t i = 0; i < sibling_count; ++i) {
+        uint256 sibling_hash;
+        if (!ReadUint256At(proof_bytes, offset, sibling_hash)) {
+            return false;
+        }
+        proof.sibling_hashes.push_back(sibling_hash);
+        offset += UINT256_BYTES;
+    }
+
+    out_proof = std::move(proof);
+    return true;
+}
+
 bool DecodeValiditySidechainExecuteMetadata(
     const ValiditySidechainScriptInfo& info,
-    std::vector<ValiditySidechainWithdrawalLeaf>& out_withdrawals)
+    std::vector<ValiditySidechainWithdrawalProof>& out_withdrawal_proofs)
 {
     if (info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS ||
         info.metadata_pushes.empty()) {
         return false;
     }
 
-    std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
-    withdrawals.reserve(info.metadata_pushes.size());
+    std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
+    withdrawal_proofs.reserve(info.metadata_pushes.size());
     for (const auto& push : info.metadata_pushes) {
-        ValiditySidechainWithdrawalLeaf withdrawal;
-        if (!DecodeValiditySidechainWithdrawalLeaf(push, withdrawal)) {
+        ValiditySidechainWithdrawalProof proof;
+        if (!DecodeValiditySidechainWithdrawalProof(push, proof)) {
             return false;
         }
-        withdrawals.push_back(withdrawal);
+        withdrawal_proofs.push_back(std::move(proof));
     }
 
-    out_withdrawals = std::move(withdrawals);
+    out_withdrawal_proofs = std::move(withdrawal_proofs);
     return true;
+}
+
+bool BuildValiditySidechainWithdrawalProof(
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+    uint32_t leaf_index,
+    ValiditySidechainWithdrawalProof& out_proof)
+{
+    if (withdrawals.empty() || leaf_index >= withdrawals.size()) {
+        return false;
+    }
+
+    std::vector<uint256> level_hashes;
+    level_hashes.reserve(withdrawals.size());
+    for (const auto& withdrawal : withdrawals) {
+        const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainWithdrawalLeaf(withdrawal);
+        level_hashes.push_back(HashWithOptionalSidechainId(
+            WITHDRAWAL_LEAF_HASH_MAGIC,
+            sizeof(WITHDRAWAL_LEAF_HASH_MAGIC),
+            encoded_leaf));
+    }
+
+    ValiditySidechainWithdrawalProof proof;
+    proof.withdrawal = withdrawals[leaf_index];
+    proof.leaf_index = leaf_index;
+    proof.leaf_count = static_cast<uint32_t>(withdrawals.size());
+
+    uint32_t index = leaf_index;
+    while (level_hashes.size() > 1) {
+        const size_t sibling_index = (index & 1U) != 0 ? static_cast<size_t>(index - 1) : std::min(static_cast<size_t>(index + 1), level_hashes.size() - 1);
+        proof.sibling_hashes.push_back(level_hashes[sibling_index]);
+
+        std::vector<uint256> next_level;
+        next_level.reserve((level_hashes.size() + 1) / 2);
+        for (size_t i = 0; i < level_hashes.size(); i += 2) {
+            const uint256& left = level_hashes[i];
+            const uint256& right = (i + 1 < level_hashes.size()) ? level_hashes[i + 1] : level_hashes[i];
+            next_level.push_back(ComputeWithdrawalMerkleParent(left, right));
+        }
+
+        index >>= 1;
+        level_hashes = std::move(next_level);
+    }
+
+    out_proof = std::move(proof);
+    return true;
+}
+
+bool VerifyValiditySidechainWithdrawalProof(
+    const ValiditySidechainWithdrawalProof& proof,
+    const uint256& expected_root)
+{
+    if (proof.leaf_count == 0 || proof.leaf_index >= proof.leaf_count) {
+        return false;
+    }
+
+    const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainWithdrawalLeaf(proof.withdrawal);
+    uint256 current_hash = HashWithOptionalSidechainId(
+        WITHDRAWAL_LEAF_HASH_MAGIC,
+        sizeof(WITHDRAWAL_LEAF_HASH_MAGIC),
+        encoded_leaf);
+
+    uint32_t width = proof.leaf_count;
+    uint32_t index = proof.leaf_index;
+    size_t expected_sibling_count = 0;
+    while (width > 1) {
+        ++expected_sibling_count;
+        width = (width + 1) / 2;
+    }
+    if (proof.sibling_hashes.size() != expected_sibling_count) {
+        return false;
+    }
+
+    width = proof.leaf_count;
+    index = proof.leaf_index;
+    for (const auto& sibling_hash : proof.sibling_hashes) {
+        const bool is_right_child = (index & 1U) != 0;
+        const bool has_distinct_sibling = is_right_child || (index + 1 < width);
+        if (!has_distinct_sibling && sibling_hash != current_hash) {
+            return false;
+        }
+
+        current_hash = is_right_child
+            ? ComputeWithdrawalMerkleParent(sibling_hash, current_hash)
+            : ComputeWithdrawalMerkleParent(current_hash, sibling_hash);
+        index >>= 1;
+        width = (width + 1) / 2;
+    }
+
+    return index == 0 && width == 1 && FinalizeWithdrawalRoot(proof.leaf_count, current_hash) == expected_root;
 }
 
 uint256 ComputeValiditySidechainWithdrawalRoot(const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)
 {
-    CHashWriter hw(SER_GETHASH, 0);
-    hw.write((const char*)WITHDRAWAL_ROOT_MAGIC, sizeof(WITHDRAWAL_ROOT_MAGIC));
-    hw << static_cast<uint32_t>(withdrawals.size());
-    for (const auto& withdrawal : withdrawals) {
-        const std::vector<unsigned char> encoded = EncodeValiditySidechainWithdrawalLeaf(withdrawal);
-        hw.write((const char*)encoded.data(), encoded.size());
+    if (withdrawals.empty()) {
+        return FinalizeWithdrawalRoot(/* leaf_count= */ 0, uint256());
     }
-    return hw.GetHash();
+
+    std::vector<uint256> level_hashes;
+    level_hashes.reserve(withdrawals.size());
+    for (const auto& withdrawal : withdrawals) {
+        const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainWithdrawalLeaf(withdrawal);
+        level_hashes.push_back(HashWithOptionalSidechainId(
+            WITHDRAWAL_LEAF_HASH_MAGIC,
+            sizeof(WITHDRAWAL_LEAF_HASH_MAGIC),
+            encoded_leaf));
+    }
+
+    while (level_hashes.size() > 1) {
+        std::vector<uint256> next_level;
+        next_level.reserve((level_hashes.size() + 1) / 2);
+        for (size_t i = 0; i < level_hashes.size(); i += 2) {
+            const uint256& left = level_hashes[i];
+            const uint256& right = (i + 1 < level_hashes.size()) ? level_hashes[i + 1] : level_hashes[i];
+            next_level.push_back(ComputeWithdrawalMerkleParent(left, right));
+        }
+        level_hashes = std::move(next_level);
+    }
+
+    return FinalizeWithdrawalRoot(static_cast<uint32_t>(withdrawals.size()), level_hashes.front());
 }
 
 std::vector<unsigned char> EncodeValiditySidechainEscapeExitLeaf(const ValiditySidechainEscapeExitLeaf& exit)

@@ -62,22 +62,22 @@ static inline bool IsDrivechainOutput(const CScript& spk)
 static bool MatchValidityWithdrawalPayouts(
     const CTransaction& tx,
     int marker_index,
-    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+    const std::vector<ValiditySidechainWithdrawalProof>& withdrawal_proofs,
     CAmount& out_total)
 {
     out_total = 0;
-    if (withdrawals.empty()) {
+    if (withdrawal_proofs.empty()) {
         return false;
     }
 
     const size_t start = static_cast<size_t>(marker_index) + 1;
-    if (tx.vout.size() < start + withdrawals.size()) {
+    if (tx.vout.size() < start + withdrawal_proofs.size()) {
         return false;
     }
 
-    for (size_t i = 0; i < withdrawals.size(); ++i) {
+    for (size_t i = 0; i < withdrawal_proofs.size(); ++i) {
         const CTxOut& txout = tx.vout[start + i];
-        const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawals[i];
+        const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawal_proofs[i].withdrawal;
         if (IsDrivechainOutput(txout.scriptPubKey) ||
             txout.nValue != withdrawal.amount ||
             Hash(txout.scriptPubKey.begin(), txout.scriptPubKey.end()) != withdrawal.destination_commitment) {
@@ -241,12 +241,12 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
     }
 
     if (validity_execute_marker_index != -1) {
-        std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
-        if (!DecodeValiditySidechainExecuteMetadata(validity_execute_info, withdrawals)) {
+        std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
+        if (!DecodeValiditySidechainExecuteMetadata(validity_execute_info, withdrawal_proofs)) {
             return false;
         }
 
-        return MatchValidityWithdrawalPayouts(tx, validity_execute_marker_index, withdrawals, out_credit);
+        return MatchValidityWithdrawalPayouts(tx, validity_execute_marker_index, withdrawal_proofs, out_credit);
     }
 
     if (escape_exit_marker_index != -1) {
@@ -462,8 +462,8 @@ static bool TryGetValiditySidechainWithdrawalKeysFromTx(
             continue;
         }
 
-        std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
-        if (!DecodeValiditySidechainExecuteMetadata(info, withdrawals)) {
+        std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
+        if (!DecodeValiditySidechainExecuteMetadata(info, withdrawal_proofs)) {
             return false;
         }
 
@@ -471,7 +471,8 @@ static bool TryGetValiditySidechainWithdrawalKeysFromTx(
         if (execute_count > 1) {
             return false;
         }
-        for (const auto& withdrawal : withdrawals) {
+        for (const auto& proof : withdrawal_proofs) {
+            const ValiditySidechainWithdrawalLeaf& withdrawal = proof.withdrawal;
             const auto key = std::make_pair(info.sidechain_id, withdrawal.withdrawal_id);
             if (!unique_keys.insert(key).second) {
                 return false;

@@ -393,8 +393,8 @@ Current branch status:
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking
-- the current execute path is still scaffold-only because it requires the full
-  ordered withdrawal leaf list rather than per-leaf inclusion proofs
+- `EXECUTE_VERIFIED_WITHDRAWALS` now uses deterministic Merkle-style
+  inclusion proofs instead of the temporary full-list withdrawal mode
 - `EXECUTE_ESCAPE_EXIT` now has fixed escape-exit leaf encoding, inactivity
   gating, escrow decrement, executed-exit replay protection, and mempool
   duplicate tracking

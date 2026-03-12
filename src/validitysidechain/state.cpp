@@ -192,20 +192,20 @@ static bool FindUniqueRefundOutput(
 static bool MatchWithdrawalOutputs(
     const CTransaction& tx,
     int marker_index,
-    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)
+    const std::vector<ValiditySidechainWithdrawalProof>& withdrawal_proofs)
 {
-    if (withdrawals.empty()) {
+    if (withdrawal_proofs.empty()) {
         return false;
     }
 
     const size_t start = static_cast<size_t>(marker_index) + 1;
-    if (tx.vout.size() < start + withdrawals.size()) {
+    if (tx.vout.size() < start + withdrawal_proofs.size()) {
         return false;
     }
 
-    for (size_t i = 0; i < withdrawals.size(); ++i) {
+    for (size_t i = 0; i < withdrawal_proofs.size(); ++i) {
         const CTxOut& txout = tx.vout[start + i];
-        const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawals[i];
+        const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawal_proofs[i].withdrawal;
         ValiditySidechainScriptInfo validity_info;
         DrivechainScriptInfo drivechain_info;
         if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) ||
@@ -933,7 +933,7 @@ bool ValiditySidechainState::AcceptBatch(
 bool ValiditySidechainState::ExecuteWithdrawals(
     uint8_t sidechain_id,
     const uint256& accepted_batch_id,
-    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+    const std::vector<ValiditySidechainWithdrawalProof>& withdrawal_proofs,
     std::string* error)
 {
     ValiditySidechain* sidechain = GetSidechain(sidechain_id);
@@ -943,7 +943,7 @@ bool ValiditySidechainState::ExecuteWithdrawals(
         }
         return false;
     }
-    if (withdrawals.empty()) {
+    if (withdrawal_proofs.empty()) {
         if (error != nullptr) {
             *error = "withdrawal execution metadata is empty";
         }
@@ -958,17 +958,16 @@ bool ValiditySidechainState::ExecuteWithdrawals(
         return false;
     }
 
-    const uint256 computed_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
-    if (computed_root != accepted_batch->withdrawal_root) {
-        if (error != nullptr) {
-            *error = "withdrawal list does not match accepted withdrawal root";
-        }
-        return false;
-    }
-
     CAmount total_amount = 0;
     std::set<uint256> new_ids;
-    for (const auto& withdrawal : withdrawals) {
+    for (const auto& proof : withdrawal_proofs) {
+        const ValiditySidechainWithdrawalLeaf& withdrawal = proof.withdrawal;
+        if (!VerifyValiditySidechainWithdrawalProof(proof, accepted_batch->withdrawal_root)) {
+            if (error != nullptr) {
+                *error = "withdrawal proof does not match accepted withdrawal root";
+            }
+            return false;
+        }
         if (!MoneyRange(withdrawal.amount) || withdrawal.amount <= 0) {
             if (error != nullptr) {
                 *error = "withdrawal amount out of range";
@@ -1228,16 +1227,16 @@ bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-marker-value");
                     }
 
-                    std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
-                    if (!DecodeValiditySidechainExecuteMetadata(info, withdrawals)) {
+                    std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
+                    if (!DecodeValiditySidechainExecuteMetadata(info, withdrawal_proofs)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-metadata-bad");
                     }
-                    if (!MatchWithdrawalOutputs(*tx, static_cast<int>(out_i), withdrawals)) {
+                    if (!MatchWithdrawalOutputs(*tx, static_cast<int>(out_i), withdrawal_proofs)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-payout-mismatch");
                     }
 
                     std::string error;
-                    if (!ExecuteWithdrawals(info.sidechain_id, info.payload, withdrawals, &error)) {
+                    if (!ExecuteWithdrawals(info.sidechain_id, info.payload, withdrawal_proofs, &error)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-invalid", error);
                     }
                     break;
