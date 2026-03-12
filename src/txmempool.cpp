@@ -10,7 +10,6 @@
 #include <consensus/validation.h>
 #include <drivechain/script.h>
 #include <optional.h>
-#include <validation.h>
 #include <policy/policy.h>
 #include <policy/fees.h>
 #include <policy/settings.h>
@@ -18,7 +17,9 @@
 #include <util/system.h>
 #include <util/moneystr.h>
 #include <util/time.h>
+#include <validation.h>
 #include <validationinterface.h>
+#include <validitysidechain/script.h>
 
 namespace {
 
@@ -73,25 +74,36 @@ static bool TryGetDrivechainBmmRequestSidechainFromTx(const CTransaction& tx, ui
 static bool TryGetDrivechainRegisterSidechainFromTx(const CTransaction& tx, uint8_t& out_sidechain_id)
 {
     int register_count = 0;
-    DrivechainScriptInfo register_info;
+    uint8_t register_sidechain_id{0};
 
     for (const auto& txout : tx.vout) {
         DrivechainScriptInfo info;
-        if (!DecodeDrivechainScript(txout.scriptPubKey, info)) continue;
-        if (info.kind != DrivechainScriptInfo::Kind::REGISTER) continue;
-
-        ++register_count;
-        if (register_count > 1) {
-            return false;
+        if (DecodeDrivechainScript(txout.scriptPubKey, info) &&
+            info.kind == DrivechainScriptInfo::Kind::REGISTER) {
+            ++register_count;
+            if (register_count > 1) {
+                return false;
+            }
+            register_sidechain_id = info.sidechain_id;
+            continue;
         }
-        register_info = info;
+
+        ValiditySidechainScriptInfo validity_info;
+        if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) &&
+            validity_info.kind == ValiditySidechainScriptInfo::Kind::REGISTER_VALIDITY_SIDECHAIN) {
+            ++register_count;
+            if (register_count > 1) {
+                return false;
+            }
+            register_sidechain_id = validity_info.sidechain_id;
+        }
     }
 
     if (register_count == 0) {
         return false;
     }
 
-    out_sidechain_id = register_info.sidechain_id;
+    out_sidechain_id = register_sidechain_id;
     return true;
 }
 

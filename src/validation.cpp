@@ -58,6 +58,8 @@
 #include <util/translation.h>
 #include <utility>
 #include <validationinterface.h>
+#include <validitysidechain/registry.h>
+#include <validitysidechain/script.h>
 #include <warnings.h>
 
 #include <algorithm>
@@ -553,7 +555,12 @@ namespace {
     static inline bool IsDrivechainOutput(const CScript& spk)
     {
         DrivechainScriptInfo tmp;
-        return DecodeDrivechainScript(spk, tmp);
+        if (DecodeDrivechainScript(spk, tmp)) {
+            return true;
+        }
+
+        ValiditySidechainScriptInfo validity_tmp;
+        return DecodeValiditySidechainScript(spk, validity_tmp);
     }
 
     static bool FindRequiredDrivechainVoteBundle(
@@ -700,26 +707,123 @@ namespace {
         return true;
     }
 
+    static int CountRegisterSidechainOutputs(const CTransaction& tx)
+    {
+        int register_count = 0;
+
+        for (const auto& txout : tx.vout) {
+            DrivechainScriptInfo drivechain_info;
+            if (DecodeDrivechainScript(txout.scriptPubKey, drivechain_info) &&
+                drivechain_info.kind == DrivechainScriptInfo::Kind::REGISTER) {
+                ++register_count;
+                continue;
+            }
+
+            ValiditySidechainScriptInfo validity_info;
+            if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) &&
+                validity_info.kind == ValiditySidechainScriptInfo::Kind::REGISTER_VALIDITY_SIDECHAIN) {
+                ++register_count;
+            }
+        }
+
+        return register_count;
+    }
+
     static bool TryGetRegisterSidechainId(const CTransaction& tx, uint8_t& out_sidechain_id)
     {
         int register_count = 0;
-        DrivechainScriptInfo register_info;
+        uint8_t register_sidechain_id{0};
         for (const auto& txout : tx.vout) {
             DrivechainScriptInfo info;
-            if (!DecodeDrivechainScript(txout.scriptPubKey, info)) continue;
-            if (info.kind != DrivechainScriptInfo::Kind::REGISTER) continue;
-
-            ++register_count;
-            if (register_count > 1) {
-                return false;
+            if (DecodeDrivechainScript(txout.scriptPubKey, info) &&
+                info.kind == DrivechainScriptInfo::Kind::REGISTER) {
+                ++register_count;
+                if (register_count > 1) {
+                    return false;
+                }
+                register_sidechain_id = info.sidechain_id;
+                continue;
             }
-            register_info = info;
+
+            ValiditySidechainScriptInfo validity_info;
+            if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) &&
+                validity_info.kind == ValiditySidechainScriptInfo::Kind::REGISTER_VALIDITY_SIDECHAIN) {
+                ++register_count;
+                if (register_count > 1) {
+                    return false;
+                }
+                register_sidechain_id = validity_info.sidechain_id;
+            }
         }
         if (register_count == 0) {
             return false;
         }
 
-        out_sidechain_id = register_info.sidechain_id;
+        out_sidechain_id = register_sidechain_id;
+        return true;
+    }
+
+    static bool CheckValiditySidechainBlock(
+        const CBlock& block,
+        const CChainParams& chainparams,
+        const CBlockIndex* pindex,
+        const DrivechainState& drivechain_state,
+        const ValiditySidechainState& validitysidechain_state,
+        BlockValidationState& state)
+    {
+        const Consensus::Params& params = chainparams.GetConsensus();
+        if (!IsDrivechainEnabled(pindex->pprev, params)) {
+            return true;
+        }
+
+        std::set<uint8_t> legacy_registered_sidechains_in_block;
+        for (const auto& tx : block.vtx) {
+            for (const auto& txout : tx->vout) {
+                DrivechainScriptInfo legacy_info;
+                if (DecodeDrivechainScript(txout.scriptPubKey, legacy_info) &&
+                    legacy_info.kind == DrivechainScriptInfo::Kind::REGISTER) {
+                    legacy_registered_sidechains_in_block.insert(legacy_info.sidechain_id);
+                }
+            }
+        }
+
+        std::set<uint8_t> registered_sidechains_in_block;
+        for (const auto& tx : block.vtx) {
+            if (CountRegisterSidechainOutputs(*tx) > 1) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-multi-register");
+            }
+
+            for (const auto& txout : tx->vout) {
+                ValiditySidechainScriptInfo info;
+                if (!DecodeValiditySidechainScript(txout.scriptPubKey, info)) {
+                    continue;
+                }
+
+                if (info.kind != ValiditySidechainScriptInfo::Kind::REGISTER_VALIDITY_SIDECHAIN) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-kind-not-enabled");
+                }
+
+                ValiditySidechainConfig config;
+                if (!DecodeValiditySidechainConfig(info.primary_metadata, config)) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-config-bad");
+                }
+                if (ComputeValiditySidechainConfigHash(config) != info.payload) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-config-mismatch");
+                }
+
+                std::string error;
+                if (!ValidateValiditySidechainConfig(config, &error)) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-config-unsupported", error);
+                }
+                if (drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                    validitysidechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                    legacy_registered_sidechains_in_block.count(info.sidechain_id) != 0 ||
+                    !registered_sidechains_in_block.insert(info.sidechain_id).second) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-sidechain-exists");
+                }
+            }
+        }
+
         return true;
     }
 
@@ -728,6 +832,7 @@ namespace {
         const CChainParams& chainparams,
         const CBlockIndex* pindex,
         const DrivechainState& drivechain_state,
+        const ValiditySidechainState& validitysidechain_state,
         BlockValidationState& state)
     {
         const Consensus::Params& params = chainparams.GetConsensus();
@@ -784,6 +889,10 @@ namespace {
             const auto& tx = block.vtx[tx_index];
             const bool is_coinbase = (tx_index == 0);
 
+            if (CountRegisterSidechainOutputs(*tx) > 1) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-multi-register");
+            }
+
             int execute_marker_index = -1;
             DrivechainScriptInfo execute_info;
 
@@ -816,6 +925,7 @@ namespace {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-amount-too-low");
                         }
                         if (drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                            validitysidechain_state.GetSidechain(info.sidechain_id) != nullptr ||
                             !registered_sidechains_in_block.insert(info.sidechain_id).second) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-register-sidechain-exists");
                         }
@@ -1053,11 +1163,16 @@ namespace {
         const CChainParams& chainparams,
         const CBlockIndex* pindexPrev,
         const DrivechainState& drivechain_state,
+        const ValiditySidechainState& validitysidechain_state,
         TxValidationState& state)
     {
         const Consensus::Params& params = chainparams.GetConsensus();
         if (!IsDrivechainEnabled(pindexPrev, params) || !tx.HasDrivechainStuff()) {
             return true;
+        }
+
+        if (CountRegisterSidechainOutputs(tx) > 1) {
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-multi-register");
         }
 
         int execute_marker_index = -1;
@@ -1090,6 +1205,7 @@ namespace {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-amount-too-low");
                     }
                     if (drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                        validitysidechain_state.GetSidechain(info.sidechain_id) != nullptr ||
                         !registered_sidechains_in_tx.insert(info.sidechain_id).second) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-register-sidechain-exists");
                     }
@@ -1238,6 +1354,72 @@ namespace {
         }
         if (sc->escrow_balance < withdraw_sum) {
             return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "drivechain-escrow-insufficient");
+        }
+
+        return true;
+    }
+
+    static bool CheckValiditySidechainMempoolTx(
+        const CTransaction& tx,
+        const CChainParams& chainparams,
+        const CBlockIndex* pindexPrev,
+        const DrivechainState& drivechain_state,
+        const ValiditySidechainState& validitysidechain_state,
+        TxValidationState& state)
+    {
+        const Consensus::Params& params = chainparams.GetConsensus();
+        if (!IsDrivechainEnabled(pindexPrev, params) || !tx.HasDrivechainStuff()) {
+            return true;
+        }
+
+        if (CountRegisterSidechainOutputs(tx) > 1) {
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-multi-register");
+        }
+
+        std::set<uint8_t> legacy_registered_sidechains_in_tx;
+        for (const auto& txout : tx.vout) {
+            DrivechainScriptInfo legacy_info;
+            if (DecodeDrivechainScript(txout.scriptPubKey, legacy_info) &&
+                legacy_info.kind == DrivechainScriptInfo::Kind::REGISTER) {
+                legacy_registered_sidechains_in_tx.insert(legacy_info.sidechain_id);
+            }
+        }
+
+        int register_count = 0;
+        std::set<uint8_t> registered_sidechains_in_tx;
+        for (const auto& txout : tx.vout) {
+            ValiditySidechainScriptInfo info;
+            if (!DecodeValiditySidechainScript(txout.scriptPubKey, info)) {
+                continue;
+            }
+
+            if (info.kind != ValiditySidechainScriptInfo::Kind::REGISTER_VALIDITY_SIDECHAIN) {
+                return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-kind-not-enabled");
+            }
+
+            ++register_count;
+            if (register_count > 1) {
+                return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-multi-register");
+            }
+
+            ValiditySidechainConfig config;
+            if (!DecodeValiditySidechainConfig(info.primary_metadata, config)) {
+                return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-config-bad");
+            }
+            if (ComputeValiditySidechainConfigHash(config) != info.payload) {
+                return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-config-mismatch");
+            }
+
+            std::string error;
+            if (!ValidateValiditySidechainConfig(config, &error)) {
+                return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-config-unsupported", error);
+            }
+            if (drivechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                validitysidechain_state.GetSidechain(info.sidechain_id) != nullptr ||
+                legacy_registered_sidechains_in_tx.count(info.sidechain_id) != 0 ||
+                !registered_sidechains_in_tx.insert(info.sidechain_id).second) {
+                return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-sidechain-exists");
+            }
         }
 
         return true;
@@ -1402,6 +1584,28 @@ namespace {
             replay_start_height = 0;
         }
 
+        ValiditySidechainState replay_validitysidechain_state;
+        for (int h = 0; h < replay_start_height; ++h) {
+            const CBlockIndex* pindex = chainstate.m_chain[h];
+            if (pindex == nullptr) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-validity-prefix-null-index");
+            }
+
+            if (!IsDrivechainEnabled(pindex->pprev, chainparams.GetConsensus())) {
+                continue;
+            }
+
+            CBlock blk;
+            if (!ReadBlockFromDisk(blk, pindex, chainparams.GetConsensus())) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-validity-prefix-readblock-failed");
+            }
+
+            BlockValidationState validity_prefix_state;
+            if (!replay_validitysidechain_state.ConnectBlock(blk, pindex, validity_prefix_state)) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-validity-prefix-connect-failed");
+            }
+        }
+
         for (int h = replay_start_height; h <= chainstate.m_chain.Height(); ++h) {
             const CBlockIndex* pindex = chainstate.m_chain[h];
             if (pindex == nullptr) {
@@ -1417,15 +1621,79 @@ namespace {
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-readblock-failed");
             }
 
+            if (!CheckValiditySidechainBlock(
+                    blk,
+                    chainparams,
+                    pindex,
+                    chainstate.GetDrivechainState(),
+                    replay_validitysidechain_state,
+                    state)) {
+                return false;
+            }
+
             // Run the same block-level drivechain checks used during normal ConnectBlock
             // so recompute/fallback paths cannot diverge from live consensus validation.
-            if (!CheckDrivechainBlock(blk, chainparams, pindex, chainstate.GetDrivechainState(), state)) {
+            if (!CheckDrivechainBlock(
+                    blk,
+                    chainparams,
+                    pindex,
+                    chainstate.GetDrivechainState(),
+                    replay_validitysidechain_state,
+                    state)) {
                 return false;
+            }
+
+            BlockValidationState validity_state;
+            if (!replay_validitysidechain_state.ConnectBlock(blk, pindex, validity_state)) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-validity-connect-failed");
             }
 
             BlockValidationState dc_state;
             if (!chainstate.GetDrivechainState().ConnectBlock(blk, pindex, chainparams.GetConsensus(), dc_state)) {
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "drivechain-recompute-connect-failed");
+            }
+        }
+
+        return true;
+    }
+
+    static bool RecomputeValiditySidechainStateFromActiveChain(
+        CChainState& chainstate,
+        const CChainParams& chainparams,
+        BlockValidationState& state) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+
+        chainstate.GetValiditySidechainState() = ValiditySidechainState();
+
+        for (int h = 0; h <= chainstate.m_chain.Height(); ++h) {
+            const CBlockIndex* pindex = chainstate.m_chain[h];
+            if (pindex == nullptr) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-recompute-null-index");
+            }
+
+            if (!IsDrivechainEnabled(pindex->pprev, chainparams.GetConsensus())) {
+                continue;
+            }
+
+            CBlock blk;
+            if (!ReadBlockFromDisk(blk, pindex, chainparams.GetConsensus())) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-recompute-readblock-failed");
+            }
+
+            if (!CheckValiditySidechainBlock(
+                    blk,
+                    chainparams,
+                    pindex,
+                    chainstate.GetDrivechainState(),
+                    chainstate.GetValiditySidechainState(),
+                    state)) {
+                return false;
+            }
+
+            BlockValidationState validity_state;
+            if (!chainstate.GetValiditySidechainState().ConnectBlock(blk, pindex, validity_state)) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-recompute-connect-failed");
             }
         }
 
@@ -1440,11 +1708,22 @@ bool CheckDrivechainTxForCurrentState(
     const CBlockIndex* pindexPrev,
     TxValidationState& state)
 {
+    if (!CheckValiditySidechainMempoolTx(
+            tx,
+            chainparams,
+            pindexPrev,
+            ::ChainstateActive().GetDrivechainState(),
+            ::ChainstateActive().GetValiditySidechainState(),
+            state)) {
+        return false;
+    }
+
     return CheckDrivechainMempoolTx(
         tx,
         chainparams,
         pindexPrev,
         ::ChainstateActive().GetDrivechainState(),
+        ::ChainstateActive().GetValiditySidechainState(),
         state);
 }
 
@@ -1779,11 +2058,22 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (!CheckFinalTx(tx, STANDARD_LOCKTIME_VERIFY_FLAGS))
         return state.Invalid(TxValidationResult::TX_PREMATURE_SPEND, "non-final");
 
+    if (!CheckValiditySidechainMempoolTx(
+            tx,
+            args.m_chainparams,
+            ::ChainActive().Tip(),
+            ::ChainstateActive().GetDrivechainState(),
+            ::ChainstateActive().GetValiditySidechainState(),
+            state)) {
+        return false;
+    }
+
     if (!CheckDrivechainMempoolTx(
             tx,
             args.m_chainparams,
             ::ChainActive().Tip(),
             ::ChainstateActive().GetDrivechainState(),
+            ::ChainstateActive().GetValiditySidechainState(),
             state)) {
         return false;
     }
@@ -3514,7 +3804,11 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
         return false;
     }
 
-    if (!CheckDrivechainBlock(block, chainparams, pindex, m_drivechain_state, state)) {
+    if (!CheckValiditySidechainBlock(block, chainparams, pindex, m_drivechain_state, m_validitysidechain_state, state)) {
+        return false;
+    }
+
+    if (!CheckDrivechainBlock(block, chainparams, pindex, m_drivechain_state, m_validitysidechain_state, state)) {
         return false;
     }
 
@@ -3522,6 +3816,10 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
         // Keep TestBlockValidity behavior aligned with full ConnectBlock by
         // validating state transitions against a copy of the current state.
         DrivechainState drivechain_state_copy = m_drivechain_state;
+        ValiditySidechainState validitysidechain_state_copy = m_validitysidechain_state;
+        if (!validitysidechain_state_copy.ConnectBlock(block, pindex, state)) {
+            return false;
+        }
         if (!drivechain_state_copy.ConnectBlock(block, pindex, chainparams.GetConsensus(), state)) {
             return false;
         }
@@ -3555,6 +3853,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
     view.SetBestBlock(pindex->GetBlockHash());
 
     if (drivechain_enabled) {
+        if (!m_validitysidechain_state.ConnectBlock(block, pindex, state)) return false;
         if (!m_drivechain_state.ConnectBlock(block, pindex, chainparams.GetConsensus(), state)) return false;
     }
 
@@ -3893,6 +4192,10 @@ bool CChainState::DisconnectTip(
         if (!PersistDrivechainStateForTip(*this)) {
             return false;
         }
+        BlockValidationState validity_recompute_state;
+        if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, validity_recompute_state)) {
+            return false;
+        }
     }
 
     UpdateTip(m_mempool, pindexDelete->pprev, chainparams);
@@ -4130,6 +4433,11 @@ bool CChainState::ActivateBestChainStep(BlockValidationState& state, const CChai
     if (fBlocksDisconnected && !PersistDrivechainStateForTip(*this)) {
         UpdateMempoolForReorg(m_mempool, disconnectpool, false);
         AbortNode(state, "Failed to persist drivechain state after disconnecting blocks; see debug.log for details");
+        return false;
+    }
+    if (fBlocksDisconnected && !RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, state)) {
+        UpdateMempoolForReorg(m_mempool, disconnectpool, false);
+        AbortNode(state, "Failed to recompute validity-sidechain state after disconnecting blocks; see debug.log for details");
         return false;
     }
 
@@ -5706,6 +6014,10 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
         GuessVerificationProgress(chainparams.TxData(), tip));
 
     if (LoadPersistedDrivechainStateForTip(*this)) {
+        BlockValidationState validity_recompute_state;
+        if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, validity_recompute_state)) {
+            return error("%s: validity-sidechain state recompute failed (%s)", __func__, validity_recompute_state.ToString());
+        }
         return true;
     }
 
@@ -5716,6 +6028,9 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
     }
     if (!PersistDrivechainStateForTip(*this)) {
         return error("%s: drivechain state persist failed", __func__);
+    }
+    if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, dc_recompute_state)) {
+        return error("%s: validity-sidechain state recompute failed (%s)", __func__, dc_recompute_state.ToString());
     }
     return true;
 }

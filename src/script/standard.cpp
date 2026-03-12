@@ -5,6 +5,7 @@
 
 #include <script/standard.h>
 #include <drivechain/script.h>
+#include <validitysidechain/script.h>
 
 #include <crypto/sha256.h>
 #include <pubkey.h>
@@ -138,6 +139,16 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
             vSolutionsRet.push_back(PackLE32(info.n_withdrawals));
         }
 
+        return TxoutType::DRIVECHAIN;
+    }
+
+    ValiditySidechainScriptInfo validity_info;
+    if (DecodeValiditySidechainScript(scriptPubKey, validity_info)) {
+        vSolutionsRet.resize(0);
+        vSolutionsRet.reserve(3);
+        vSolutionsRet.push_back(std::vector<unsigned char>{static_cast<unsigned char>(validity_info.kind)});
+        vSolutionsRet.push_back(std::vector<unsigned char>{validity_info.sidechain_id});
+        vSolutionsRet.push_back(std::vector<unsigned char>(validity_info.payload.begin(), validity_info.payload.end()));
         return TxoutType::DRIVECHAIN;
     }
 

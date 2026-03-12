@@ -372,8 +372,12 @@ Current branch status:
 - force-exit request encoding exists in `src/validitysidechain/script.*`
 - registration config prevalidation exists for supported profile tuples and
   resource bounds
+- `REGISTER_VALIDITY_SIDECHAIN` is now recognized by script classification,
+  mempool admission, block prevalidation, and chainstate application
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration-prevalidation availability
+- validity-sidechain rollback currently relies on active-chain recompute; no
+  dedicated persistence snapshot format exists yet
 - queue tombstone, withdrawal leaf, DA chunk, and escape-exit encodings remain
   to be specified
 

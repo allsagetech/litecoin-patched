@@ -13,6 +13,10 @@
 #include <stdint.h>
 #include <string>
 
+class CBlock;
+class CBlockIndex;
+class BlockValidationState;
+
 struct ValiditySidechainConfig
 {
     uint8_t version{1};
@@ -142,6 +146,7 @@ public:
     const ValiditySidechain* GetSidechain(uint8_t id) const;
     ValiditySidechain* GetSidechain(uint8_t id);
     ValiditySidechain& GetOrCreateSidechain(uint8_t id, int registration_height);
+    bool ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state);
     bool RegisterSidechain(uint8_t id, int registration_height, const ValiditySidechainConfig& config, std::string* error = nullptr);
     void Reset();
 };

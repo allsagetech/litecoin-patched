@@ -2,9 +2,14 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <chain.h>
+#include <consensus/validation.h>
+#include <primitives/block.h>
+#include <primitives/transaction.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
 #include <validitysidechain/registry.h>
+#include <validitysidechain/script.h>
 #include <validitysidechain/state.h>
 
 #include <boost/test/unit_test.hpp>
@@ -119,6 +124,51 @@ BOOST_AUTO_TEST_CASE(register_sidechain_rejects_invalid_height)
     std::string error;
     BOOST_CHECK(!state.RegisterSidechain(/* id= */ 2, /* registration_height= */ -1, config, &error));
     BOOST_CHECK_EQUAL(error, "registration height must be non-negative");
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_registers_validity_sidechain)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+
+    CMutableTransaction tx;
+    tx.vout.emplace_back(/* nValueIn= */ 1, BuildValiditySidechainRegisterScript(/* scid= */ 6, config));
+
+    CBlock block;
+    block.vtx.push_back(MakeTransactionRef(tx));
+
+    CBlockIndex index;
+    index.nHeight = 220;
+
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(6);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->registration_height, 220);
+    BOOST_CHECK(sidechain->current_state_root == config.initial_state_root);
+    BOOST_CHECK(sidechain->current_withdrawal_root == config.initial_withdrawal_root);
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_rejects_multiple_validity_registers_in_one_tx)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+
+    CMutableTransaction tx;
+    tx.vout.emplace_back(/* nValueIn= */ 1, BuildValiditySidechainRegisterScript(/* scid= */ 9, config));
+    tx.vout.emplace_back(/* nValueIn= */ 1, BuildValiditySidechainRegisterScript(/* scid= */ 10, config));
+
+    CBlock block;
+    block.vtx.push_back(MakeTransactionRef(tx));
+
+    CBlockIndex index;
+    index.nHeight = 221;
+
+    BlockValidationState validation_state;
+    BOOST_CHECK(!state.ConnectBlock(block, &index, validation_state));
+    BOOST_CHECK_EQUAL(validation_state.GetRejectReason(), "validitysidechain-multi-register");
+    BOOST_CHECK(state.sidechains.empty());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

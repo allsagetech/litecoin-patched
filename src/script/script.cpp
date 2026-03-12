@@ -8,6 +8,7 @@
 
 #include <mw/models/crypto/Hash.h>
 #include <util/strencodings.h>
+#include <validitysidechain/script.h>
 
 #include <string>
 
@@ -203,7 +204,12 @@ unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
 bool CScript::IsDrivechain() const
 {
     DrivechainScriptInfo info;
-    return DecodeDrivechainScript(*this, info);
+    if (DecodeDrivechainScript(*this, info)) {
+        return true;
+    }
+
+    ValiditySidechainScriptInfo validity_info;
+    return DecodeValiditySidechainScript(*this, validity_info);
 }
 
 bool CScript::IsPayToScriptHash() const

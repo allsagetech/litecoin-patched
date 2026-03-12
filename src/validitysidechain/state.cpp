@@ -4,7 +4,12 @@
 
 #include <validitysidechain/state.h>
 
+#include <chain.h>
 #include <validitysidechain/registry.h>
+#include <validitysidechain/script.h>
+
+#include <consensus/validation.h>
+#include <primitives/block.h>
 
 const ValiditySidechain* ValiditySidechainState::GetSidechain(uint8_t id) const
 {
@@ -65,6 +70,46 @@ bool ValiditySidechainState::RegisterSidechain(
     sidechain.current_withdrawal_root = config.initial_withdrawal_root;
 
     sidechains.emplace(id, sidechain);
+    return true;
+}
+
+bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state)
+{
+    const int height = pindex->nHeight;
+
+    for (const auto& tx : block.vtx) {
+        int register_count = 0;
+
+        for (const auto& txout : tx->vout) {
+            ValiditySidechainScriptInfo info;
+            if (!DecodeValiditySidechainScript(txout.scriptPubKey, info)) {
+                continue;
+            }
+
+            if (info.kind != ValiditySidechainScriptInfo::Kind::REGISTER_VALIDITY_SIDECHAIN) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-kind-not-enabled");
+            }
+
+            ++register_count;
+            if (register_count > 1) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-multi-register");
+            }
+
+            ValiditySidechainConfig config;
+            if (!DecodeValiditySidechainConfig(info.primary_metadata, config)) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-config-bad");
+            }
+            if (ComputeValiditySidechainConfigHash(config) != info.payload) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-config-mismatch");
+            }
+
+            std::string error;
+            if (!RegisterSidechain(info.sidechain_id, height, config, &error)) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-invalid", error);
+            }
+        }
+    }
+
     return true;
 }
 

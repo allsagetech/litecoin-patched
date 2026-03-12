@@ -9,6 +9,7 @@
 #include <hash.h>
 #include <tinyformat.h>
 #include <util/strencodings.h>
+#include <validitysidechain/script.h>
 
 #include <assert.h>
 
@@ -119,9 +120,11 @@ bool CTransaction::HasDrivechainStuff() const noexcept
 {
     for (const auto& tx_out : vout) {
         DrivechainScriptInfo dc_info;
+        ValiditySidechainScriptInfo validity_info;
         DrivechainBmmRequestInfo bmm_request_info;
         DrivechainBmmAcceptInfo bmm_accept_info;
         if (DecodeDrivechainScript(tx_out.scriptPubKey, dc_info) ||
+            DecodeValiditySidechainScript(tx_out.scriptPubKey, validity_info) ||
             DecodeDrivechainBmmRequestScript(tx_out.scriptPubKey, bmm_request_info) ||
             DecodeDrivechainBmmAcceptScript(tx_out.scriptPubKey, bmm_accept_info)) {
             return true;

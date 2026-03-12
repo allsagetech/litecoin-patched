@@ -3,15 +3,16 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <script/script.h>
+#include <primitives/transaction.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
 #include <validitysidechain/script.h>
 
 #include <boost/test/unit_test.hpp>
 
-BOOST_FIXTURE_TEST_SUITE(validitysidechain_script_tests, BasicTestingSetup)
+namespace {
 
-BOOST_AUTO_TEST_CASE(register_script_roundtrip)
+ValiditySidechainConfig MakeRegisterConfig()
 {
     ValiditySidechainConfig config;
     config.version = 1;
@@ -31,6 +32,16 @@ BOOST_AUTO_TEST_CASE(register_script_roundtrip)
     config.escape_hatch_delay = 432;
     config.initial_state_root = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
     config.initial_withdrawal_root = uint256S("2222222222222222222222222222222222222222222222222222222222222222");
+    return config;
+}
+
+} // namespace
+
+BOOST_FIXTURE_TEST_SUITE(validitysidechain_script_tests, BasicTestingSetup)
+
+BOOST_AUTO_TEST_CASE(register_script_roundtrip)
+{
+    const ValiditySidechainConfig config = MakeRegisterConfig();
 
     const uint8_t sidechain_id = 7;
     const CScript script = BuildValiditySidechainRegisterScript(sidechain_id, config);
@@ -50,6 +61,19 @@ BOOST_AUTO_TEST_CASE(register_script_roundtrip)
     BOOST_CHECK(decoded_config.initial_withdrawal_root == config.initial_withdrawal_root);
     BOOST_CHECK(info.payload == ComputeValiditySidechainConfigHash(config));
     BOOST_CHECK(info.payload == ComputeValiditySidechainConfigHash(decoded_config));
+}
+
+BOOST_AUTO_TEST_CASE(register_script_is_classified_as_drivechain)
+{
+    const CScript script = BuildValiditySidechainRegisterScript(/* scid= */ 3, MakeRegisterConfig());
+    BOOST_CHECK(script.IsDrivechain());
+}
+
+BOOST_AUTO_TEST_CASE(register_transaction_reports_drivechain_stuff)
+{
+    CMutableTransaction tx;
+    tx.vout.emplace_back(/* nValueIn= */ 1, BuildValiditySidechainRegisterScript(/* scid= */ 4, MakeRegisterConfig()));
+    BOOST_CHECK(CTransaction(tx).HasDrivechainStuff());
 }
 
 BOOST_AUTO_TEST_CASE(config_decode_rejects_zero_limits)
