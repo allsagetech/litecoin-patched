@@ -4,8 +4,10 @@
 
 #include <chain.h>
 #include <consensus/validation.h>
+#include <hash.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
+#include <script/script.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
 #include <validitysidechain/registry.h>
@@ -41,6 +43,17 @@ ValiditySidechainConfig MakeSupportedConfig()
     config.initial_state_root = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     config.initial_withdrawal_root = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     return config;
+}
+
+ValiditySidechainDepositData MakeDeposit(const uint256& deposit_id, const CScript& refund_script, CAmount amount = 5 * COIN)
+{
+    ValiditySidechainDepositData deposit;
+    deposit.deposit_id = deposit_id;
+    deposit.amount = amount;
+    deposit.destination_commitment = uint256S("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
+    deposit.refund_script_commitment = Hash(refund_script.begin(), refund_script.end());
+    deposit.nonce = 12;
+    return deposit;
 }
 
 } // namespace
@@ -167,8 +180,100 @@ BOOST_AUTO_TEST_CASE(connect_block_rejects_multiple_validity_registers_in_one_tx
 
     BlockValidationState validation_state;
     BOOST_CHECK(!state.ConnectBlock(block, &index, validation_state));
-    BOOST_CHECK_EQUAL(validation_state.GetRejectReason(), "validitysidechain-multi-register");
+    BOOST_CHECK_EQUAL(validation_state.GetRejectReason(), "validitysidechain-multi-marker");
     BOOST_CHECK(state.sidechains.empty());
+}
+
+BOOST_AUTO_TEST_CASE(add_deposit_and_reclaim_updates_queue_state)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 3, /* registration_height= */ 100, config));
+
+    const CScript refund_script = CScript() << OP_TRUE;
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("0101010101010101010101010101010101010101010101010101010101010101"),
+        refund_script);
+
+    std::string error;
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 3, /* deposit_height= */ 125, deposit, &error));
+    BOOST_CHECK(error.empty());
+
+    const ValiditySidechain* sidechain = state.GetSidechain(3);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, deposit.amount);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_message_count, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_deposit_count, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.reclaimable_deposit_count, 0U);
+    BOOST_REQUIRE(state.GetPendingDeposit(3, deposit.deposit_id) != nullptr);
+    BOOST_REQUIRE_EQUAL(sidechain->queue_entries.size(), 1U);
+    BOOST_REQUIRE_EQUAL(sidechain->pending_deposits.size(), 1U);
+    BOOST_CHECK(sidechain->queue_state.root != uint256());
+
+    CBlock idle_block;
+    CBlockIndex idle_index;
+    idle_index.nHeight = 125 + config.deposit_reclaim_delay;
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(idle_block, &idle_index, validation_state));
+    sidechain = state.GetSidechain(3);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.reclaimable_deposit_count, 1U);
+
+    BOOST_CHECK(!state.ReclaimDeposit(/* sidechain_id= */ 3, /* reclaim_height= */ 125 + config.deposit_reclaim_delay - 1, deposit, &error));
+    BOOST_CHECK_EQUAL(error, "deposit reclaim delay not reached");
+
+    BOOST_REQUIRE(state.ReclaimDeposit(/* sidechain_id= */ 3, /* reclaim_height= */ 125 + config.deposit_reclaim_delay, deposit, &error));
+    BOOST_CHECK(error.empty());
+
+    sidechain = state.GetSidechain(3);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 0);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_message_count, 0U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_deposit_count, 0U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.head_index, 1U);
+    BOOST_REQUIRE(state.GetPendingDeposit(3, deposit.deposit_id) == nullptr);
+    BOOST_REQUIRE_EQUAL(sidechain->pending_deposits.size(), 0U);
+    BOOST_REQUIRE(sidechain->queue_entries.at(0).status == ValiditySidechainQueueEntry::STATUS_TOMBSTONED);
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_handles_deposit_and_reclaim)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 4, /* registration_height= */ 200, config));
+
+    const CScript refund_script = CScript() << OP_1 << OP_DROP;
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("0202020202020202020202020202020202020202020202020202020202020202"),
+        refund_script,
+        7 * COIN);
+
+    CMutableTransaction deposit_tx;
+    deposit_tx.vout.emplace_back(deposit.amount, BuildValiditySidechainDepositScript(/* scid= */ 4, deposit));
+
+    CBlock deposit_block;
+    deposit_block.vtx.push_back(MakeTransactionRef(deposit_tx));
+
+    CBlockIndex deposit_index;
+    deposit_index.nHeight = 205;
+
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(deposit_block, &deposit_index, validation_state));
+    BOOST_REQUIRE(state.GetPendingDeposit(4, deposit.deposit_id) != nullptr);
+
+    CMutableTransaction reclaim_tx;
+    reclaim_tx.vout.emplace_back(/* nValueIn= */ 0, BuildValiditySidechainReclaimDepositScript(/* scid= */ 4, deposit));
+    reclaim_tx.vout.emplace_back(deposit.amount, refund_script);
+
+    CBlock reclaim_block;
+    reclaim_block.vtx.push_back(MakeTransactionRef(reclaim_tx));
+
+    CBlockIndex reclaim_index;
+    reclaim_index.nHeight = 205 + config.deposit_reclaim_delay;
+
+    validation_state = BlockValidationState();
+    BOOST_REQUIRE(state.ConnectBlock(reclaim_block, &reclaim_index, validation_state));
+    BOOST_REQUIRE(state.GetPendingDeposit(4, deposit.deposit_id) == nullptr);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

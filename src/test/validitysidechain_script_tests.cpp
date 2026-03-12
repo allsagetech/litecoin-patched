@@ -199,8 +199,13 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
     const uint8_t sidechain_id = 12;
     const uint32_t batch_number = 34;
     const uint256 withdrawal_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-    const uint256 deposit_id = uint256S("1212121212121212121212121212121212121212121212121212121212121212");
     const uint256 state_root_reference = uint256S("1313131313131313131313131313131313131313131313131313131313131313");
+    ValiditySidechainDepositData deposit;
+    deposit.deposit_id = uint256S("1212121212121212121212121212121212121212121212121212121212121212");
+    deposit.amount = 6 * COIN;
+    deposit.destination_commitment = uint256S("1414141414141414141414141414141414141414141414141414141414141414");
+    deposit.refund_script_commitment = uint256S("1515151515151515151515151515151515151515151515151515151515151515");
+    deposit.nonce = 7;
 
     {
         ValiditySidechainScriptInfo info;
@@ -215,11 +220,17 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
     {
         ValiditySidechainScriptInfo info;
         BOOST_REQUIRE(DecodeValiditySidechainScript(
-            BuildValiditySidechainReclaimDepositScript(sidechain_id, deposit_id),
+            BuildValiditySidechainReclaimDepositScript(sidechain_id, deposit),
             info));
         BOOST_CHECK(info.kind == ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT);
-        BOOST_CHECK(info.payload == deposit_id);
-        BOOST_CHECK(info.metadata_pushes.empty());
+        BOOST_CHECK(info.payload == deposit.deposit_id);
+        BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), 1U);
+
+        ValiditySidechainDepositData decoded_deposit;
+        BOOST_REQUIRE(DecodeValiditySidechainDepositData(info.primary_metadata, decoded_deposit));
+        BOOST_CHECK(decoded_deposit.deposit_id == deposit.deposit_id);
+        BOOST_CHECK_EQUAL(decoded_deposit.amount, deposit.amount);
+        BOOST_CHECK(decoded_deposit.refund_script_commitment == deposit.refund_script_commitment);
     }
 
     {

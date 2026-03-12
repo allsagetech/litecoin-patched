@@ -374,12 +374,14 @@ Current branch status:
   resource bounds
 - `REGISTER_VALIDITY_SIDECHAIN` is now recognized by script classification,
   mempool admission, block prevalidation, and chainstate application
+- deposit queue insertion, stale-deposit reclaim metadata, and reclaim-path
+  escrow accounting now exist in `src/validitysidechain/state.*` and
+  `src/validation.cpp`
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration-prevalidation availability
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   though ancestor snapshot replay is still drivechain-only
-- queue tombstone, withdrawal leaf, DA chunk, and escape-exit encodings remain
-  to be specified
+- withdrawal leaf, DA chunk, and escape-exit encodings remain to be specified
 
 ## 8. Bottom Line
 

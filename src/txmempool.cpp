@@ -9,6 +9,7 @@
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <drivechain/script.h>
+#include <hash.h>
 #include <optional.h>
 #include <policy/policy.h>
 #include <policy/fees.h>
@@ -22,6 +23,128 @@
 #include <validitysidechain/script.h>
 
 namespace {
+
+static void WriteLE32(CHashWriter& hw, uint32_t v)
+{
+    unsigned char buf[4];
+    buf[0] = (v >> 0) & 0xff;
+    buf[1] = (v >> 8) & 0xff;
+    buf[2] = (v >> 16) & 0xff;
+    buf[3] = (v >> 24) & 0xff;
+    hw.write((const char*)buf, 4);
+}
+
+static void WriteLE64(CHashWriter& hw, uint64_t v)
+{
+    unsigned char buf[8];
+    buf[0] = (v >> 0) & 0xff;
+    buf[1] = (v >> 8) & 0xff;
+    buf[2] = (v >> 16) & 0xff;
+    buf[3] = (v >> 24) & 0xff;
+    buf[4] = (v >> 32) & 0xff;
+    buf[5] = (v >> 40) & 0xff;
+    buf[6] = (v >> 48) & 0xff;
+    buf[7] = (v >> 56) & 0xff;
+    hw.write((const char*)buf, 8);
+}
+
+static inline bool IsDrivechainOutput(const CScript& spk)
+{
+    DrivechainScriptInfo drivechain_info;
+    if (DecodeDrivechainScript(spk, drivechain_info)) {
+        return true;
+    }
+
+    ValiditySidechainScriptInfo validity_info;
+    return DecodeValiditySidechainScript(spk, validity_info);
+}
+
+static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_credit)
+{
+    out_credit = 0;
+
+    int execute_marker_index = -1;
+    DrivechainScriptInfo execute_info;
+    int reclaim_marker_index = -1;
+    ValiditySidechainDepositData reclaim_deposit;
+
+    for (size_t out_i = 0; out_i < tx.vout.size(); ++out_i) {
+        DrivechainScriptInfo drivechain_info;
+        if (DecodeDrivechainScript(tx.vout[out_i].scriptPubKey, drivechain_info) &&
+            drivechain_info.kind == DrivechainScriptInfo::Kind::EXECUTE) {
+            if (execute_marker_index != -1 || reclaim_marker_index != -1) {
+                return false;
+            }
+            execute_marker_index = static_cast<int>(out_i);
+            execute_info = drivechain_info;
+            continue;
+        }
+
+        ValiditySidechainScriptInfo validity_info;
+        if (DecodeValiditySidechainScript(tx.vout[out_i].scriptPubKey, validity_info) &&
+            validity_info.kind == ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT) {
+            if (reclaim_marker_index != -1 || execute_marker_index != -1) {
+                return false;
+            }
+            if (!DecodeValiditySidechainDepositData(validity_info.primary_metadata, reclaim_deposit)) {
+                return false;
+            }
+            if (reclaim_deposit.deposit_id != validity_info.payload || tx.vout[out_i].nValue != 0) {
+                return false;
+            }
+            reclaim_marker_index = static_cast<int>(out_i);
+        }
+    }
+
+    if (execute_marker_index == -1 && reclaim_marker_index == -1) {
+        return true;
+    }
+
+    if (execute_marker_index != -1) {
+        const uint32_t n_withdrawals = execute_info.n_withdrawals;
+        if (n_withdrawals == 0) {
+            return false;
+        }
+
+        const size_t start = static_cast<size_t>(execute_marker_index) + 1;
+        const size_t end = static_cast<size_t>(execute_marker_index) + static_cast<size_t>(n_withdrawals);
+        if (end >= tx.vout.size()) {
+            return false;
+        }
+
+        CHashWriter dummy_hash_writer(SER_GETHASH, 0);
+        dummy_hash_writer << execute_info.sidechain_id;
+        WriteLE32(dummy_hash_writer, n_withdrawals);
+
+        CAmount withdraw_sum = 0;
+        for (size_t out_i = 0; out_i < tx.vout.size(); ++out_i) {
+            if (static_cast<int>(out_i) == execute_marker_index) {
+                continue;
+            }
+            if (out_i >= start && out_i <= end) {
+                const CTxOut& withdrawal = tx.vout[out_i];
+                if (IsDrivechainOutput(withdrawal.scriptPubKey) || withdrawal.scriptPubKey.size() > 255) {
+                    return false;
+                }
+                WriteLE64(dummy_hash_writer, static_cast<uint64_t>(withdrawal.nValue));
+                const uint8_t script_len = static_cast<uint8_t>(withdrawal.scriptPubKey.size());
+                dummy_hash_writer << script_len;
+                dummy_hash_writer.write((const char*)withdrawal.scriptPubKey.data(), script_len);
+                withdraw_sum += withdrawal.nValue;
+                continue;
+            }
+            if (IsDrivechainOutput(tx.vout[out_i].scriptPubKey)) {
+                return false;
+            }
+        }
+
+        out_credit = withdraw_sum;
+        return MoneyRange(out_credit);
+    }
+
+    out_credit = reclaim_deposit.amount;
+    return MoneyRange(out_credit);
+}
 
 static bool TryGetDrivechainExecuteBundleKeyFromTx(const CTransaction& tx, std::pair<uint8_t, uint256>& out_key)
 {
@@ -105,6 +228,53 @@ static bool TryGetDrivechainRegisterSidechainFromTx(const CTransaction& tx, uint
 
     out_sidechain_id = register_sidechain_id;
     return true;
+}
+
+static bool TryGetValiditySidechainDepositKeyFromTx(const CTransaction& tx, std::pair<uint8_t, uint256>& out_key)
+{
+    int deposit_count = 0;
+
+    for (const auto& txout : tx.vout) {
+        ValiditySidechainScriptInfo info;
+        if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+            info.kind != ValiditySidechainScriptInfo::Kind::DEPOSIT_TO_VALIDITY_SIDECHAIN) {
+            continue;
+        }
+
+        ValiditySidechainDepositData deposit;
+        if (!DecodeValiditySidechainDepositData(info.primary_metadata, deposit)) {
+            return false;
+        }
+
+        ++deposit_count;
+        if (deposit_count > 1) {
+            return false;
+        }
+        out_key = std::make_pair(info.sidechain_id, deposit.deposit_id);
+    }
+
+    return deposit_count == 1;
+}
+
+static bool TryGetValiditySidechainReclaimKeyFromTx(const CTransaction& tx, std::pair<uint8_t, uint256>& out_key)
+{
+    int reclaim_count = 0;
+
+    for (const auto& txout : tx.vout) {
+        ValiditySidechainScriptInfo info;
+        if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+            info.kind != ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT) {
+            continue;
+        }
+
+        ++reclaim_count;
+        if (reclaim_count > 1) {
+            return false;
+        }
+        out_key = std::make_pair(info.sidechain_id, info.payload);
+    }
+
+    return reclaim_count == 1;
 }
 
 } // namespace
@@ -504,6 +674,18 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
         assert(inserted);
     }
 
+    std::pair<uint8_t, uint256> validity_deposit_key;
+    if (TryGetValiditySidechainDepositKeyFromTx(tx, validity_deposit_key)) {
+        const bool inserted = mapValiditySidechainDepositById.emplace(validity_deposit_key, tx.GetHash()).second;
+        assert(inserted);
+    }
+
+    std::pair<uint8_t, uint256> validity_reclaim_key;
+    if (TryGetValiditySidechainReclaimKeyFromTx(tx, validity_reclaim_key)) {
+        const bool inserted = mapValiditySidechainReclaimByDepositId.emplace(validity_reclaim_key, tx.GetHash()).second;
+        assert(inserted);
+    }
+
     std::set<uint256> setParentTransactions;
     for (const CTxInput& input : tx.GetInputs()) {
         mapNextTx.insert(std::make_pair(input.GetIndex(), &tx));
@@ -576,6 +758,16 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     uint8_t register_sidechain_id{0};
     if (TryGetDrivechainRegisterSidechainFromTx(*ptx, register_sidechain_id)) {
         mapDrivechainRegisterBySidechain.erase(register_sidechain_id);
+    }
+
+    std::pair<uint8_t, uint256> validity_deposit_key;
+    if (TryGetValiditySidechainDepositKeyFromTx(*ptx, validity_deposit_key)) {
+        mapValiditySidechainDepositById.erase(validity_deposit_key);
+    }
+
+    std::pair<uint8_t, uint256> validity_reclaim_key;
+    if (TryGetValiditySidechainReclaimKeyFromTx(*ptx, validity_reclaim_key)) {
+        mapValiditySidechainReclaimByDepositId.erase(validity_reclaim_key);
     }
 
     for (const CTxInput& txin : ptx->GetInputs())
@@ -799,6 +991,8 @@ void CTxMemPool::_clear()
     mapDrivechainExecByBundle.clear();
     mapDrivechainBmmRequestBySidechain.clear();
     mapDrivechainRegisterBySidechain.clear();
+    mapValiditySidechainDepositById.clear();
+    mapValiditySidechainReclaimByDepositId.clear();
     mapTxOutputs_MWEB.clear();
     totalTxSize = 0;
     cachedInnerUsage = 0;
@@ -818,7 +1012,10 @@ static void CheckInputsAndUpdateCoins(const CTransaction& tx, CCoinsViewCache& m
 {
     TxValidationState dummy_state; // Not used. CheckTxInputs() should always pass
     CAmount txfee = 0;
-    bool fCheckResult = tx.IsCoinBase() || Consensus::CheckTxInputs(tx, dummy_state, mempoolDuplicate, spendheight, txfee);
+    CAmount input_credit = 0;
+    bool fCheckCredit = ComputeSidechainTxInputCredit(tx, input_credit);
+    assert(fCheckCredit);
+    bool fCheckResult = tx.IsCoinBase() || Consensus::CheckTxInputs(tx, dummy_state, mempoolDuplicate, spendheight, txfee, input_credit);
     assert(fCheckResult);
     UpdateCoins(tx, mempoolDuplicate, std::numeric_limits<int>::max());
 }
@@ -1169,6 +1366,18 @@ bool CTxMemPool::GetDrivechainRegisterTxidForSidechain(uint8_t sidechain_id, uin
 
     out_txid = it->second;
     return true;
+}
+
+bool CTxMemPool::HasValiditySidechainDeposit(const std::pair<uint8_t, uint256>& key) const
+{
+    AssertLockHeld(cs);
+    return mapValiditySidechainDepositById.count(key) != 0;
+}
+
+bool CTxMemPool::HasValiditySidechainReclaim(const std::pair<uint8_t, uint256>& key) const
+{
+    AssertLockHeld(cs);
+    return mapValiditySidechainReclaimByDepositId.count(key) != 0;
 }
 
 bool CTxMemPool::HasNoInputsOf(const CTransaction &tx) const

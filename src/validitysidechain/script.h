@@ -34,36 +34,6 @@ struct ValiditySidechainScriptInfo
     std::vector<std::vector<unsigned char>> metadata_pushes;
 };
 
-struct ValiditySidechainDepositData
-{
-    uint256 deposit_id;
-    CAmount amount{0};
-    uint256 destination_commitment;
-    uint256 refund_script_commitment;
-    uint64_t nonce{0};
-};
-
-struct ValiditySidechainBatchPublicInputs
-{
-    uint32_t batch_number{0};
-    uint256 prior_state_root;
-    uint256 new_state_root;
-    uint256 l1_message_root_before;
-    uint256 l1_message_root_after;
-    uint256 withdrawal_root;
-    uint256 data_root;
-    uint32_t data_size{0};
-};
-
-struct ValiditySidechainForceExitData
-{
-    uint256 account_id;
-    uint256 exit_asset_id;
-    CAmount max_exit_amount{0};
-    uint256 destination_commitment;
-    uint64_t nonce{0};
-};
-
 bool DecodeValiditySidechainScript(const CScript& scriptPubKey, ValiditySidechainScriptInfo& out_info);
 CScript BuildValiditySidechainScript(
     ValiditySidechainScriptInfo::Kind kind,
@@ -78,7 +48,7 @@ CScript BuildValiditySidechainCommitScript(
     const std::vector<std::vector<unsigned char>>& extra_metadata_pushes = {});
 CScript BuildValiditySidechainExecuteScript(uint8_t scid, uint32_t batch_number, const uint256& withdrawal_root);
 CScript BuildValiditySidechainForceExitScript(uint8_t scid, const ValiditySidechainForceExitData& request);
-CScript BuildValiditySidechainReclaimDepositScript(uint8_t scid, const uint256& deposit_id);
+CScript BuildValiditySidechainReclaimDepositScript(uint8_t scid, const ValiditySidechainDepositData& deposit);
 CScript BuildValiditySidechainEscapeExitScript(uint8_t scid, const uint256& state_root_reference);
 
 std::vector<unsigned char> EncodeValiditySidechainConfig(const ValiditySidechainConfig& config);

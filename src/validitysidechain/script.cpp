@@ -168,13 +168,13 @@ bool DecodeValiditySidechainScript(const CScript& scriptPubKey, ValiditySidechai
     switch (info.kind) {
         case ValiditySidechainScriptInfo::Kind::REGISTER_VALIDITY_SIDECHAIN:
         case ValiditySidechainScriptInfo::Kind::DEPOSIT_TO_VALIDITY_SIDECHAIN:
+        case ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT:
         case ValiditySidechainScriptInfo::Kind::REQUEST_FORCE_EXIT:
-            if (info.metadata_pushes.empty()) {
+            if (info.metadata_pushes.size() != 1) {
                 return false;
             }
             break;
         case ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS:
-        case ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT:
         case ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT:
             if (!info.metadata_pushes.empty()) {
                 return false;
@@ -264,12 +264,14 @@ CScript BuildValiditySidechainForceExitScript(uint8_t scid, const ValiditySidech
         {encoded_request});
 }
 
-CScript BuildValiditySidechainReclaimDepositScript(uint8_t scid, const uint256& deposit_id)
+CScript BuildValiditySidechainReclaimDepositScript(uint8_t scid, const ValiditySidechainDepositData& deposit)
 {
+    const std::vector<unsigned char> encoded_deposit = EncodeValiditySidechainDepositData(deposit);
     return BuildValiditySidechainScript(
         ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT,
         scid,
-        deposit_id);
+        deposit.deposit_id,
+        {encoded_deposit});
 }
 
 CScript BuildValiditySidechainEscapeExitScript(uint8_t scid, const uint256& state_root_reference)

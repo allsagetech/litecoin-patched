@@ -635,6 +635,16 @@ public:
     std::map<uint8_t, uint256> mapDrivechainRegisterBySidechain GUARDED_BY(cs);
 
     /**
+     * Index validity-sidechain deposit requests by (sidechain_id, deposit_id).
+     */
+    std::map<std::pair<uint8_t, uint256>, uint256> mapValiditySidechainDepositById GUARDED_BY(cs);
+
+    /**
+     * Index validity-sidechain stale deposit reclaims by (sidechain_id, deposit_id).
+     */
+    std::map<std::pair<uint8_t, uint256>, uint256> mapValiditySidechainReclaimByDepositId GUARDED_BY(cs);
+
+    /**
      * Maps MWEB output IDs to mempool transactions that create them.
      */
     std::map<mw::Hash, const CTransaction*> mapTxOutputs_MWEB GUARDED_BY(cs);
@@ -715,6 +725,10 @@ public:
     bool HasDrivechainRegisterForSidechain(uint8_t sidechain_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return the mempool txid of the current REGISTER tx for a sidechain, if present. */
     bool GetDrivechainRegisterTxidForSidechain(uint8_t sidechain_id, uint256& out_txid) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /** Return true if a mempool tx already uses this validity-sidechain deposit id. */
+    bool HasValiditySidechainDeposit(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /** Return true if a mempool tx already reclaims this validity-sidechain deposit id. */
+    bool HasValiditySidechainReclaim(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Remove a set of transactions from the mempool.
      *  If a transaction is in this set, then all in-mempool descendants must
