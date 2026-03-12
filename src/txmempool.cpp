@@ -92,6 +92,39 @@ static bool MatchValidityWithdrawalPayouts(
     return MoneyRange(out_total);
 }
 
+static bool MatchValidityEscapeExitPayouts(
+    const CTransaction& tx,
+    int marker_index,
+    const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
+    CAmount& out_total)
+{
+    out_total = 0;
+    if (exits.empty()) {
+        return false;
+    }
+
+    const size_t start = static_cast<size_t>(marker_index) + 1;
+    if (tx.vout.size() < start + exits.size()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < exits.size(); ++i) {
+        const CTxOut& txout = tx.vout[start + i];
+        const ValiditySidechainEscapeExitLeaf& exit = exits[i];
+        if (IsDrivechainOutput(txout.scriptPubKey) ||
+            txout.nValue != exit.amount ||
+            Hash(txout.scriptPubKey.begin(), txout.scriptPubKey.end()) != exit.destination_commitment) {
+            return false;
+        }
+        if (out_total > MAX_MONEY - exit.amount) {
+            return false;
+        }
+        out_total += exit.amount;
+    }
+
+    return MoneyRange(out_total);
+}
+
 static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_credit)
 {
     out_credit = 0;
@@ -100,6 +133,8 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
     DrivechainScriptInfo execute_info;
     int validity_execute_marker_index = -1;
     ValiditySidechainScriptInfo validity_execute_info;
+    int escape_exit_marker_index = -1;
+    ValiditySidechainScriptInfo escape_exit_info;
     int reclaim_marker_index = -1;
     ValiditySidechainDepositData reclaim_deposit;
 
@@ -107,7 +142,8 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
         DrivechainScriptInfo drivechain_info;
         if (DecodeDrivechainScript(tx.vout[out_i].scriptPubKey, drivechain_info) &&
             drivechain_info.kind == DrivechainScriptInfo::Kind::EXECUTE) {
-            if (execute_marker_index != -1 || reclaim_marker_index != -1 || validity_execute_marker_index != -1) {
+            if (execute_marker_index != -1 || reclaim_marker_index != -1 ||
+                validity_execute_marker_index != -1 || escape_exit_marker_index != -1) {
                 return false;
             }
             execute_marker_index = static_cast<int>(out_i);
@@ -118,7 +154,8 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
         ValiditySidechainScriptInfo validity_info;
         if (DecodeValiditySidechainScript(tx.vout[out_i].scriptPubKey, validity_info)) {
             if (validity_info.kind == ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT) {
-                if (reclaim_marker_index != -1 || execute_marker_index != -1 || validity_execute_marker_index != -1) {
+                if (reclaim_marker_index != -1 || execute_marker_index != -1 ||
+                    validity_execute_marker_index != -1 || escape_exit_marker_index != -1) {
                     return false;
                 }
                 if (!DecodeValiditySidechainDepositData(validity_info.primary_metadata, reclaim_deposit)) {
@@ -131,7 +168,8 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
                 continue;
             }
             if (validity_info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS) {
-                if (validity_execute_marker_index != -1 || execute_marker_index != -1 || reclaim_marker_index != -1) {
+                if (validity_execute_marker_index != -1 || execute_marker_index != -1 ||
+                    reclaim_marker_index != -1 || escape_exit_marker_index != -1) {
                     return false;
                 }
                 if (tx.vout[out_i].nValue != 0) {
@@ -139,11 +177,24 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
                 }
                 validity_execute_marker_index = static_cast<int>(out_i);
                 validity_execute_info = validity_info;
+                continue;
+            }
+            if (validity_info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT) {
+                if (escape_exit_marker_index != -1 || execute_marker_index != -1 ||
+                    reclaim_marker_index != -1 || validity_execute_marker_index != -1) {
+                    return false;
+                }
+                if (tx.vout[out_i].nValue != 0) {
+                    return false;
+                }
+                escape_exit_marker_index = static_cast<int>(out_i);
+                escape_exit_info = validity_info;
             }
         }
     }
 
-    if (execute_marker_index == -1 && reclaim_marker_index == -1 && validity_execute_marker_index == -1) {
+    if (execute_marker_index == -1 && reclaim_marker_index == -1 &&
+        validity_execute_marker_index == -1 && escape_exit_marker_index == -1) {
         return true;
     }
 
@@ -196,6 +247,15 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
         }
 
         return MatchValidityWithdrawalPayouts(tx, validity_execute_marker_index, withdrawals, out_credit);
+    }
+
+    if (escape_exit_marker_index != -1) {
+        std::vector<ValiditySidechainEscapeExitLeaf> exits;
+        if (!DecodeValiditySidechainEscapeExitMetadata(escape_exit_info, exits)) {
+            return false;
+        }
+
+        return MatchValidityEscapeExitPayouts(tx, escape_exit_marker_index, exits, out_credit);
     }
 
     out_credit = reclaim_deposit.amount;
@@ -413,6 +473,43 @@ static bool TryGetValiditySidechainWithdrawalKeysFromTx(
         }
         for (const auto& withdrawal : withdrawals) {
             const auto key = std::make_pair(info.sidechain_id, withdrawal.withdrawal_id);
+            if (!unique_keys.insert(key).second) {
+                return false;
+            }
+            keys.push_back(key);
+        }
+    }
+
+    out_keys = std::move(keys);
+    return execute_count == 1;
+}
+
+static bool TryGetValiditySidechainEscapeExitKeysFromTx(
+    const CTransaction& tx,
+    std::vector<std::pair<uint8_t, uint256>>& out_keys)
+{
+    int execute_count = 0;
+    std::vector<std::pair<uint8_t, uint256>> keys;
+    std::set<std::pair<uint8_t, uint256>> unique_keys;
+
+    for (const auto& txout : tx.vout) {
+        ValiditySidechainScriptInfo info;
+        if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+            info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT) {
+            continue;
+        }
+
+        std::vector<ValiditySidechainEscapeExitLeaf> exits;
+        if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+            return false;
+        }
+
+        ++execute_count;
+        if (execute_count > 1) {
+            return false;
+        }
+        for (const auto& exit : exits) {
+            const auto key = std::make_pair(info.sidechain_id, exit.exit_id);
             if (!unique_keys.insert(key).second) {
                 return false;
             }
@@ -853,6 +950,14 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
         }
     }
 
+    std::vector<std::pair<uint8_t, uint256>> validity_escape_exit_keys;
+    if (TryGetValiditySidechainEscapeExitKeysFromTx(tx, validity_escape_exit_keys)) {
+        for (const auto& key : validity_escape_exit_keys) {
+            const bool inserted = mapValiditySidechainEscapeExitById.emplace(key, tx.GetHash()).second;
+            assert(inserted);
+        }
+    }
+
     std::set<uint256> setParentTransactions;
     for (const CTxInput& input : tx.GetInputs()) {
         mapNextTx.insert(std::make_pair(input.GetIndex(), &tx));
@@ -951,6 +1056,13 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     if (TryGetValiditySidechainWithdrawalKeysFromTx(*ptx, validity_withdrawal_keys)) {
         for (const auto& key : validity_withdrawal_keys) {
             mapValiditySidechainWithdrawalById.erase(key);
+        }
+    }
+
+    std::vector<std::pair<uint8_t, uint256>> validity_escape_exit_keys;
+    if (TryGetValiditySidechainEscapeExitKeysFromTx(*ptx, validity_escape_exit_keys)) {
+        for (const auto& key : validity_escape_exit_keys) {
+            mapValiditySidechainEscapeExitById.erase(key);
         }
     }
 
@@ -1180,6 +1292,7 @@ void CTxMemPool::_clear()
     mapValiditySidechainForceExitById.clear();
     mapValiditySidechainBatchByNumber.clear();
     mapValiditySidechainWithdrawalById.clear();
+    mapValiditySidechainEscapeExitById.clear();
     mapTxOutputs_MWEB.clear();
     totalTxSize = 0;
     cachedInnerUsage = 0;
@@ -1583,6 +1696,12 @@ bool CTxMemPool::HasValiditySidechainWithdrawal(const std::pair<uint8_t, uint256
 {
     AssertLockHeld(cs);
     return mapValiditySidechainWithdrawalById.count(key) != 0;
+}
+
+bool CTxMemPool::HasValiditySidechainEscapeExit(const std::pair<uint8_t, uint256>& key) const
+{
+    AssertLockHeld(cs);
+    return mapValiditySidechainEscapeExitById.count(key) != 0;
 }
 
 bool CTxMemPool::HasNoInputsOf(const CTransaction &tx) const

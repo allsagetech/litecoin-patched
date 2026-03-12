@@ -91,6 +91,15 @@ ValiditySidechainForceExitData MakeForceExitRequest(const uint256& account_id, c
     return request;
 }
 
+ValiditySidechainEscapeExitLeaf MakeEscapeExitLeaf(const uint256& exit_id, const CScript& destination_script, CAmount amount)
+{
+    ValiditySidechainEscapeExitLeaf exit;
+    exit.exit_id = exit_id;
+    exit.amount = amount;
+    exit.destination_commitment = Hash(destination_script.begin(), destination_script.end());
+    return exit;
+}
+
 void InstallAcceptedWithdrawalBatch(
     ValiditySidechainState& state,
     uint8_t sidechain_id,
@@ -571,6 +580,78 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_verified_withdrawal_execution)
     BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
     BOOST_CHECK(state.HasExecutedWithdrawal(9, withdrawals[0].withdrawal_id));
     BOOST_CHECK(state.HasExecutedWithdrawal(9, withdrawals[1].withdrawal_id));
+}
+
+BOOST_AUTO_TEST_CASE(execute_escape_exits_requires_halt_and_tracks_replay)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 12, /* registration_height= */ 400, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(12);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 9 * COIN;
+
+    const CScript payout_a = CScript() << OP_6;
+    const CScript payout_b = CScript() << OP_7;
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        MakeEscapeExitLeaf(uint256S("3030303030303030303030303030303030303030303030303030303030303030"), payout_a, 2 * COIN),
+        MakeEscapeExitLeaf(uint256S("3131313131313131313131313131313131313131313131313131313131313131"), payout_b, 3 * COIN),
+    };
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    sidechain->current_state_root = escape_root;
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay - 1, escape_root, exits, &error));
+    BOOST_CHECK_EQUAL(error, "escape hatch delay not reached");
+
+    BOOST_REQUIRE(state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay, escape_root, exits, &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 4 * COIN);
+    BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 2U);
+    BOOST_CHECK(state.HasExecutedEscapeExit(12, exits[0].exit_id));
+    BOOST_CHECK(state.HasExecutedEscapeExit(12, exits[1].exit_id));
+
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay, escape_root, exits, &error));
+    BOOST_CHECK_EQUAL(error, "escape-exit id already executed");
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_handles_escape_exit_execution)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 13, /* registration_height= */ 420, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(13);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 8 * COIN;
+
+    const CScript payout_a = CScript() << OP_8;
+    const CScript payout_b = CScript() << OP_9;
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        MakeEscapeExitLeaf(uint256S("3232323232323232323232323232323232323232323232323232323232323232"), payout_a, 1 * COIN),
+        MakeEscapeExitLeaf(uint256S("3333333333333333333333333333333333333333333333333333333333333333"), payout_b, 2 * COIN),
+    };
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    sidechain->current_state_root = escape_root;
+
+    CMutableTransaction tx;
+    tx.vout.emplace_back(
+        /* nValueIn= */ 0,
+        BuildValiditySidechainEscapeExitScript(/* scid= */ 13, escape_root, exits));
+    tx.vout.emplace_back(1 * COIN, payout_a);
+    tx.vout.emplace_back(2 * COIN, payout_b);
+
+    CBlock block;
+    block.vtx.push_back(MakeTransactionRef(tx));
+
+    CBlockIndex index;
+    index.nHeight = 420 + config.escape_hatch_delay;
+
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
+    BOOST_CHECK(state.HasExecutedEscapeExit(13, exits[0].exit_id));
+    BOOST_CHECK(state.HasExecutedEscapeExit(13, exits[1].exit_id));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

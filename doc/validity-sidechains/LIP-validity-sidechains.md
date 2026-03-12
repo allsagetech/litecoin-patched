@@ -538,6 +538,16 @@ Consensus rules:
 - the user's state proof must be valid against the latest finalized root
 - the exit must not have been executed before
 
+Current scaffold note:
+
+- the current branch does not yet verify per-user state proofs for
+  `EXECUTE_ESCAPE_EXIT`
+- instead, it temporarily requires the full ordered escape-exit leaf list in
+  the transaction metadata and matches a deterministic full-list root against
+  `current_state_root`
+- this is only a staging format for plumbing and replay protection, not the
+  final trustless escape-exit design
+
 Without this mechanism, a halted sequencer can still trap users even if every
 posted batch was valid.
 

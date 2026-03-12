@@ -204,7 +204,6 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
 {
     const uint8_t sidechain_id = 12;
     const uint32_t batch_number = 34;
-    const uint256 state_root_reference = uint256S("1313131313131313131313131313131313131313131313131313131313131313");
     ValiditySidechainDepositData deposit;
     deposit.deposit_id = uint256S("1212121212121212121212121212121212121212121212121212121212121212");
     deposit.amount = 6 * COIN;
@@ -224,6 +223,19 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
         },
     };
     const uint256 withdrawal_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        {
+            uint256S("1313131313131313131313131313131313131313131313131313131313131313"),
+            1 * COIN,
+            uint256S("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"),
+        },
+        {
+            uint256S("1414141414141414141414141414141414141414141414141414141414141414"),
+            4 * COIN,
+            uint256S("1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b"),
+        },
+    };
+    const uint256 state_root_reference = ComputeValiditySidechainEscapeExitRoot(exits);
 
     {
         ValiditySidechainScriptInfo info;
@@ -261,11 +273,18 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
     {
         ValiditySidechainScriptInfo info;
         BOOST_REQUIRE(DecodeValiditySidechainScript(
-            BuildValiditySidechainEscapeExitScript(sidechain_id, state_root_reference),
+            BuildValiditySidechainEscapeExitScript(sidechain_id, state_root_reference, exits),
             info));
         BOOST_CHECK(info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT);
         BOOST_CHECK(info.payload == state_root_reference);
-        BOOST_CHECK(info.metadata_pushes.empty());
+        BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), exits.size());
+
+        std::vector<ValiditySidechainEscapeExitLeaf> decoded_exits;
+        BOOST_REQUIRE(DecodeValiditySidechainEscapeExitMetadata(info, decoded_exits));
+        BOOST_REQUIRE_EQUAL(decoded_exits.size(), exits.size());
+        BOOST_CHECK(decoded_exits[0].exit_id == exits[0].exit_id);
+        BOOST_CHECK_EQUAL(decoded_exits[1].amount, exits[1].amount);
+        BOOST_CHECK(decoded_exits[1].destination_commitment == exits[1].destination_commitment);
     }
 }
 

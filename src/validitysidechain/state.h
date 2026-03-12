@@ -137,6 +137,20 @@ struct ValiditySidechainWithdrawalLeaf
     }
 };
 
+struct ValiditySidechainEscapeExitLeaf
+{
+    uint256 exit_id;
+    CAmount amount{0};
+    uint256 destination_commitment;
+
+    SERIALIZE_METHODS(ValiditySidechainEscapeExitLeaf, obj)
+    {
+        READWRITE(obj.exit_id,
+                  obj.amount,
+                  obj.destination_commitment);
+    }
+};
+
 struct ValiditySidechainAcceptedBatch
 {
     uint32_t batch_number{0};
@@ -264,6 +278,7 @@ struct ValiditySidechain
     std::map<uint256, ValiditySidechainPendingDeposit> pending_deposits;
     std::map<uint256, ValiditySidechainPendingForceExit> pending_force_exits;
     std::set<uint256> executed_withdrawal_ids;
+    std::set<uint256> executed_escape_exit_ids;
     uint64_t executed_withdrawal_count{0};
     uint64_t executed_escape_exit_count{0};
     std::map<uint32_t, ValiditySidechainAcceptedBatch> accepted_batches;
@@ -284,6 +299,7 @@ struct ValiditySidechain
                   obj.pending_deposits,
                   obj.pending_force_exits,
                   obj.executed_withdrawal_ids,
+                  obj.executed_escape_exit_ids,
                   obj.executed_withdrawal_count,
                   obj.executed_escape_exit_count,
                   obj.accepted_batches);
@@ -307,6 +323,7 @@ public:
     const ValiditySidechainPendingDeposit* GetPendingDeposit(uint8_t sidechain_id, const uint256& deposit_id) const;
     const ValiditySidechainPendingForceExit* GetPendingForceExit(uint8_t sidechain_id, const uint256& request_hash) const;
     bool HasExecutedWithdrawal(uint8_t sidechain_id, const uint256& withdrawal_id) const;
+    bool HasExecutedEscapeExit(uint8_t sidechain_id, const uint256& exit_id) const;
     ValiditySidechain& GetOrCreateSidechain(uint8_t id, int registration_height);
     bool ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state);
     bool RegisterSidechain(uint8_t id, int registration_height, const ValiditySidechainConfig& config, std::string* error = nullptr);
@@ -324,6 +341,12 @@ public:
         uint8_t sidechain_id,
         const uint256& accepted_batch_id,
         const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+        std::string* error = nullptr);
+    bool ExecuteEscapeExits(
+        uint8_t sidechain_id,
+        int execution_height,
+        const uint256& state_root_reference,
+        const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
         std::string* error = nullptr);
     void Reset();
 };

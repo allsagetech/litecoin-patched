@@ -780,6 +780,48 @@ namespace {
         return true;
     }
 
+    static bool MatchValidityEscapeExitPayouts(
+        const CTransaction& tx,
+        int marker_index,
+        const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
+        CAmount* out_total = nullptr)
+    {
+        if (out_total != nullptr) {
+            *out_total = 0;
+        }
+        if (exits.empty()) {
+            return false;
+        }
+
+        const size_t start = static_cast<size_t>(marker_index) + 1;
+        if (tx.vout.size() < start + exits.size()) {
+            return false;
+        }
+
+        CAmount total = 0;
+        for (size_t i = 0; i < exits.size(); ++i) {
+            const CTxOut& txout = tx.vout[start + i];
+            const ValiditySidechainEscapeExitLeaf& exit = exits[i];
+            if (IsDrivechainOutput(txout.scriptPubKey) ||
+                txout.nValue != exit.amount ||
+                ComputeScriptCommitment(txout.scriptPubKey) != exit.destination_commitment) {
+                return false;
+            }
+            if (total > MAX_MONEY - exit.amount) {
+                return false;
+            }
+            total += exit.amount;
+        }
+
+        if (!MoneyRange(total)) {
+            return false;
+        }
+        if (out_total != nullptr) {
+            *out_total = total;
+        }
+        return true;
+    }
+
     static int CountValiditySidechainOutputs(const CTransaction& tx)
     {
         int count = 0;
@@ -822,7 +864,7 @@ namespace {
 
     // Compute the amount that may be treated as "virtual input credit" for sidechain-driven
     // payout transactions. This applies to legacy EXECUTE, validity-sidechain verified
-    // withdrawal execution, and stale deposit reclaim.
+    // withdrawal execution, stale deposit reclaim, and scaffold escape exits.
     static bool ComputeDrivechainTxInputCredit(const CTransaction& tx, CAmount& out_credit)
     {
         out_credit = 0;
@@ -831,6 +873,8 @@ namespace {
         DrivechainScriptInfo execute_info;
         int validity_execute_marker_index = -1;
         ValiditySidechainScriptInfo validity_execute_info;
+        int escape_exit_marker_index = -1;
+        ValiditySidechainScriptInfo escape_exit_info;
         int reclaim_marker_index = -1;
         ValiditySidechainDepositData reclaim_deposit;
 
@@ -838,7 +882,8 @@ namespace {
             DrivechainScriptInfo info;
             if (DecodeDrivechainScript(tx.vout[out_i].scriptPubKey, info) &&
                 info.kind == DrivechainScriptInfo::Kind::EXECUTE) {
-                if (execute_marker_index != -1 || reclaim_marker_index != -1 || validity_execute_marker_index != -1) {
+                if (execute_marker_index != -1 || reclaim_marker_index != -1 ||
+                    validity_execute_marker_index != -1 || escape_exit_marker_index != -1) {
                     return false;
                 }
                 execute_marker_index = static_cast<int>(out_i);
@@ -849,7 +894,8 @@ namespace {
             ValiditySidechainScriptInfo validity_info;
             if (DecodeValiditySidechainScript(tx.vout[out_i].scriptPubKey, validity_info)) {
                 if (validity_info.kind == ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT) {
-                    if (reclaim_marker_index != -1 || execute_marker_index != -1 || validity_execute_marker_index != -1) {
+                    if (reclaim_marker_index != -1 || execute_marker_index != -1 ||
+                        validity_execute_marker_index != -1 || escape_exit_marker_index != -1) {
                         return false;
                     }
                     if (!DecodeValiditySidechainDepositData(validity_info.primary_metadata, reclaim_deposit)) {
@@ -865,7 +911,8 @@ namespace {
                     continue;
                 }
                 if (validity_info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS) {
-                    if (validity_execute_marker_index != -1 || execute_marker_index != -1 || reclaim_marker_index != -1) {
+                    if (validity_execute_marker_index != -1 || execute_marker_index != -1 ||
+                        reclaim_marker_index != -1 || escape_exit_marker_index != -1) {
                         return false;
                     }
                     if (tx.vout[out_i].nValue != 0) {
@@ -873,11 +920,24 @@ namespace {
                     }
                     validity_execute_marker_index = static_cast<int>(out_i);
                     validity_execute_info = validity_info;
+                    continue;
+                }
+                if (validity_info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT) {
+                    if (escape_exit_marker_index != -1 || execute_marker_index != -1 ||
+                        reclaim_marker_index != -1 || validity_execute_marker_index != -1) {
+                        return false;
+                    }
+                    if (tx.vout[out_i].nValue != 0) {
+                        return false;
+                    }
+                    escape_exit_marker_index = static_cast<int>(out_i);
+                    escape_exit_info = validity_info;
                 }
             }
         }
 
-        if (execute_marker_index == -1 && reclaim_marker_index == -1 && validity_execute_marker_index == -1) {
+        if (execute_marker_index == -1 && reclaim_marker_index == -1 &&
+            validity_execute_marker_index == -1 && escape_exit_marker_index == -1) {
             return true;
         }
 
@@ -895,6 +955,14 @@ namespace {
                 return false;
             }
             if (!MatchValidityWithdrawalPayouts(tx, validity_execute_marker_index, withdrawals, &out_credit)) {
+                return false;
+            }
+        } else if (escape_exit_marker_index != -1) {
+            std::vector<ValiditySidechainEscapeExitLeaf> exits;
+            if (!DecodeValiditySidechainEscapeExitMetadata(escape_exit_info, exits)) {
+                return false;
+            }
+            if (!MatchValidityEscapeExitPayouts(tx, escape_exit_marker_index, exits, &out_credit)) {
                 return false;
             }
         } else {
@@ -1120,6 +1188,44 @@ namespace {
         return execute_count == 1;
     }
 
+    static bool TryGetValiditySidechainEscapeExitKeys(
+        const CTransaction& tx,
+        std::vector<std::pair<uint8_t, uint256>>& out_keys)
+    {
+        int execute_count = 0;
+        std::vector<std::pair<uint8_t, uint256>> keys;
+        std::set<std::pair<uint8_t, uint256>> unique_keys;
+
+        for (const auto& txout : tx.vout) {
+            ValiditySidechainScriptInfo info;
+            if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+                info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT) {
+                continue;
+            }
+
+            std::vector<ValiditySidechainEscapeExitLeaf> exits;
+            if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+                return false;
+            }
+
+            ++execute_count;
+            if (execute_count > 1) {
+                return false;
+            }
+
+            for (const auto& exit : exits) {
+                const auto key = std::make_pair(info.sidechain_id, exit.exit_id);
+                if (!unique_keys.insert(key).second) {
+                    return false;
+                }
+                keys.push_back(key);
+            }
+        }
+
+        out_keys = std::move(keys);
+        return execute_count == 1;
+    }
+
     static bool CheckValiditySidechainBlock(
         const CBlock& block,
         const CChainParams& chainparams,
@@ -1301,6 +1407,29 @@ namespace {
                         std::string error;
                         if (!block_validitysidechain_state.ExecuteWithdrawals(info.sidechain_id, info.payload, withdrawals, &error)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-invalid", error);
+                        }
+                        break;
+                    }
+
+                    case ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT: {
+                        if (txout.nValue != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-marker-value");
+                        }
+
+                        std::vector<ValiditySidechainEscapeExitLeaf> exits;
+                        if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-metadata-bad");
+                        }
+                        if (!MatchValidityEscapeExitPayouts(*tx, static_cast<int>(out_i), exits)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-payout-mismatch");
+                        }
+                        if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-confirmation-required");
+                        }
+
+                        std::string error;
+                        if (!block_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, height, info.payload, exits, &error)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-invalid", error);
                         }
                         break;
                     }
@@ -2024,6 +2153,29 @@ namespace {
                     std::string error;
                     if (!tx_validitysidechain_state.ExecuteWithdrawals(info.sidechain_id, info.payload, withdrawals, &error)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-execute-invalid", error);
+                    }
+                    break;
+                }
+
+                case ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT: {
+                    if (txout.nValue != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-marker-value");
+                    }
+
+                    std::vector<ValiditySidechainEscapeExitLeaf> exits;
+                    if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-metadata-bad");
+                    }
+                    if (!MatchValidityEscapeExitPayouts(tx, static_cast<int>(out_i), exits)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-payout-mismatch");
+                    }
+                    if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-confirmation-required");
+                    }
+
+                    std::string error;
+                    if (!tx_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, next_height, info.payload, exits, &error)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-invalid", error);
                     }
                     break;
                 }
@@ -2773,6 +2925,15 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         for (const auto& key : validity_withdrawal_keys) {
             if (m_pool.HasValiditySidechainWithdrawal(key)) {
                 return state.Invalid(TxValidationResult::TX_CONFLICT, "validitysidechain-execute-duplicate-withdrawal-mempool");
+            }
+        }
+    }
+
+    std::vector<std::pair<uint8_t, uint256>> validity_escape_exit_keys;
+    if (TryGetValiditySidechainEscapeExitKeys(tx, validity_escape_exit_keys)) {
+        for (const auto& key : validity_escape_exit_keys) {
+            if (m_pool.HasValiditySidechainEscapeExit(key)) {
+                return state.Invalid(TxValidationResult::TX_CONFLICT, "validitysidechain-escape-exit-duplicate-mempool");
             }
         }
     }

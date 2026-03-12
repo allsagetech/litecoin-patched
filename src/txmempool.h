@@ -660,6 +660,11 @@ public:
     std::map<std::pair<uint8_t, uint256>, uint256> mapValiditySidechainWithdrawalById GUARDED_BY(cs);
 
     /**
+     * Index validity-sidechain escape-exit executions by (sidechain_id, exit_id).
+     */
+    std::map<std::pair<uint8_t, uint256>, uint256> mapValiditySidechainEscapeExitById GUARDED_BY(cs);
+
+    /**
      * Maps MWEB output IDs to mempool transactions that create them.
      */
     std::map<mw::Hash, const CTransaction*> mapTxOutputs_MWEB GUARDED_BY(cs);
@@ -750,6 +755,8 @@ public:
     bool HasValiditySidechainBatch(const std::pair<uint8_t, uint32_t>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return true if a mempool tx already executes this validity-sidechain withdrawal id. */
     bool HasValiditySidechainWithdrawal(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /** Return true if a mempool tx already executes this validity-sidechain escape-exit id. */
+    bool HasValiditySidechainEscapeExit(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Remove a set of transactions from the mempool.
      *  If a transaction is in this set, then all in-mempool descendants must

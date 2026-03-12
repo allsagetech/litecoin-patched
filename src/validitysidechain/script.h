@@ -54,7 +54,10 @@ CScript BuildValiditySidechainExecuteScript(
     const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals);
 CScript BuildValiditySidechainForceExitScript(uint8_t scid, const ValiditySidechainForceExitData& request);
 CScript BuildValiditySidechainReclaimDepositScript(uint8_t scid, const ValiditySidechainDepositData& deposit);
-CScript BuildValiditySidechainEscapeExitScript(uint8_t scid, const uint256& state_root_reference);
+CScript BuildValiditySidechainEscapeExitScript(
+    uint8_t scid,
+    const uint256& state_root_reference,
+    const std::vector<ValiditySidechainEscapeExitLeaf>& exits);
 
 std::vector<unsigned char> EncodeValiditySidechainConfig(const ValiditySidechainConfig& config);
 bool DecodeValiditySidechainConfig(Span<const unsigned char> config_bytes, ValiditySidechainConfig& out_config);
@@ -83,6 +86,15 @@ bool DecodeValiditySidechainExecuteMetadata(
     const ValiditySidechainScriptInfo& info,
     std::vector<ValiditySidechainWithdrawalLeaf>& out_withdrawals);
 uint256 ComputeValiditySidechainWithdrawalRoot(const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals);
+
+std::vector<unsigned char> EncodeValiditySidechainEscapeExitLeaf(const ValiditySidechainEscapeExitLeaf& exit);
+bool DecodeValiditySidechainEscapeExitLeaf(
+    Span<const unsigned char> exit_bytes,
+    ValiditySidechainEscapeExitLeaf& out_exit);
+bool DecodeValiditySidechainEscapeExitMetadata(
+    const ValiditySidechainScriptInfo& info,
+    std::vector<ValiditySidechainEscapeExitLeaf>& out_exits);
+uint256 ComputeValiditySidechainEscapeExitRoot(const std::vector<ValiditySidechainEscapeExitLeaf>& exits);
 
 std::vector<unsigned char> EncodeValiditySidechainForceExitData(const ValiditySidechainForceExitData& request);
 bool DecodeValiditySidechainForceExitData(Span<const unsigned char> request_bytes, ValiditySidechainForceExitData& out_request);

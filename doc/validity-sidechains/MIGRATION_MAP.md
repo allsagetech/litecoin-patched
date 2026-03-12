@@ -393,14 +393,20 @@ Current branch status:
   protection, and mempool duplicate tracking
 - the current execute path is still scaffold-only because it requires the full
   ordered withdrawal leaf list rather than per-leaf inclusion proofs
+- `EXECUTE_ESCAPE_EXIT` now has fixed escape-exit leaf encoding, inactivity
+  gating, escrow decrement, executed-exit replay protection, and mempool
+  duplicate tracking
+- the current escape-exit path is also scaffold-only because it requires the
+  full ordered escape-exit leaf list and matches a deterministic full-list root
+  against `current_state_root`
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
-  registration, force-exit, batch-validation, and execute-plumbing availability
+  registration, force-exit, batch-validation, withdrawal, and escape-exit
+  plumbing availability
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   though ancestor snapshot replay is still drivechain-only
-- escape-exit encodings remain to be specified
 - trustless proof verification, DA-carrying batches, queue-consuming batches,
-  force-inclusion enforcement, verified withdrawals, and escape-exit paths are
-  still outstanding
+  force-inclusion enforcement, verified withdrawals, and per-proof escape-exit
+  paths are still outstanding
 
 ## 8. Bottom Line
 
