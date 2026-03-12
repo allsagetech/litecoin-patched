@@ -210,6 +210,22 @@ struct ValiditySidechainPendingDeposit
     }
 };
 
+struct ValiditySidechainPendingForceExit
+{
+    ValiditySidechainForceExitData request;
+    int request_height{-1};
+    uint64_t queue_index{0};
+    uint256 request_hash;
+
+    SERIALIZE_METHODS(ValiditySidechainPendingForceExit, obj)
+    {
+        READWRITE(obj.request,
+                  obj.request_height,
+                  obj.queue_index,
+                  obj.request_hash);
+    }
+};
+
 struct ValiditySidechainQueueState
 {
     uint256 root;
@@ -217,6 +233,7 @@ struct ValiditySidechainQueueState
     uint64_t pending_message_count{0};
     uint64_t pending_deposit_count{0};
     uint64_t pending_force_exit_count{0};
+    uint64_t matured_force_exit_count{0};
     uint64_t reclaimable_deposit_count{0};
 
     SERIALIZE_METHODS(ValiditySidechainQueueState, obj)
@@ -226,6 +243,7 @@ struct ValiditySidechainQueueState
                   obj.pending_message_count,
                   obj.pending_deposit_count,
                   obj.pending_force_exit_count,
+                  obj.matured_force_exit_count,
                   obj.reclaimable_deposit_count);
     }
 };
@@ -244,6 +262,7 @@ struct ValiditySidechain
     ValiditySidechainQueueState queue_state;
     std::map<uint64_t, ValiditySidechainQueueEntry> queue_entries;
     std::map<uint256, ValiditySidechainPendingDeposit> pending_deposits;
+    std::map<uint256, ValiditySidechainPendingForceExit> pending_force_exits;
     std::set<uint256> executed_withdrawal_ids;
     uint64_t executed_withdrawal_count{0};
     uint64_t executed_escape_exit_count{0};
@@ -263,6 +282,7 @@ struct ValiditySidechain
                   obj.queue_state,
                   obj.queue_entries,
                   obj.pending_deposits,
+                  obj.pending_force_exits,
                   obj.executed_withdrawal_ids,
                   obj.executed_withdrawal_count,
                   obj.executed_escape_exit_count,
@@ -285,11 +305,13 @@ public:
     const ValiditySidechainAcceptedBatch* GetAcceptedBatch(uint8_t sidechain_id, uint32_t batch_number) const;
     const ValiditySidechainAcceptedBatch* GetAcceptedBatchById(uint8_t sidechain_id, const uint256& accepted_batch_id) const;
     const ValiditySidechainPendingDeposit* GetPendingDeposit(uint8_t sidechain_id, const uint256& deposit_id) const;
+    const ValiditySidechainPendingForceExit* GetPendingForceExit(uint8_t sidechain_id, const uint256& request_hash) const;
     bool HasExecutedWithdrawal(uint8_t sidechain_id, const uint256& withdrawal_id) const;
     ValiditySidechain& GetOrCreateSidechain(uint8_t id, int registration_height);
     bool ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state);
     bool RegisterSidechain(uint8_t id, int registration_height, const ValiditySidechainConfig& config, std::string* error = nullptr);
     bool AddDeposit(uint8_t sidechain_id, int deposit_height, const ValiditySidechainDepositData& deposit, std::string* error = nullptr);
+    bool AddForceExitRequest(uint8_t sidechain_id, int request_height, const ValiditySidechainForceExitData& request, std::string* error = nullptr);
     bool ReclaimDeposit(uint8_t sidechain_id, int reclaim_height, const ValiditySidechainDepositData& deposit, std::string* error = nullptr);
     bool AcceptBatch(
         uint8_t sidechain_id,

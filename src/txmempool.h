@@ -645,6 +645,11 @@ public:
     std::map<std::pair<uint8_t, uint256>, uint256> mapValiditySidechainReclaimByDepositId GUARDED_BY(cs);
 
     /**
+     * Index validity-sidechain force-exit requests by (sidechain_id, request_hash).
+     */
+    std::map<std::pair<uint8_t, uint256>, uint256> mapValiditySidechainForceExitById GUARDED_BY(cs);
+
+    /**
      * Index validity-sidechain batch commits by (sidechain_id, batch_number).
      */
     std::map<std::pair<uint8_t, uint32_t>, uint256> mapValiditySidechainBatchByNumber GUARDED_BY(cs);
@@ -739,6 +744,8 @@ public:
     bool HasValiditySidechainDeposit(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return true if a mempool tx already reclaims this validity-sidechain deposit id. */
     bool HasValiditySidechainReclaim(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /** Return true if a mempool tx already carries this validity-sidechain force-exit request id. */
+    bool HasValiditySidechainForceExit(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return true if a mempool tx already commits this validity-sidechain batch number. */
     bool HasValiditySidechainBatch(const std::pair<uint8_t, uint32_t>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return true if a mempool tx already executes this validity-sidechain withdrawal id. */

@@ -1056,6 +1056,32 @@ namespace {
         return batch_count == 1;
     }
 
+    static bool TryGetValiditySidechainForceExitKey(const CTransaction& tx, std::pair<uint8_t, uint256>& out_key)
+    {
+        int request_count = 0;
+
+        for (const auto& txout : tx.vout) {
+            ValiditySidechainScriptInfo info;
+            if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+                info.kind != ValiditySidechainScriptInfo::Kind::REQUEST_FORCE_EXIT) {
+                continue;
+            }
+
+            ValiditySidechainForceExitData request;
+            if (!DecodeValiditySidechainForceExitData(info.primary_metadata, request)) {
+                return false;
+            }
+
+            ++request_count;
+            if (request_count > 1) {
+                return false;
+            }
+            out_key = std::make_pair(info.sidechain_id, ComputeValiditySidechainForceExitHash(info.sidechain_id, request));
+        }
+
+        return request_count == 1;
+    }
+
     static bool TryGetValiditySidechainWithdrawalKeys(
         const CTransaction& tx,
         std::vector<std::pair<uint8_t, uint256>>& out_keys)
@@ -1204,6 +1230,29 @@ namespace {
                         std::string error;
                         if (!block_validitysidechain_state.ReclaimDeposit(info.sidechain_id, height, deposit, &error)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-reclaim-invalid", error);
+                        }
+                        break;
+                    }
+
+                    case ValiditySidechainScriptInfo::Kind::REQUEST_FORCE_EXIT: {
+                        if (txout.nValue != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-marker-value");
+                        }
+
+                        ValiditySidechainForceExitData request;
+                        if (!DecodeValiditySidechainForceExitData(info.primary_metadata, request)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-data-bad");
+                        }
+                        if (ComputeValiditySidechainForceExitHash(info.sidechain_id, request) != info.payload) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-hash-mismatch");
+                        }
+                        if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-confirmation-required");
+                        }
+
+                        std::string error;
+                        if (!block_validitysidechain_state.AddForceExitRequest(info.sidechain_id, height, request, &error)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-invalid", error);
                         }
                         break;
                     }
@@ -1904,6 +1953,29 @@ namespace {
                     std::string error;
                     if (!tx_validitysidechain_state.ReclaimDeposit(info.sidechain_id, next_height, deposit, &error)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-reclaim-invalid", error);
+                    }
+                    break;
+                }
+
+                case ValiditySidechainScriptInfo::Kind::REQUEST_FORCE_EXIT: {
+                    if (txout.nValue != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-force-exit-marker-value");
+                    }
+
+                    ValiditySidechainForceExitData request;
+                    if (!DecodeValiditySidechainForceExitData(info.primary_metadata, request)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-force-exit-data-bad");
+                    }
+                    if (ComputeValiditySidechainForceExitHash(info.sidechain_id, request) != info.payload) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-force-exit-hash-mismatch");
+                    }
+                    if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-confirmation-required");
+                    }
+
+                    std::string error;
+                    if (!tx_validitysidechain_state.AddForceExitRequest(info.sidechain_id, next_height, request, &error)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-force-exit-invalid", error);
                     }
                     break;
                 }
@@ -2682,6 +2754,12 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (TryGetValiditySidechainReclaimKey(tx, validity_reclaim_key) &&
         m_pool.HasValiditySidechainReclaim(validity_reclaim_key)) {
         return state.Invalid(TxValidationResult::TX_CONFLICT, "validitysidechain-reclaim-duplicate-mempool");
+    }
+
+    std::pair<uint8_t, uint256> validity_force_exit_key;
+    if (TryGetValiditySidechainForceExitKey(tx, validity_force_exit_key) &&
+        m_pool.HasValiditySidechainForceExit(validity_force_exit_key)) {
+        return state.Invalid(TxValidationResult::TX_CONFLICT, "validitysidechain-force-exit-duplicate-mempool");
     }
 
     std::pair<uint8_t, uint32_t> validity_batch_key;

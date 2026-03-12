@@ -95,6 +95,7 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
     sidechain.queue_state.pending_message_count = 0;
     sidechain.queue_state.pending_deposit_count = 0;
     sidechain.queue_state.pending_force_exit_count = 0;
+    sidechain.queue_state.matured_force_exit_count = 0;
     sidechain.queue_state.reclaimable_deposit_count = 0;
 
     for (const auto& [queue_index, entry] : sidechain.queue_entries) {
@@ -125,8 +126,25 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
 
     for (const auto& [deposit_id, pending_deposit] : sidechain.pending_deposits) {
         (void)deposit_id;
+        const auto queue_it = sidechain.queue_entries.find(pending_deposit.queue_index);
+        if (queue_it == sidechain.queue_entries.end() ||
+            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            continue;
+        }
         if (height >= pending_deposit.deposit_height + static_cast<int>(sidechain.config.deposit_reclaim_delay)) {
             ++sidechain.queue_state.reclaimable_deposit_count;
+        }
+    }
+
+    for (const auto& [request_hash, pending_force_exit] : sidechain.pending_force_exits) {
+        (void)request_hash;
+        const auto queue_it = sidechain.queue_entries.find(pending_force_exit.queue_index);
+        if (queue_it == sidechain.queue_entries.end() ||
+            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            continue;
+        }
+        if (height >= pending_force_exit.request_height + static_cast<int>(sidechain.config.force_inclusion_delay)) {
+            ++sidechain.queue_state.matured_force_exit_count;
         }
     }
 }
@@ -317,6 +335,17 @@ const ValiditySidechainPendingDeposit* ValiditySidechainState::GetPendingDeposit
     return it == sidechain->pending_deposits.end() ? nullptr : &it->second;
 }
 
+const ValiditySidechainPendingForceExit* ValiditySidechainState::GetPendingForceExit(uint8_t sidechain_id, const uint256& request_hash) const
+{
+    const ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr) {
+        return nullptr;
+    }
+
+    const auto it = sidechain->pending_force_exits.find(request_hash);
+    return it == sidechain->pending_force_exits.end() ? nullptr : &it->second;
+}
+
 bool ValiditySidechainState::HasExecutedWithdrawal(uint8_t sidechain_id, const uint256& withdrawal_id) const
 {
     const ValiditySidechain* sidechain = GetSidechain(sidechain_id);
@@ -439,6 +468,65 @@ bool ValiditySidechainState::AddDeposit(
     sidechain->pending_deposits.emplace(deposit.deposit_id, pending_deposit);
     sidechain->escrow_balance += deposit.amount;
     RefreshQueueState(*sidechain, deposit_height);
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
+bool ValiditySidechainState::AddForceExitRequest(
+    uint8_t sidechain_id,
+    int request_height,
+    const ValiditySidechainForceExitData& request,
+    std::string* error)
+{
+    if (request_height < 0) {
+        if (error != nullptr) {
+            *error = "force-exit request height must be non-negative";
+        }
+        return false;
+    }
+    if (!MoneyRange(request.max_exit_amount) || request.max_exit_amount <= 0) {
+        if (error != nullptr) {
+            *error = "force-exit amount out of range";
+        }
+        return false;
+    }
+
+    ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr || !sidechain->is_active) {
+        if (error != nullptr) {
+            *error = "unknown validity sidechain";
+        }
+        return false;
+    }
+
+    const uint256 request_hash = ComputeValiditySidechainForceExitHash(sidechain_id, request);
+    if (sidechain->pending_force_exits.count(request_hash) != 0) {
+        if (error != nullptr) {
+            *error = "force-exit request already pending";
+        }
+        return false;
+    }
+
+    ValiditySidechainQueueEntry entry;
+    entry.queue_index = NextQueueIndex(*sidechain);
+    entry.message_kind = ValiditySidechainQueueEntry::MESSAGE_FORCE_EXIT;
+    entry.status = ValiditySidechainQueueEntry::STATUS_PENDING;
+    entry.message_id = request_hash;
+    entry.message_hash = request_hash;
+    entry.created_height = request_height;
+
+    ValiditySidechainPendingForceExit pending_request;
+    pending_request.request = request;
+    pending_request.request_height = request_height;
+    pending_request.queue_index = entry.queue_index;
+    pending_request.request_hash = request_hash;
+
+    sidechain->queue_state.root = ComputeQueueAppendRoot(sidechain_id, sidechain->queue_state.root, entry);
+    sidechain->queue_entries.emplace(entry.queue_index, entry);
+    sidechain->pending_force_exits.emplace(request_hash, pending_request);
+    RefreshQueueState(*sidechain, request_height);
     if (error != nullptr) {
         error->clear();
     }
@@ -779,6 +867,26 @@ bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex
                     std::string error;
                     if (!ReclaimDeposit(info.sidechain_id, height, deposit, &error)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-reclaim-invalid", error);
+                    }
+                    break;
+                }
+
+                case ValiditySidechainScriptInfo::Kind::REQUEST_FORCE_EXIT: {
+                    if (txout.nValue != 0) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-marker-value");
+                    }
+
+                    ValiditySidechainForceExitData request;
+                    if (!DecodeValiditySidechainForceExitData(info.primary_metadata, request)) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-data-bad");
+                    }
+                    if (ComputeValiditySidechainForceExitHash(info.sidechain_id, request) != info.payload) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-hash-mismatch");
+                    }
+
+                    std::string error;
+                    if (!AddForceExitRequest(info.sidechain_id, height, request, &error)) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-force-exit-invalid", error);
                     }
                     break;
                 }

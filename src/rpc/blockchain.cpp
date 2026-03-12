@@ -1710,6 +1710,7 @@ static UniValue ValiditySidechainQueueStateToJSON(const ValiditySidechainQueueSt
     result.pushKV("pending_message_count", static_cast<int64_t>(queue_state.pending_message_count));
     result.pushKV("pending_deposit_count", static_cast<int64_t>(queue_state.pending_deposit_count));
     result.pushKV("pending_force_exit_count", static_cast<int64_t>(queue_state.pending_force_exit_count));
+    result.pushKV("matured_force_exit_count", static_cast<int64_t>(queue_state.matured_force_exit_count));
     result.pushKV("reclaimable_deposit_count", static_cast<int64_t>(queue_state.reclaimable_deposit_count));
     return result;
 }
@@ -1790,6 +1791,7 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("legacy_drivechain_withdrawal_path_active", true);
     result.pushKV("state_persistence_enabled", true);
     result.pushKV("registration_validation_available", true);
+    result.pushKV("force_exit_request_available", true);
     result.pushKV("batch_validation_available", true);
     result.pushKV("batch_validation_mode", "scaffold_noop_only");
     result.pushKV("verified_withdrawal_execution_available", true);

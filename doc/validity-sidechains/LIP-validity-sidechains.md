@@ -466,6 +466,17 @@ Consensus behavior:
 This rule gives users a censorship-resistant path while the sequencer continues
 to post batches.
 
+Current scaffold implementation note:
+
+- the current branch now validates and stores `REQUEST_FORCE_EXIT` messages on
+  the Litecoin side
+- pending and matured force-exit request counts are tracked in chainstate and
+  exposed by RPC
+- duplicate force-exit request hashes are rejected in mempool and block
+  validation
+- the current scaffold verifier still does not consume queue messages in
+  `COMMIT_VALIDITY_BATCH`, so force-inclusion enforcement is not complete yet
+
 ---
 
 # RECLAIM_STALE_DEPOSIT

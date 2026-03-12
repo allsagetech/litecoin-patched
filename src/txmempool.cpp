@@ -333,6 +333,32 @@ static bool TryGetValiditySidechainReclaimKeyFromTx(const CTransaction& tx, std:
     return reclaim_count == 1;
 }
 
+static bool TryGetValiditySidechainForceExitKeyFromTx(const CTransaction& tx, std::pair<uint8_t, uint256>& out_key)
+{
+    int request_count = 0;
+
+    for (const auto& txout : tx.vout) {
+        ValiditySidechainScriptInfo info;
+        if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+            info.kind != ValiditySidechainScriptInfo::Kind::REQUEST_FORCE_EXIT) {
+            continue;
+        }
+
+        ValiditySidechainForceExitData request;
+        if (!DecodeValiditySidechainForceExitData(info.primary_metadata, request)) {
+            return false;
+        }
+
+        ++request_count;
+        if (request_count > 1) {
+            return false;
+        }
+        out_key = std::make_pair(info.sidechain_id, ComputeValiditySidechainForceExitHash(info.sidechain_id, request));
+    }
+
+    return request_count == 1;
+}
+
 static bool TryGetValiditySidechainBatchKeyFromTx(const CTransaction& tx, std::pair<uint8_t, uint32_t>& out_key)
 {
     int batch_count = 0;
@@ -807,6 +833,12 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
         assert(inserted);
     }
 
+    std::pair<uint8_t, uint256> validity_force_exit_key;
+    if (TryGetValiditySidechainForceExitKeyFromTx(tx, validity_force_exit_key)) {
+        const bool inserted = mapValiditySidechainForceExitById.emplace(validity_force_exit_key, tx.GetHash()).second;
+        assert(inserted);
+    }
+
     std::pair<uint8_t, uint32_t> validity_batch_key;
     if (TryGetValiditySidechainBatchKeyFromTx(tx, validity_batch_key)) {
         const bool inserted = mapValiditySidechainBatchByNumber.emplace(validity_batch_key, tx.GetHash()).second;
@@ -903,6 +935,11 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     std::pair<uint8_t, uint256> validity_reclaim_key;
     if (TryGetValiditySidechainReclaimKeyFromTx(*ptx, validity_reclaim_key)) {
         mapValiditySidechainReclaimByDepositId.erase(validity_reclaim_key);
+    }
+
+    std::pair<uint8_t, uint256> validity_force_exit_key;
+    if (TryGetValiditySidechainForceExitKeyFromTx(*ptx, validity_force_exit_key)) {
+        mapValiditySidechainForceExitById.erase(validity_force_exit_key);
     }
 
     std::pair<uint8_t, uint32_t> validity_batch_key;
@@ -1140,6 +1177,7 @@ void CTxMemPool::_clear()
     mapDrivechainRegisterBySidechain.clear();
     mapValiditySidechainDepositById.clear();
     mapValiditySidechainReclaimByDepositId.clear();
+    mapValiditySidechainForceExitById.clear();
     mapValiditySidechainBatchByNumber.clear();
     mapValiditySidechainWithdrawalById.clear();
     mapTxOutputs_MWEB.clear();
@@ -1527,6 +1565,12 @@ bool CTxMemPool::HasValiditySidechainReclaim(const std::pair<uint8_t, uint256>& 
 {
     AssertLockHeld(cs);
     return mapValiditySidechainReclaimByDepositId.count(key) != 0;
+}
+
+bool CTxMemPool::HasValiditySidechainForceExit(const std::pair<uint8_t, uint256>& key) const
+{
+    AssertLockHeld(cs);
+    return mapValiditySidechainForceExitById.count(key) != 0;
 }
 
 bool CTxMemPool::HasValiditySidechainBatch(const std::pair<uint8_t, uint32_t>& key) const

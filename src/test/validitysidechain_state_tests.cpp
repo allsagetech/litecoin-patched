@@ -80,6 +80,17 @@ ValiditySidechainWithdrawalLeaf MakeWithdrawalLeaf(const uint256& withdrawal_id,
     return withdrawal;
 }
 
+ValiditySidechainForceExitData MakeForceExitRequest(const uint256& account_id, const CScript& destination_script, CAmount amount = 2 * COIN)
+{
+    ValiditySidechainForceExitData request;
+    request.account_id = account_id;
+    request.exit_asset_id = uint256S("2424242424242424242424242424242424242424242424242424242424242424");
+    request.max_exit_amount = amount;
+    request.destination_commitment = Hash(destination_script.begin(), destination_script.end());
+    request.nonce = 77;
+    return request;
+}
+
 void InstallAcceptedWithdrawalBatch(
     ValiditySidechainState& state,
     uint8_t sidechain_id,
@@ -324,6 +335,68 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_deposit_and_reclaim)
     validation_state = BlockValidationState();
     BOOST_REQUIRE(state.ConnectBlock(reclaim_block, &reclaim_index, validation_state));
     BOOST_REQUIRE(state.GetPendingDeposit(4, deposit.deposit_id) == nullptr);
+}
+
+BOOST_AUTO_TEST_CASE(add_force_exit_request_updates_queue_state_and_maturity)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 10, /* registration_height= */ 360, config));
+
+    const CScript destination_script = CScript() << OP_TRUE << OP_DROP;
+    const ValiditySidechainForceExitData request = MakeForceExitRequest(
+        uint256S("2525252525252525252525252525252525252525252525252525252525252525"),
+        destination_script);
+
+    std::string error;
+    BOOST_REQUIRE(state.AddForceExitRequest(/* sidechain_id= */ 10, /* request_height= */ 365, request, &error));
+    BOOST_CHECK(error.empty());
+
+    const uint256 request_hash = ComputeValiditySidechainForceExitHash(/* scid= */ 10, request);
+    const ValiditySidechain* sidechain = state.GetSidechain(10);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_REQUIRE(state.GetPendingForceExit(10, request_hash) != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_force_exit_count, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.matured_force_exit_count, 0U);
+
+    CBlock idle_block;
+    CBlockIndex idle_index;
+    idle_index.nHeight = 365 + config.force_inclusion_delay;
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(idle_block, &idle_index, validation_state));
+
+    sidechain = state.GetSidechain(10);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_force_exit_count, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.matured_force_exit_count, 1U);
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_handles_force_exit_request)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 11, /* registration_height= */ 370, config));
+
+    const CScript destination_script = CScript() << OP_5;
+    const ValiditySidechainForceExitData request = MakeForceExitRequest(
+        uint256S("2626262626262626262626262626262626262626262626262626262626262626"),
+        destination_script,
+        4 * COIN);
+
+    CMutableTransaction tx;
+    tx.vout.emplace_back(/* nValueIn= */ 0, BuildValiditySidechainForceExitScript(/* scid= */ 11, request));
+
+    CBlock block;
+    block.vtx.push_back(MakeTransactionRef(tx));
+
+    CBlockIndex index;
+    index.nHeight = 371;
+
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
+
+    const uint256 request_hash = ComputeValiditySidechainForceExitHash(/* scid= */ 11, request);
+    BOOST_REQUIRE(state.GetPendingForceExit(11, request_hash) != nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(accept_batch_records_noop_scaffold_batch)

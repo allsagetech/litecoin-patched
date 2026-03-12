@@ -381,6 +381,8 @@ Current branch status:
 - deposit queue insertion, stale-deposit reclaim metadata, and reclaim-path
   escrow accounting now exist in `src/validitysidechain/state.*` and
   `src/validation.cpp`
+- `REQUEST_FORCE_EXIT` now has fixed request encoding, queue insertion,
+  maturity tracking, and mempool duplicate protection
 - accepted-batch state tracking, batch-number monotonicity, queue-prefix
   transition plumbing, and mempool duplicate tracking now exist for
   `COMMIT_VALIDITY_BATCH`
@@ -392,12 +394,13 @@ Current branch status:
 - the current execute path is still scaffold-only because it requires the full
   ordered withdrawal leaf list rather than per-leaf inclusion proofs
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
-  registration, batch-validation, and execute-plumbing availability
+  registration, force-exit, batch-validation, and execute-plumbing availability
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   though ancestor snapshot replay is still drivechain-only
-- withdrawal leaf and escape-exit encodings remain to be specified
+- escape-exit encodings remain to be specified
 - trustless proof verification, DA-carrying batches, queue-consuming batches,
-  verified withdrawals, and exit paths are still outstanding
+  force-inclusion enforcement, verified withdrawals, and escape-exit paths are
+  still outstanding
 
 ## 8. Bottom Line
 
