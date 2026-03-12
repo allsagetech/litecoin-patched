@@ -386,8 +386,13 @@ Current branch status:
   `COMMIT_VALIDITY_BATCH`
 - the current verifier mode is explicitly `scaffold_noop_only`, which allows
   only no-op batch commits while the real zk verifier path is still missing
+- `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
+  accepted-batch lookup, escrow decrement, executed-withdrawal replay
+  protection, and mempool duplicate tracking
+- the current execute path is still scaffold-only because it requires the full
+  ordered withdrawal leaf list rather than per-leaf inclusion proofs
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
-  registration plus batch-validation availability
+  registration, batch-validation, and execute-plumbing availability
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   though ancestor snapshot replay is still drivechain-only
 - withdrawal leaf and escape-exit encodings remain to be specified

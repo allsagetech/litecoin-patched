@@ -16,6 +16,7 @@ namespace {
 static constexpr unsigned char CONFIG_HASH_MAGIC[] = {'V', 'S', 'C', 'F', 0x01};
 static constexpr unsigned char DEPOSIT_HASH_MAGIC[] = {'V', 'S', 'C', 'D', 0x01};
 static constexpr unsigned char BATCH_HASH_MAGIC[] = {'V', 'S', 'C', 'B', 0x01};
+static constexpr unsigned char WITHDRAWAL_ROOT_MAGIC[] = {'V', 'S', 'C', 'W', 0x01};
 static constexpr unsigned char FORCE_EXIT_HASH_MAGIC[] = {'V', 'S', 'C', 'X', 0x01};
 static constexpr unsigned char ACCEPTED_BATCH_ID_MAGIC[] = {'V', 'S', 'C', 'A', 0x01};
 static constexpr size_t UINT256_BYTES = uint256::WIDTH;
@@ -23,6 +24,7 @@ static constexpr size_t UINT256_BYTES = uint256::WIDTH;
 static constexpr size_t VALIDITY_SIDECHAIN_CONFIG_BYTES = 94;
 static constexpr size_t VALIDITY_SIDECHAIN_DEPOSIT_BYTES = 112;
 static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 204;
+static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES = 72;
 static constexpr size_t VALIDITY_SIDECHAIN_FORCE_EXIT_BYTES = 112;
 
 static void AppendLE32(std::vector<unsigned char>& out, uint32_t v)
@@ -175,6 +177,10 @@ bool DecodeValiditySidechainScript(const CScript& scriptPubKey, ValiditySidechai
             }
             break;
         case ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS:
+            if (info.metadata_pushes.empty()) {
+                return false;
+            }
+            break;
         case ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT:
             if (!info.metadata_pushes.empty()) {
                 return false;
@@ -252,12 +258,23 @@ CScript BuildValiditySidechainCommitScript(
         metadata_pushes);
 }
 
-CScript BuildValiditySidechainExecuteScript(uint8_t scid, uint32_t batch_number, const uint256& withdrawal_root)
+CScript BuildValiditySidechainExecuteScript(
+    uint8_t scid,
+    uint32_t batch_number,
+    const uint256& withdrawal_root,
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)
 {
+    std::vector<std::vector<unsigned char>> metadata_pushes;
+    metadata_pushes.reserve(withdrawals.size());
+    for (const auto& withdrawal : withdrawals) {
+        metadata_pushes.push_back(EncodeValiditySidechainWithdrawalLeaf(withdrawal));
+    }
+
     return BuildValiditySidechainScript(
         ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS,
         scid,
-        ComputeValiditySidechainAcceptedBatchId(scid, batch_number, withdrawal_root));
+        ComputeValiditySidechainAcceptedBatchId(scid, batch_number, withdrawal_root),
+        metadata_pushes);
 }
 
 CScript BuildValiditySidechainForceExitScript(uint8_t scid, const ValiditySidechainForceExitData& request)
@@ -466,6 +483,72 @@ uint256 ComputeValiditySidechainBatchCommitmentHash(uint8_t scid, const Validity
 {
     const std::vector<unsigned char> encoded_public_inputs = EncodeValiditySidechainBatchPublicInputs(public_inputs);
     return HashWithOptionalSidechainId(BATCH_HASH_MAGIC, sizeof(BATCH_HASH_MAGIC), encoded_public_inputs, &scid);
+}
+
+std::vector<unsigned char> EncodeValiditySidechainWithdrawalLeaf(const ValiditySidechainWithdrawalLeaf& withdrawal)
+{
+    std::vector<unsigned char> out;
+    out.reserve(VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES);
+
+    AppendUint256(out, withdrawal.withdrawal_id);
+    AppendLE64(out, static_cast<uint64_t>(withdrawal.amount));
+    AppendUint256(out, withdrawal.destination_commitment);
+
+    return out;
+}
+
+bool DecodeValiditySidechainWithdrawalLeaf(
+    Span<const unsigned char> withdrawal_bytes,
+    ValiditySidechainWithdrawalLeaf& out_withdrawal)
+{
+    if (withdrawal_bytes.size() != VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES) {
+        return false;
+    }
+
+    ValiditySidechainWithdrawalLeaf withdrawal;
+    if (!ReadUint256At(withdrawal_bytes, 0, withdrawal.withdrawal_id) ||
+        !ReadAmount64(withdrawal_bytes, 32, withdrawal.amount) ||
+        !ReadUint256At(withdrawal_bytes, 40, withdrawal.destination_commitment)) {
+        return false;
+    }
+
+    out_withdrawal = withdrawal;
+    return true;
+}
+
+bool DecodeValiditySidechainExecuteMetadata(
+    const ValiditySidechainScriptInfo& info,
+    std::vector<ValiditySidechainWithdrawalLeaf>& out_withdrawals)
+{
+    if (info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS ||
+        info.metadata_pushes.empty()) {
+        return false;
+    }
+
+    std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+    withdrawals.reserve(info.metadata_pushes.size());
+    for (const auto& push : info.metadata_pushes) {
+        ValiditySidechainWithdrawalLeaf withdrawal;
+        if (!DecodeValiditySidechainWithdrawalLeaf(push, withdrawal)) {
+            return false;
+        }
+        withdrawals.push_back(withdrawal);
+    }
+
+    out_withdrawals = std::move(withdrawals);
+    return true;
+}
+
+uint256 ComputeValiditySidechainWithdrawalRoot(const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)WITHDRAWAL_ROOT_MAGIC, sizeof(WITHDRAWAL_ROOT_MAGIC));
+    hw << static_cast<uint32_t>(withdrawals.size());
+    for (const auto& withdrawal : withdrawals) {
+        const std::vector<unsigned char> encoded = EncodeValiditySidechainWithdrawalLeaf(withdrawal);
+        hw.write((const char*)encoded.data(), encoded.size());
+    }
+    return hw.GetHash();
 }
 
 std::vector<unsigned char> EncodeValiditySidechainForceExitData(const ValiditySidechainForceExitData& request)

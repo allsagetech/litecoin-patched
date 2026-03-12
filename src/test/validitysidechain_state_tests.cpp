@@ -71,6 +71,41 @@ ValiditySidechainBatchPublicInputs MakeNoopBatchPublicInputs(const ValiditySidec
     return public_inputs;
 }
 
+ValiditySidechainWithdrawalLeaf MakeWithdrawalLeaf(const uint256& withdrawal_id, const CScript& destination_script, CAmount amount)
+{
+    ValiditySidechainWithdrawalLeaf withdrawal;
+    withdrawal.withdrawal_id = withdrawal_id;
+    withdrawal.amount = amount;
+    withdrawal.destination_commitment = Hash(destination_script.begin(), destination_script.end());
+    return withdrawal;
+}
+
+void InstallAcceptedWithdrawalBatch(
+    ValiditySidechainState& state,
+    uint8_t sidechain_id,
+    uint32_t batch_number,
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+    int accepted_height)
+{
+    ValiditySidechain* sidechain = state.GetSidechain(sidechain_id);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const uint256 withdrawal_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
+    sidechain->current_withdrawal_root = withdrawal_root;
+    sidechain->latest_batch_number = batch_number;
+    ValiditySidechainAcceptedBatch batch;
+    batch.batch_number = batch_number;
+    batch.prior_state_root = sidechain->current_state_root;
+    batch.new_state_root = sidechain->current_state_root;
+    batch.l1_message_root_before = sidechain->queue_state.root;
+    batch.l1_message_root_after = sidechain->queue_state.root;
+    batch.consumed_queue_messages = 0;
+    batch.withdrawal_root = withdrawal_root;
+    batch.data_root = sidechain->current_data_root;
+    batch.accepted_height = accepted_height;
+    sidechain->accepted_batches.emplace(batch_number, batch);
+}
+
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(validitysidechain_state_tests, BasicTestingSetup)
@@ -384,6 +419,85 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_scaffold_state_or_queue_changes)
         BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, {}, {}, &error));
         BOOST_CHECK_EQUAL(error, "scaffold verifier does not allow queue consumption yet");
     }
+}
+
+BOOST_AUTO_TEST_CASE(execute_withdrawals_marks_ids_and_reduces_escrow)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 8, /* registration_height= */ 340, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(8);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 10 * COIN;
+
+    const CScript payout_a = CScript() << OP_1;
+    const CScript payout_b = CScript() << OP_2;
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawals{
+        MakeWithdrawalLeaf(uint256S("2020202020202020202020202020202020202020202020202020202020202020"), payout_a, 2 * COIN),
+        MakeWithdrawalLeaf(uint256S("2121212121212121212121212121212121212121212121212121212121212121"), payout_b, 3 * COIN),
+    };
+    InstallAcceptedWithdrawalBatch(state, /* sidechain_id= */ 8, /* batch_number= */ 1, withdrawals, /* accepted_height= */ 341);
+
+    const uint256 accepted_batch_id = ComputeValiditySidechainAcceptedBatchId(
+        /* scid= */ 8,
+        /* batch_number= */ 1,
+        ComputeValiditySidechainWithdrawalRoot(withdrawals));
+
+    std::string error;
+    BOOST_REQUIRE(state.ExecuteWithdrawals(/* sidechain_id= */ 8, accepted_batch_id, withdrawals, &error));
+    BOOST_CHECK(error.empty());
+
+    sidechain = state.GetSidechain(8);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 5 * COIN);
+    BOOST_CHECK_EQUAL(sidechain->executed_withdrawal_count, 2U);
+    BOOST_CHECK(state.HasExecutedWithdrawal(8, withdrawals[0].withdrawal_id));
+    BOOST_CHECK(state.HasExecutedWithdrawal(8, withdrawals[1].withdrawal_id));
+
+    BOOST_CHECK(!state.ExecuteWithdrawals(/* sidechain_id= */ 8, accepted_batch_id, withdrawals, &error));
+    BOOST_CHECK_EQUAL(error, "withdrawal id already executed");
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_handles_verified_withdrawal_execution)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 9, /* registration_height= */ 350, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(9);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 6 * COIN;
+
+    const CScript payout_a = CScript() << OP_3;
+    const CScript payout_b = CScript() << OP_4;
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawals{
+        MakeWithdrawalLeaf(uint256S("2222222222222222222222222222222222222222222222222222222222222222"), payout_a, 1 * COIN),
+        MakeWithdrawalLeaf(uint256S("2323232323232323232323232323232323232323232323232323232323232323"), payout_b, 2 * COIN),
+    };
+    InstallAcceptedWithdrawalBatch(state, /* sidechain_id= */ 9, /* batch_number= */ 1, withdrawals, /* accepted_height= */ 351);
+
+    CMutableTransaction tx;
+    tx.vout.emplace_back(
+        /* nValueIn= */ 0,
+        BuildValiditySidechainExecuteScript(
+            /* scid= */ 9,
+            /* batch_number= */ 1,
+            ComputeValiditySidechainWithdrawalRoot(withdrawals),
+            withdrawals));
+    tx.vout.emplace_back(1 * COIN, payout_a);
+    tx.vout.emplace_back(2 * COIN, payout_b);
+
+    CBlock block;
+    block.vtx.push_back(MakeTransactionRef(tx));
+
+    CBlockIndex index;
+    index.nHeight = 352;
+
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
+    BOOST_CHECK(state.HasExecutedWithdrawal(9, withdrawals[0].withdrawal_id));
+    BOOST_CHECK(state.HasExecutedWithdrawal(9, withdrawals[1].withdrawal_id));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

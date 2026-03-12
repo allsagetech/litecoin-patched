@@ -204,7 +204,6 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
 {
     const uint8_t sidechain_id = 12;
     const uint32_t batch_number = 34;
-    const uint256 withdrawal_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     const uint256 state_root_reference = uint256S("1313131313131313131313131313131313131313131313131313131313131313");
     ValiditySidechainDepositData deposit;
     deposit.deposit_id = uint256S("1212121212121212121212121212121212121212121212121212121212121212");
@@ -212,15 +211,35 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
     deposit.destination_commitment = uint256S("1414141414141414141414141414141414141414141414141414141414141414");
     deposit.refund_script_commitment = uint256S("1515151515151515151515151515151515151515151515151515151515151515");
     deposit.nonce = 7;
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawals{
+        {
+            uint256S("1616161616161616161616161616161616161616161616161616161616161616"),
+            2 * COIN,
+            uint256S("1717171717171717171717171717171717171717171717171717171717171717"),
+        },
+        {
+            uint256S("1818181818181818181818181818181818181818181818181818181818181818"),
+            3 * COIN,
+            uint256S("1919191919191919191919191919191919191919191919191919191919191919"),
+        },
+    };
+    const uint256 withdrawal_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
 
     {
         ValiditySidechainScriptInfo info;
         BOOST_REQUIRE(DecodeValiditySidechainScript(
-            BuildValiditySidechainExecuteScript(sidechain_id, batch_number, withdrawal_root),
+            BuildValiditySidechainExecuteScript(sidechain_id, batch_number, withdrawal_root, withdrawals),
             info));
         BOOST_CHECK(info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS);
         BOOST_CHECK(info.payload == ComputeValiditySidechainAcceptedBatchId(sidechain_id, batch_number, withdrawal_root));
-        BOOST_CHECK(info.metadata_pushes.empty());
+        BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), withdrawals.size());
+
+        std::vector<ValiditySidechainWithdrawalLeaf> decoded_withdrawals;
+        BOOST_REQUIRE(DecodeValiditySidechainExecuteMetadata(info, decoded_withdrawals));
+        BOOST_REQUIRE_EQUAL(decoded_withdrawals.size(), withdrawals.size());
+        BOOST_CHECK(decoded_withdrawals[0].withdrawal_id == withdrawals[0].withdrawal_id);
+        BOOST_CHECK_EQUAL(decoded_withdrawals[1].amount, withdrawals[1].amount);
+        BOOST_CHECK(decoded_withdrawals[1].destination_commitment == withdrawals[1].destination_commitment);
     }
 
     {

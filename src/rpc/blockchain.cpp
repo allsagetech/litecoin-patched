@@ -1792,6 +1792,8 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("registration_validation_available", true);
     result.pushKV("batch_validation_available", true);
     result.pushKV("batch_validation_mode", "scaffold_noop_only");
+    result.pushKV("verified_withdrawal_execution_available", true);
+    result.pushKV("verified_withdrawal_execution_mode", "full_list_root_only_scaffold");
     result.pushKV("supported_proof_configs", supported_configs);
     result.pushKV("sidechains", sidechains);
     return result;

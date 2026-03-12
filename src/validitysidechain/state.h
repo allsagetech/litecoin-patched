@@ -10,6 +10,7 @@
 #include <uint256.h>
 
 #include <map>
+#include <set>
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -122,6 +123,20 @@ struct ValiditySidechainForceExitData
     }
 };
 
+struct ValiditySidechainWithdrawalLeaf
+{
+    uint256 withdrawal_id;
+    CAmount amount{0};
+    uint256 destination_commitment;
+
+    SERIALIZE_METHODS(ValiditySidechainWithdrawalLeaf, obj)
+    {
+        READWRITE(obj.withdrawal_id,
+                  obj.amount,
+                  obj.destination_commitment);
+    }
+};
+
 struct ValiditySidechainAcceptedBatch
 {
     uint32_t batch_number{0};
@@ -229,6 +244,7 @@ struct ValiditySidechain
     ValiditySidechainQueueState queue_state;
     std::map<uint64_t, ValiditySidechainQueueEntry> queue_entries;
     std::map<uint256, ValiditySidechainPendingDeposit> pending_deposits;
+    std::set<uint256> executed_withdrawal_ids;
     uint64_t executed_withdrawal_count{0};
     uint64_t executed_escape_exit_count{0};
     std::map<uint32_t, ValiditySidechainAcceptedBatch> accepted_batches;
@@ -247,6 +263,7 @@ struct ValiditySidechain
                   obj.queue_state,
                   obj.queue_entries,
                   obj.pending_deposits,
+                  obj.executed_withdrawal_ids,
                   obj.executed_withdrawal_count,
                   obj.executed_escape_exit_count,
                   obj.accepted_batches);
@@ -266,7 +283,9 @@ public:
     const ValiditySidechain* GetSidechain(uint8_t id) const;
     ValiditySidechain* GetSidechain(uint8_t id);
     const ValiditySidechainAcceptedBatch* GetAcceptedBatch(uint8_t sidechain_id, uint32_t batch_number) const;
+    const ValiditySidechainAcceptedBatch* GetAcceptedBatchById(uint8_t sidechain_id, const uint256& accepted_batch_id) const;
     const ValiditySidechainPendingDeposit* GetPendingDeposit(uint8_t sidechain_id, const uint256& deposit_id) const;
+    bool HasExecutedWithdrawal(uint8_t sidechain_id, const uint256& withdrawal_id) const;
     ValiditySidechain& GetOrCreateSidechain(uint8_t id, int registration_height);
     bool ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state);
     bool RegisterSidechain(uint8_t id, int registration_height, const ValiditySidechainConfig& config, std::string* error = nullptr);
@@ -278,6 +297,11 @@ public:
         const ValiditySidechainBatchPublicInputs& public_inputs,
         const std::vector<unsigned char>& proof_bytes,
         const std::vector<std::vector<unsigned char>>& data_chunks,
+        std::string* error = nullptr);
+    bool ExecuteWithdrawals(
+        uint8_t sidechain_id,
+        const uint256& accepted_batch_id,
+        const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
         std::string* error = nullptr);
     void Reset();
 };

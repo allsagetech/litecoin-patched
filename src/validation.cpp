@@ -738,6 +738,48 @@ namespace {
         return Hash(script.begin(), script.end());
     }
 
+    static bool MatchValidityWithdrawalPayouts(
+        const CTransaction& tx,
+        int marker_index,
+        const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+        CAmount* out_total = nullptr)
+    {
+        if (out_total != nullptr) {
+            *out_total = 0;
+        }
+        if (withdrawals.empty()) {
+            return false;
+        }
+
+        const size_t start = static_cast<size_t>(marker_index) + 1;
+        if (tx.vout.size() < start + withdrawals.size()) {
+            return false;
+        }
+
+        CAmount total = 0;
+        for (size_t i = 0; i < withdrawals.size(); ++i) {
+            const CTxOut& txout = tx.vout[start + i];
+            const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawals[i];
+            if (IsDrivechainOutput(txout.scriptPubKey) ||
+                txout.nValue != withdrawal.amount ||
+                ComputeScriptCommitment(txout.scriptPubKey) != withdrawal.destination_commitment) {
+                return false;
+            }
+            if (total > MAX_MONEY - withdrawal.amount) {
+                return false;
+            }
+            total += withdrawal.amount;
+        }
+
+        if (!MoneyRange(total)) {
+            return false;
+        }
+        if (out_total != nullptr) {
+            *out_total = total;
+        }
+        return true;
+    }
+
     static int CountValiditySidechainOutputs(const CTransaction& tx)
     {
         int count = 0;
@@ -779,13 +821,16 @@ namespace {
     }
 
     // Compute the amount that may be treated as "virtual input credit" for sidechain-driven
-    // payout transactions. This currently applies to legacy EXECUTE and stale deposit reclaim.
+    // payout transactions. This applies to legacy EXECUTE, validity-sidechain verified
+    // withdrawal execution, and stale deposit reclaim.
     static bool ComputeDrivechainTxInputCredit(const CTransaction& tx, CAmount& out_credit)
     {
         out_credit = 0;
 
         int execute_marker_index = -1;
         DrivechainScriptInfo execute_info;
+        int validity_execute_marker_index = -1;
+        ValiditySidechainScriptInfo validity_execute_info;
         int reclaim_marker_index = -1;
         ValiditySidechainDepositData reclaim_deposit;
 
@@ -793,7 +838,7 @@ namespace {
             DrivechainScriptInfo info;
             if (DecodeDrivechainScript(tx.vout[out_i].scriptPubKey, info) &&
                 info.kind == DrivechainScriptInfo::Kind::EXECUTE) {
-                if (execute_marker_index != -1 || reclaim_marker_index != -1) {
+                if (execute_marker_index != -1 || reclaim_marker_index != -1 || validity_execute_marker_index != -1) {
                     return false;
                 }
                 execute_marker_index = static_cast<int>(out_i);
@@ -802,25 +847,37 @@ namespace {
             }
 
             ValiditySidechainScriptInfo validity_info;
-            if (DecodeValiditySidechainScript(tx.vout[out_i].scriptPubKey, validity_info) &&
-                validity_info.kind == ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT) {
-                if (reclaim_marker_index != -1 || execute_marker_index != -1) {
-                    return false;
+            if (DecodeValiditySidechainScript(tx.vout[out_i].scriptPubKey, validity_info)) {
+                if (validity_info.kind == ValiditySidechainScriptInfo::Kind::RECLAIM_STALE_DEPOSIT) {
+                    if (reclaim_marker_index != -1 || execute_marker_index != -1 || validity_execute_marker_index != -1) {
+                        return false;
+                    }
+                    if (!DecodeValiditySidechainDepositData(validity_info.primary_metadata, reclaim_deposit)) {
+                        return false;
+                    }
+                    if (reclaim_deposit.deposit_id != validity_info.payload) {
+                        return false;
+                    }
+                    if (tx.vout[out_i].nValue != 0) {
+                        return false;
+                    }
+                    reclaim_marker_index = static_cast<int>(out_i);
+                    continue;
                 }
-                if (!DecodeValiditySidechainDepositData(validity_info.primary_metadata, reclaim_deposit)) {
-                    return false;
+                if (validity_info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS) {
+                    if (validity_execute_marker_index != -1 || execute_marker_index != -1 || reclaim_marker_index != -1) {
+                        return false;
+                    }
+                    if (tx.vout[out_i].nValue != 0) {
+                        return false;
+                    }
+                    validity_execute_marker_index = static_cast<int>(out_i);
+                    validity_execute_info = validity_info;
                 }
-                if (reclaim_deposit.deposit_id != validity_info.payload) {
-                    return false;
-                }
-                if (tx.vout[out_i].nValue != 0) {
-                    return false;
-                }
-                reclaim_marker_index = static_cast<int>(out_i);
             }
         }
 
-        if (execute_marker_index == -1 && reclaim_marker_index == -1) {
+        if (execute_marker_index == -1 && reclaim_marker_index == -1 && validity_execute_marker_index == -1) {
             return true;
         }
 
@@ -830,6 +887,14 @@ namespace {
                     tx, execute_marker_index, execute_info.sidechain_id, execute_info.n_withdrawals);
                 out_credit = res.second;
             } catch (const std::exception&) {
+                return false;
+            }
+        } else if (validity_execute_marker_index != -1) {
+            std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+            if (!DecodeValiditySidechainExecuteMetadata(validity_execute_info, withdrawals)) {
+                return false;
+            }
+            if (!MatchValidityWithdrawalPayouts(tx, validity_execute_marker_index, withdrawals, &out_credit)) {
                 return false;
             }
         } else {
@@ -991,6 +1056,44 @@ namespace {
         return batch_count == 1;
     }
 
+    static bool TryGetValiditySidechainWithdrawalKeys(
+        const CTransaction& tx,
+        std::vector<std::pair<uint8_t, uint256>>& out_keys)
+    {
+        int execute_count = 0;
+        std::vector<std::pair<uint8_t, uint256>> keys;
+        std::set<std::pair<uint8_t, uint256>> unique_keys;
+
+        for (const auto& txout : tx.vout) {
+            ValiditySidechainScriptInfo info;
+            if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+                info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS) {
+                continue;
+            }
+
+            std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+            if (!DecodeValiditySidechainExecuteMetadata(info, withdrawals)) {
+                return false;
+            }
+
+            ++execute_count;
+            if (execute_count > 1) {
+                return false;
+            }
+
+            for (const auto& withdrawal : withdrawals) {
+                const auto key = std::make_pair(info.sidechain_id, withdrawal.withdrawal_id);
+                if (!unique_keys.insert(key).second) {
+                    return false;
+                }
+                keys.push_back(key);
+            }
+        }
+
+        out_keys = std::move(keys);
+        return execute_count == 1;
+    }
+
     static bool CheckValiditySidechainBlock(
         const CBlock& block,
         const CChainParams& chainparams,
@@ -1126,6 +1229,29 @@ namespace {
                         std::string error;
                         if (!block_validitysidechain_state.AcceptBatch(info.sidechain_id, height, public_inputs, proof_bytes, data_chunks, &error)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-batch-invalid", error);
+                        }
+                        break;
+                    }
+
+                    case ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS: {
+                        if (txout.nValue != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-marker-value");
+                        }
+
+                        std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+                        if (!DecodeValiditySidechainExecuteMetadata(info, withdrawals)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-metadata-bad");
+                        }
+                        if (!MatchValidityWithdrawalPayouts(*tx, static_cast<int>(out_i), withdrawals)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-payout-mismatch");
+                        }
+                        if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-confirmation-required");
+                        }
+
+                        std::string error;
+                        if (!block_validitysidechain_state.ExecuteWithdrawals(info.sidechain_id, info.payload, withdrawals, &error)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-invalid", error);
                         }
                         break;
                     }
@@ -1803,6 +1929,29 @@ namespace {
                     std::string error;
                     if (!tx_validitysidechain_state.AcceptBatch(info.sidechain_id, next_height, public_inputs, proof_bytes, data_chunks, &error)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-batch-invalid", error);
+                    }
+                    break;
+                }
+
+                case ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS: {
+                    if (txout.nValue != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-execute-marker-value");
+                    }
+
+                    std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+                    if (!DecodeValiditySidechainExecuteMetadata(info, withdrawals)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-execute-metadata-bad");
+                    }
+                    if (!MatchValidityWithdrawalPayouts(tx, static_cast<int>(out_i), withdrawals)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-execute-payout-mismatch");
+                    }
+                    if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-confirmation-required");
+                    }
+
+                    std::string error;
+                    if (!tx_validitysidechain_state.ExecuteWithdrawals(info.sidechain_id, info.payload, withdrawals, &error)) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-execute-invalid", error);
                     }
                     break;
                 }
@@ -2539,6 +2688,15 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (TryGetValiditySidechainBatchKey(tx, validity_batch_key) &&
         m_pool.HasValiditySidechainBatch(validity_batch_key)) {
         return state.Invalid(TxValidationResult::TX_CONFLICT, "validitysidechain-batch-duplicate-mempool");
+    }
+
+    std::vector<std::pair<uint8_t, uint256>> validity_withdrawal_keys;
+    if (TryGetValiditySidechainWithdrawalKeys(tx, validity_withdrawal_keys)) {
+        for (const auto& key : validity_withdrawal_keys) {
+            if (m_pool.HasValiditySidechainWithdrawal(key)) {
+                return state.Invalid(TxValidationResult::TX_CONFLICT, "validitysidechain-execute-duplicate-withdrawal-mempool");
+            }
+        }
     }
 
     std::pair<uint8_t, uint256> bmm_request_key;

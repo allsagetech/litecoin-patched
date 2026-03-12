@@ -5,6 +5,7 @@
 #include <validitysidechain/state.h>
 
 #include <chain.h>
+#include <drivechain/script.h>
 #include <hash.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
@@ -170,6 +171,38 @@ static bool FindUniqueRefundOutput(
     return refund_output_index != -1;
 }
 
+static bool MatchWithdrawalOutputs(
+    const CTransaction& tx,
+    int marker_index,
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)
+{
+    if (withdrawals.empty()) {
+        return false;
+    }
+
+    const size_t start = static_cast<size_t>(marker_index) + 1;
+    if (tx.vout.size() < start + withdrawals.size()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < withdrawals.size(); ++i) {
+        const CTxOut& txout = tx.vout[start + i];
+        const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawals[i];
+        ValiditySidechainScriptInfo validity_info;
+        DrivechainScriptInfo drivechain_info;
+        if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) ||
+            DecodeDrivechainScript(txout.scriptPubKey, drivechain_info) ||
+            txout.nValue != withdrawal.amount) {
+            return false;
+        }
+        if (ComputeScriptCommitment(txout.scriptPubKey) != withdrawal.destination_commitment) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool ComputeConsumedQueueRoot(
     const ValiditySidechain& sidechain,
     uint8_t sidechain_id,
@@ -256,6 +289,23 @@ const ValiditySidechainAcceptedBatch* ValiditySidechainState::GetAcceptedBatch(u
     return it == sidechain->accepted_batches.end() ? nullptr : &it->second;
 }
 
+const ValiditySidechainAcceptedBatch* ValiditySidechainState::GetAcceptedBatchById(uint8_t sidechain_id, const uint256& accepted_batch_id) const
+{
+    const ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr) {
+        return nullptr;
+    }
+
+    for (const auto& entry : sidechain->accepted_batches) {
+        const ValiditySidechainAcceptedBatch& batch = entry.second;
+        if (ComputeValiditySidechainAcceptedBatchId(sidechain_id, batch.batch_number, batch.withdrawal_root) == accepted_batch_id) {
+            return &batch;
+        }
+    }
+
+    return nullptr;
+}
+
 const ValiditySidechainPendingDeposit* ValiditySidechainState::GetPendingDeposit(uint8_t sidechain_id, const uint256& deposit_id) const
 {
     const ValiditySidechain* sidechain = GetSidechain(sidechain_id);
@@ -265,6 +315,15 @@ const ValiditySidechainPendingDeposit* ValiditySidechainState::GetPendingDeposit
 
     const auto it = sidechain->pending_deposits.find(deposit_id);
     return it == sidechain->pending_deposits.end() ? nullptr : &it->second;
+}
+
+bool ValiditySidechainState::HasExecutedWithdrawal(uint8_t sidechain_id, const uint256& withdrawal_id) const
+{
+    const ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr) {
+        return false;
+    }
+    return sidechain->executed_withdrawal_ids.count(withdrawal_id) != 0;
 }
 
 ValiditySidechain& ValiditySidechainState::GetOrCreateSidechain(uint8_t id, int registration_height)
@@ -568,6 +627,87 @@ bool ValiditySidechainState::AcceptBatch(
     return true;
 }
 
+bool ValiditySidechainState::ExecuteWithdrawals(
+    uint8_t sidechain_id,
+    const uint256& accepted_batch_id,
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+    std::string* error)
+{
+    ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr || !sidechain->is_active) {
+        if (error != nullptr) {
+            *error = "unknown validity sidechain";
+        }
+        return false;
+    }
+    if (withdrawals.empty()) {
+        if (error != nullptr) {
+            *error = "withdrawal execution metadata is empty";
+        }
+        return false;
+    }
+
+    const ValiditySidechainAcceptedBatch* accepted_batch = GetAcceptedBatchById(sidechain_id, accepted_batch_id);
+    if (accepted_batch == nullptr) {
+        if (error != nullptr) {
+            *error = "accepted batch not found";
+        }
+        return false;
+    }
+
+    const uint256 computed_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
+    if (computed_root != accepted_batch->withdrawal_root) {
+        if (error != nullptr) {
+            *error = "withdrawal list does not match accepted withdrawal root";
+        }
+        return false;
+    }
+
+    CAmount total_amount = 0;
+    std::set<uint256> new_ids;
+    for (const auto& withdrawal : withdrawals) {
+        if (!MoneyRange(withdrawal.amount) || withdrawal.amount <= 0) {
+            if (error != nullptr) {
+                *error = "withdrawal amount out of range";
+            }
+            return false;
+        }
+        if (!new_ids.insert(withdrawal.withdrawal_id).second) {
+            if (error != nullptr) {
+                *error = "duplicate withdrawal id in execution";
+            }
+            return false;
+        }
+        if (sidechain->executed_withdrawal_ids.count(withdrawal.withdrawal_id) != 0) {
+            if (error != nullptr) {
+                *error = "withdrawal id already executed";
+            }
+            return false;
+        }
+        if (total_amount > MAX_MONEY - withdrawal.amount) {
+            if (error != nullptr) {
+                *error = "withdrawal total out of range";
+            }
+            return false;
+        }
+        total_amount += withdrawal.amount;
+    }
+    if (!MoneyRange(total_amount) || sidechain->escrow_balance < total_amount) {
+        if (error != nullptr) {
+            *error = "escrow balance insufficient for withdrawals";
+        }
+        return false;
+    }
+
+    sidechain->escrow_balance -= total_amount;
+    sidechain->executed_withdrawal_ids.insert(new_ids.begin(), new_ids.end());
+    sidechain->executed_withdrawal_count += new_ids.size();
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
 bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state)
 {
     const int height = pindex->nHeight;
@@ -661,6 +801,26 @@ bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex
                     std::string error;
                     if (!AcceptBatch(info.sidechain_id, height, public_inputs, proof_bytes, data_chunks, &error)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-batch-invalid", error);
+                    }
+                    break;
+                }
+
+                case ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS: {
+                    if (txout.nValue != 0) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-marker-value");
+                    }
+
+                    std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+                    if (!DecodeValiditySidechainExecuteMetadata(info, withdrawals)) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-metadata-bad");
+                    }
+                    if (!MatchWithdrawalOutputs(*tx, static_cast<int>(out_i), withdrawals)) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-payout-mismatch");
+                    }
+
+                    std::string error;
+                    if (!ExecuteWithdrawals(info.sidechain_id, info.payload, withdrawals, &error)) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-execute-invalid", error);
                     }
                     break;
                 }
