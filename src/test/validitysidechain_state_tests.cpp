@@ -691,6 +691,41 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_mismatched_data_root)
     BOOST_CHECK_EQUAL(error, "data root does not match published chunks");
 }
 
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_oversized_proof_bytes)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 23, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(23);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    std::vector<unsigned char> proof_bytes(config.max_proof_bytes + 1, 0x42);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 23, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
+    BOOST_CHECK_EQUAL(error, "proof bytes exceed configured limit");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_oversized_data_size)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 24, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(24);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.data_size = config.max_batch_data_bytes + 1;
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 24, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 24, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
+    BOOST_CHECK_EQUAL(error, "data size exceeds configured limit");
+}
+
 BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_records)
 {
     ValiditySidechainState state;

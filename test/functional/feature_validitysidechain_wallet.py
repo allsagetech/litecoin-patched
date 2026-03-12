@@ -260,6 +260,17 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             missing_da_public_inputs,
         )
 
+        self.log.info("Rejecting a batch that exceeds the configured DA payload size.")
+        oversized_da_public_inputs = dict(public_inputs)
+        oversized_da_public_inputs["data_size"] = config["max_batch_data_bytes"] + 1
+        assert_raises_rpc_error(
+            -26,
+            "data size exceeds configured limit",
+            node.sendvaliditybatch,
+            sidechain_id,
+            oversized_da_public_inputs,
+        )
+
         self.log.info("Rejecting a batch whose published DA chunks do not match data_root.")
         bad_da_root_public_inputs = dict(public_inputs)
         bad_da_root_public_inputs["data_root"] = "99" * 32
@@ -272,6 +283,16 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             bad_da_root_public_inputs,
             None,
             ["01"],
+        )
+
+        self.log.info("Rejecting a batch whose proof bytes exceed the configured limit.")
+        assert_raises_rpc_error(
+            -26,
+            "proof bytes exceed configured limit",
+            node.sendvaliditybatch,
+            sidechain_id,
+            public_inputs,
+            "00" * (config["max_proof_bytes"] + 1),
         )
 
         batch_res = node.sendvaliditybatch(sidechain_id, public_inputs)
