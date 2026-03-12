@@ -331,6 +331,16 @@ struct DrivechainStateCacheStats
     uint64_t snapshots_written{0};
 };
 DrivechainStateCacheStats GetDrivechainStateCacheStats();
+struct ValiditySidechainStateCacheStats
+{
+    uint64_t cache_entries{0};
+    uint64_t max_entries{0};
+    uint64_t cache_hits{0};
+    uint64_t cache_misses{0};
+    uint64_t recompute_fallbacks{0};
+    uint64_t snapshots_written{0};
+};
+ValiditySidechainStateCacheStats GetValiditySidechainStateCacheStats();
 bool CheckDrivechainTxForCurrentState(
     const CTransaction& tx,
     const CChainParams& chainparams,

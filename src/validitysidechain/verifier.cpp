@@ -90,6 +90,40 @@ static bool DecodeValiditySidechainScaffoldProofEnvelope(
            ReadUint256(proof_bytes, offset += UINT256_SERIALIZED_SIZE, out_envelope.current_l1_message_root);
 }
 
+static bool ValidatePublishedBatchData(
+    const ValiditySidechainConfig& config,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<std::vector<unsigned char>>& data_chunks,
+    std::string* error)
+{
+    if (public_inputs.data_size > config.max_batch_data_bytes) {
+        return FailValidation(error, "data size exceeds configured limit");
+    }
+    if (public_inputs.data_size != 0 && data_chunks.empty()) {
+        return FailValidation(error, "data chunks missing for non-zero data_size");
+    }
+
+    uint64_t total_data_size = 0;
+    for (const auto& chunk : data_chunks) {
+        if (chunk.empty()) {
+            return FailValidation(error, "data chunk must be non-empty");
+        }
+        total_data_size += chunk.size();
+        if (total_data_size > std::numeric_limits<uint32_t>::max()) {
+            return FailValidation(error, "data chunk size overflow");
+        }
+    }
+
+    if (total_data_size != public_inputs.data_size) {
+        return FailValidation(error, "data size does not match published chunks");
+    }
+    if (ComputeValiditySidechainDataRoot(data_chunks) != public_inputs.data_root) {
+        return FailValidation(error, "data root does not match published chunks");
+    }
+
+    return true;
+}
+
 } // namespace
 
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config)
@@ -175,25 +209,14 @@ bool VerifyValiditySidechainBatch(
     if (public_inputs.batch_number == 0) {
         return FailValidation(error, "batch_number must be non-zero");
     }
+    if (proof_bytes.empty()) {
+        return FailValidation(error, "proof bytes must be non-empty");
+    }
     if (proof_bytes.size() > config.max_proof_bytes) {
         return FailValidation(error, "proof bytes exceed configured limit");
     }
-
-    uint32_t total_data_size = 0;
-    for (const auto& chunk : data_chunks) {
-        if (chunk.size() > static_cast<size_t>(std::numeric_limits<uint32_t>::max() - total_data_size)) {
-            return FailValidation(error, "data chunk size overflow");
-        }
-        total_data_size += static_cast<uint32_t>(chunk.size());
-    }
-    if (total_data_size != public_inputs.data_size) {
-        return FailValidation(error, "data size does not match published chunks");
-    }
-    if (public_inputs.data_size > config.max_batch_data_bytes) {
-        return FailValidation(error, "data size exceeds configured limit");
-    }
-    if (ComputeValiditySidechainDataRoot(data_chunks) != public_inputs.data_root) {
-        return FailValidation(error, "data root does not match published chunks");
+    if (!ValidatePublishedBatchData(config, public_inputs, data_chunks, error)) {
+        return false;
     }
 
     if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY) {

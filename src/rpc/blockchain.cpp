@@ -36,6 +36,7 @@
 #include <util/system.h>
 #include <util/translation.h>
 #include <validitysidechain/registry.h>
+#include <validitysidechain/script.h>
 #include <validitysidechain/state.h>
 #include <validitysidechain/verifier.h>
 #include <validation.h>
@@ -1719,6 +1720,86 @@ static UniValue ValiditySidechainQueueStateToJSON(const ValiditySidechainQueueSt
     return result;
 }
 
+struct ValidityAcceptedBatchPublication
+{
+    bool found{false};
+    uint32_t data_size{0};
+    size_t published_data_chunk_count{0};
+    size_t published_data_bytes{0};
+    size_t proof_size{0};
+    uint256 txid;
+    uint256 block_hash;
+};
+
+static bool MatchesAcceptedBatchMetadata(
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const ValiditySidechainAcceptedBatch& batch)
+{
+    return public_inputs.batch_number == batch.batch_number &&
+           public_inputs.prior_state_root == batch.prior_state_root &&
+           public_inputs.new_state_root == batch.new_state_root &&
+           public_inputs.l1_message_root_before == batch.l1_message_root_before &&
+           public_inputs.l1_message_root_after == batch.l1_message_root_after &&
+           public_inputs.consumed_queue_messages == batch.consumed_queue_messages &&
+           public_inputs.withdrawal_root == batch.withdrawal_root &&
+           public_inputs.data_root == batch.data_root;
+}
+
+static bool GetValidityAcceptedBatchPublication(
+    const ValiditySidechain& sidechain,
+    const ValiditySidechainAcceptedBatch& batch,
+    ValidityAcceptedBatchPublication& out_publication)
+{
+    if (batch.accepted_height < 0 || batch.accepted_height > ::ChainActive().Height()) {
+        return false;
+    }
+
+    const CBlockIndex* const pindex = ::ChainActive()[batch.accepted_height];
+    if (pindex == nullptr || IsBlockPruned(pindex)) {
+        return false;
+    }
+
+    CBlock block;
+    if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus())) {
+        return false;
+    }
+
+    for (const auto& tx : block.vtx) {
+        for (const auto& txout : tx->vout) {
+            ValiditySidechainScriptInfo info;
+            if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+                info.kind != ValiditySidechainScriptInfo::Kind::COMMIT_VALIDITY_BATCH ||
+                info.sidechain_id != sidechain.id) {
+                continue;
+            }
+
+            ValiditySidechainBatchPublicInputs public_inputs;
+            std::vector<unsigned char> proof_bytes;
+            std::vector<std::vector<unsigned char>> data_chunks;
+            if (!DecodeValiditySidechainCommitMetadata(info, public_inputs, proof_bytes, data_chunks) ||
+                !MatchesAcceptedBatchMetadata(public_inputs, batch)) {
+                continue;
+            }
+
+            size_t total_data_bytes = 0;
+            for (const auto& chunk : data_chunks) {
+                total_data_bytes += chunk.size();
+            }
+
+            out_publication.found = true;
+            out_publication.data_size = public_inputs.data_size;
+            out_publication.published_data_chunk_count = data_chunks.size();
+            out_publication.published_data_bytes = total_data_bytes;
+            out_publication.proof_size = proof_bytes.size();
+            out_publication.txid = tx->GetHash();
+            out_publication.block_hash = pindex->GetBlockHash();
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
 {
     UniValue result(UniValue::VOBJ);
@@ -1749,6 +1830,15 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
         batch_obj.pushKV("withdrawal_root", batch.withdrawal_root.GetHex());
         batch_obj.pushKV("data_root", batch.data_root.GetHex());
         batch_obj.pushKV("accepted_height", batch.accepted_height);
+        ValidityAcceptedBatchPublication publication;
+        if (GetValidityAcceptedBatchPublication(sidechain, batch, publication)) {
+            batch_obj.pushKV("data_size", static_cast<int64_t>(publication.data_size));
+            batch_obj.pushKV("published_data_chunk_count", static_cast<int64_t>(publication.published_data_chunk_count));
+            batch_obj.pushKV("published_data_bytes", static_cast<int64_t>(publication.published_data_bytes));
+            batch_obj.pushKV("proof_size", static_cast<int64_t>(publication.proof_size));
+            batch_obj.pushKV("published_in_txid", publication.txid.GetHex());
+            batch_obj.pushKV("published_in_block", publication.block_hash.GetHex());
+        }
         accepted_batches.push_back(batch_obj);
     }
     result.pushKV("accepted_batches", accepted_batches);
@@ -1803,6 +1893,15 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("verified_withdrawal_execution_mode", "merkle_inclusion_scaffold");
     result.pushKV("escape_exit_available", true);
     result.pushKV("escape_exit_mode", "merkle_inclusion_scaffold");
+    const ValiditySidechainStateCacheStats cache_stats = GetValiditySidechainStateCacheStats();
+    UniValue cache(UniValue::VOBJ);
+    cache.pushKV("entries", static_cast<int64_t>(cache_stats.cache_entries));
+    cache.pushKV("max_entries", static_cast<int64_t>(cache_stats.max_entries));
+    cache.pushKV("hits", static_cast<int64_t>(cache_stats.cache_hits));
+    cache.pushKV("misses", static_cast<int64_t>(cache_stats.cache_misses));
+    cache.pushKV("recompute_fallbacks", static_cast<int64_t>(cache_stats.recompute_fallbacks));
+    cache.pushKV("snapshots_written", static_cast<int64_t>(cache_stats.snapshots_written));
+    result.pushKV("state_cache", cache);
     result.pushKV("supported_proof_configs", supported_configs);
     result.pushKV("sidechains", sidechains);
     return result;

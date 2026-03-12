@@ -230,7 +230,8 @@ Current branch status:
 - `sendvaliditysidechainregister`, `sendvaliditydeposit`,
   `sendvaliditybatch`, `sendforceexitrequest`, and
   `sendstaledepositreclaim` now exist for the scaffold path
-- `sendverifiedwithdrawals` and `sendescapeexit` are still missing
+- `sendverifiedwithdrawals` and `sendescapeexit` now also exist for the
+  current scaffold proof-execution path
 
 ### `src/rpc/blockchain.cpp`
 
@@ -415,17 +416,21 @@ Current branch status:
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration, force-exit, batch-validation, withdrawal, and escape-exit
   plumbing availability
+- `getvaliditysidechaininfo` now also reconstructs accepted-batch publication
+  metadata from the active chain, including proof size, DA chunk count, and
+  the publishing transaction id
 - wallet send-path RPCs now exist for validity-sidechain registration,
   deposits, scaffold batches, force-exit requests, and stale-deposit reclaim
 - the legacy `getdrivechaininfo`, `senddrivechainbundle`, and
   `senddrivechainexecute` RPC surfaces are now explicitly marked deprecated,
   while the underlying legacy consensus path remains active during migration
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
-  though ancestor snapshot replay is still drivechain-only
+  and ancestor snapshot replay now uses persisted by-hash validity-sidechain
+  snapshots during rollback/restart recovery, with competing-fork rollback
+  coverage for accepted batches, verified withdrawals, and escape exits
 - trustless proof verification, DA-carrying batches, proof-backed queue
-  consumption, full force-inclusion enforcement, the remaining
-  `sendverifiedwithdrawals` / `sendescapeexit` operator RPCs, and final
-  per-proof escape-exit semantics are still outstanding
+  consumption, full force-inclusion enforcement, and final per-proof
+  escape-exit semantics are still outstanding
 
 ## 8. Bottom Line
 

@@ -621,6 +621,132 @@ static void ParseWithdrawalsArray( const UniValue& arr, std::vector<CRecipient>&
     out_sum = sum;
 }
 
+static uint256 ComputeRpcScriptCommitment(const CScript& script);
+
+static const ValiditySidechainAcceptedBatch* FindAcceptedValidityBatch(
+    const ValiditySidechain& sidechain,
+    uint32_t batch_number)
+{
+    const auto it = sidechain.accepted_batches.find(batch_number);
+    return it == sidechain.accepted_batches.end() ? nullptr : &it->second;
+}
+
+static CScript ParseRpcPayoutScript(
+    const UniValue& obj,
+    const std::string& context)
+{
+    RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+    const bool has_addr = obj.exists("address") && !obj["address"].isNull();
+    const bool has_script = obj.exists("script") && !obj["script"].isNull();
+    if (has_addr == has_script) {
+        throw JSONRPCError(
+            RPC_INVALID_PARAMETER,
+            strprintf("%s must contain exactly one of address or script", context));
+    }
+
+    CScript script;
+    if (has_addr) {
+        const std::string addr = obj["address"].get_str();
+        const CTxDestination dest = DecodeDestination(addr);
+        if (!IsValidDestination(dest)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid address: " + addr);
+        }
+        script = GetScriptForDestination(dest);
+    } else {
+        const std::string hex = obj["script"].get_str();
+        if (!IsHex(hex)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("%s script is not hex", context));
+        }
+        const std::vector<unsigned char> bytes = ParseHex(hex);
+        script = CScript(bytes.begin(), bytes.end());
+    }
+
+    if (script.size() > 255) {
+        throw JSONRPCError(
+            RPC_INVALID_PARAMETER,
+            strprintf("%s scriptPubKey too long (max 255 bytes)", context));
+    }
+
+    return script;
+}
+
+static void ParseValidityWithdrawalLeaves(
+    const UniValue& arr,
+    std::vector<ValiditySidechainWithdrawalLeaf>& out_withdrawals,
+    std::vector<CRecipient>& out_recipients)
+{
+    RPCTypeCheckArgument(arr, UniValue::VARR);
+    if (arr.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawals array must not be empty");
+    }
+
+    out_withdrawals.clear();
+    out_withdrawals.reserve(arr.size());
+    out_recipients.clear();
+    out_recipients.reserve(arr.size());
+
+    for (size_t i = 0; i < arr.size(); ++i) {
+        const UniValue& obj = arr[i];
+        RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+        ValiditySidechainWithdrawalLeaf withdrawal;
+        withdrawal.withdrawal_id = ParseHashO(obj, "withdrawal_id");
+        withdrawal.amount = AmountFromValue(find_value(obj, "amount"));
+        if (withdrawal.amount <= 0 || !MoneyRange(withdrawal.amount)) {
+            throw JSONRPCError(
+                RPC_INVALID_PARAMETER,
+                strprintf("withdrawals[%u] invalid amount", static_cast<unsigned>(i)));
+        }
+
+        const CScript script = ParseRpcPayoutScript(
+            obj,
+            strprintf("withdrawals[%u]", static_cast<unsigned>(i)));
+        withdrawal.destination_commitment = ComputeRpcScriptCommitment(script);
+
+        out_recipients.push_back({script, withdrawal.amount, /*subtract_fee=*/false});
+        out_withdrawals.push_back(std::move(withdrawal));
+    }
+}
+
+static void ParseValidityEscapeExitLeaves(
+    const UniValue& arr,
+    std::vector<ValiditySidechainEscapeExitLeaf>& out_exits,
+    std::vector<CRecipient>& out_recipients)
+{
+    RPCTypeCheckArgument(arr, UniValue::VARR);
+    if (arr.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "exits array must not be empty");
+    }
+
+    out_exits.clear();
+    out_exits.reserve(arr.size());
+    out_recipients.clear();
+    out_recipients.reserve(arr.size());
+
+    for (size_t i = 0; i < arr.size(); ++i) {
+        const UniValue& obj = arr[i];
+        RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+        ValiditySidechainEscapeExitLeaf exit;
+        exit.exit_id = ParseHashO(obj, "exit_id");
+        exit.amount = AmountFromValue(find_value(obj, "amount"));
+        if (exit.amount <= 0 || !MoneyRange(exit.amount)) {
+            throw JSONRPCError(
+                RPC_INVALID_PARAMETER,
+                strprintf("exits[%u] invalid amount", static_cast<unsigned>(i)));
+        }
+
+        const CScript script = ParseRpcPayoutScript(
+            obj,
+            strprintf("exits[%u]", static_cast<unsigned>(i)));
+        exit.destination_commitment = ComputeRpcScriptCommitment(script);
+
+        out_recipients.push_back({script, exit.amount, /*subtract_fee=*/false});
+        out_exits.push_back(std::move(exit));
+    }
+}
+
 UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std::vector<CRecipient> &recipients, mapValue_t map_value, bool verbose)
 {
     EnsureWalletIsUnlocked(pwallet);
@@ -2019,6 +2145,224 @@ static RPCHelpMan sendvaliditybatch()
             result.pushKV("txid", txid);
             result.pushKV("batch_commitment_hash", ComputeValiditySidechainBatchCommitmentHash(sidechain_id, public_inputs).GetHex());
             result.pushKV("auto_scaffold_proof", auto_scaffold_proof);
+            return result;
+        },
+    };
+}
+
+static RPCHelpMan sendverifiedwithdrawals()
+{
+    return RPCHelpMan{
+        "sendverifiedwithdrawals",
+        "Create, fund, sign and broadcast a validity-sidechain EXECUTE_VERIFIED_WITHDRAWALS transaction.\n"
+        "The wallet deterministically builds Merkle proofs from the ordered withdrawal list and requires the resulting withdrawal root to match the accepted batch tracked by this node.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"batch_number", RPCArg::Type::NUM, RPCArg::Optional::NO, "Accepted batch number"},
+            {"withdrawals", RPCArg::Type::ARR, RPCArg::Optional::NO, "Ordered list of withdrawal leaves to execute",
+                {
+                    {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
+                        {
+                            {"withdrawal_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte withdrawal id"},
+                            {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Destination address (exactly one of address/script)"},
+                            {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw destination scriptPubKey hex (exactly one of address/script)"},
+                            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Withdrawal amount in " + CURRENCY_UNIT},
+                        }
+                    }
+                }
+            },
+            {"allow_unbroadcast", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "If true, skip preflight mempool rejection (default: false)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                {RPCResult::Type::STR_HEX, "accepted_batch_id", "The accepted batch id committed by the marker output"},
+                {RPCResult::Type::STR_HEX, "withdrawal_root", "The withdrawal root matched against the accepted batch"},
+                {RPCResult::Type::NUM, "withdrawal_count", "Number of executed withdrawals"},
+            }},
+        RPCExamples{
+            HelpExampleCli("sendverifiedwithdrawals",
+                "7 1 "
+                "'[{\"withdrawal_id\":\"aa...aa\",\"script\":\"0014...\",\"amount\":0.25},"
+                "{\"withdrawal_id\":\"bb...bb\",\"script\":\"0014...\",\"amount\":0.5}]'")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
+            const uint32_t batch_number = ParseUint32Value(request.params[1], "batch_number");
+
+            ValiditySidechain sidechain;
+            if (!GetValiditySidechainFromChain(*pwallet, sidechain_id, sidechain)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
+            }
+
+            const ValiditySidechainAcceptedBatch* accepted_batch = FindAcceptedValidityBatch(sidechain, batch_number);
+            if (accepted_batch == nullptr) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "accepted batch not found");
+            }
+
+            std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+            std::vector<CRecipient> payout_recipients;
+            ParseValidityWithdrawalLeaves(request.params[2], withdrawals, payout_recipients);
+
+            const uint256 computed_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
+            if (computed_root != accepted_batch->withdrawal_root) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawal list does not match the accepted batch withdrawal root");
+            }
+
+            std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
+            withdrawal_proofs.reserve(withdrawals.size());
+            for (uint32_t i = 0; i < withdrawals.size(); ++i) {
+                ValiditySidechainWithdrawalProof proof;
+                if (!BuildValiditySidechainWithdrawalProof(withdrawals, i, proof)) {
+                    throw JSONRPCError(RPC_INTERNAL_ERROR, "failed to build withdrawal proof");
+                }
+                withdrawal_proofs.push_back(std::move(proof));
+            }
+
+            std::vector<CRecipient> recipients;
+            recipients.reserve(1 + payout_recipients.size());
+            recipients.push_back({
+                BuildValiditySidechainExecuteScript(
+                    sidechain_id,
+                    batch_number,
+                    accepted_batch->withdrawal_root,
+                    withdrawal_proofs),
+                /*nAmount=*/0,
+                /*subtract_fee=*/false});
+            recipients.insert(recipients.end(), payout_recipients.begin(), payout_recipients.end());
+
+            bool allow_unbroadcast = false;
+            if (request.params.size() > 3 && !request.params[3].isNull()) {
+                allow_unbroadcast = request.params[3].get_bool();
+            }
+
+            CCoinControl coin_control;
+            mapValue_t map_value;
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+            const std::string txid = SendMoneyNoShuffle(
+                pwallet,
+                coin_control,
+                recipients,
+                map_value,
+                /*verbose=*/false,
+                /*preflight_mempool_accept=*/!allow_unbroadcast).get_str();
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("txid", txid);
+            result.pushKV("accepted_batch_id", ComputeValiditySidechainAcceptedBatchId(
+                sidechain_id,
+                batch_number,
+                accepted_batch->withdrawal_root).GetHex());
+            result.pushKV("withdrawal_root", accepted_batch->withdrawal_root.GetHex());
+            result.pushKV("withdrawal_count", static_cast<int64_t>(withdrawals.size()));
+            return result;
+        },
+    };
+}
+
+static RPCHelpMan sendescapeexit()
+{
+    return RPCHelpMan{
+        "sendescapeexit",
+        "Create, fund, sign and broadcast a validity-sidechain EXECUTE_ESCAPE_EXIT transaction.\n"
+        "The wallet deterministically builds Merkle proofs from the ordered exit list and requires the resulting state root to match the current state root tracked by this node.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"state_root_reference", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Current finalized state root reference"},
+            {"exits", RPCArg::Type::ARR, RPCArg::Optional::NO, "Ordered list of escape-exit leaves to execute",
+                {
+                    {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
+                        {
+                            {"exit_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte exit id"},
+                            {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Destination address (exactly one of address/script)"},
+                            {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw destination scriptPubKey hex (exactly one of address/script)"},
+                            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Exit amount in " + CURRENCY_UNIT},
+                        }
+                    }
+                }
+            },
+            {"allow_unbroadcast", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "If true, skip preflight mempool rejection (default: false)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                {RPCResult::Type::STR_HEX, "state_root_reference", "The state root referenced by the marker output"},
+                {RPCResult::Type::NUM, "exit_count", "Number of executed escape exits"},
+            }},
+        RPCExamples{
+            HelpExampleCli("sendescapeexit",
+                "7 11...11 "
+                "'[{\"exit_id\":\"cc...cc\",\"script\":\"0014...\",\"amount\":0.25}]'")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
+            const uint256 state_root_reference = ParseHashV(request.params[1], "state_root_reference");
+
+            ValiditySidechain sidechain;
+            if (!GetValiditySidechainFromChain(*pwallet, sidechain_id, sidechain)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
+            }
+            if (state_root_reference != sidechain.current_state_root) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "state_root_reference does not match the current state root");
+            }
+
+            std::vector<ValiditySidechainEscapeExitLeaf> exits;
+            std::vector<CRecipient> payout_recipients;
+            ParseValidityEscapeExitLeaves(request.params[2], exits, payout_recipients);
+
+            const uint256 computed_root = ComputeValiditySidechainEscapeExitRoot(exits);
+            if (computed_root != state_root_reference) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "escape-exit list does not match the referenced state root");
+            }
+
+            std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+            exit_proofs.reserve(exits.size());
+            for (uint32_t i = 0; i < exits.size(); ++i) {
+                ValiditySidechainEscapeExitProof proof;
+                if (!BuildValiditySidechainEscapeExitProof(exits, i, proof)) {
+                    throw JSONRPCError(RPC_INTERNAL_ERROR, "failed to build escape-exit proof");
+                }
+                exit_proofs.push_back(std::move(proof));
+            }
+
+            std::vector<CRecipient> recipients;
+            recipients.reserve(1 + payout_recipients.size());
+            recipients.push_back({
+                BuildValiditySidechainEscapeExitScript(sidechain_id, state_root_reference, exit_proofs),
+                /*nAmount=*/0,
+                /*subtract_fee=*/false});
+            recipients.insert(recipients.end(), payout_recipients.begin(), payout_recipients.end());
+
+            bool allow_unbroadcast = false;
+            if (request.params.size() > 3 && !request.params[3].isNull()) {
+                allow_unbroadcast = request.params[3].get_bool();
+            }
+
+            CCoinControl coin_control;
+            mapValue_t map_value;
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+            const std::string txid = SendMoneyNoShuffle(
+                pwallet,
+                coin_control,
+                recipients,
+                map_value,
+                /*verbose=*/false,
+                /*preflight_mempool_accept=*/!allow_unbroadcast).get_str();
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("txid", txid);
+            result.pushKV("state_root_reference", state_root_reference.GetHex());
+            result.pushKV("exit_count", static_cast<int64_t>(exits.size()));
             return result;
         },
     };
@@ -6367,6 +6711,8 @@ static const CRPCCommand commands[] =
     { "wallet",             "sendforceexitrequest",             &sendforceexitrequest,          {"sidechain_id", "account_id", "exit_asset_id", "max_exit_amount", "destination", "nonce"} },
     { "wallet",             "sendstaledepositreclaim",          &sendstaledepositreclaim,       {"sidechain_id", "deposit", "refund_destination", "allow_unbroadcast"} },
     { "wallet",             "sendvaliditybatch",                &sendvaliditybatch,             {"sidechain_id", "public_inputs", "proof_bytes", "data_chunks", "allow_unbroadcast"} },
+    { "wallet",             "sendverifiedwithdrawals",          &sendverifiedwithdrawals,       {"sidechain_id", "batch_number", "withdrawals", "allow_unbroadcast"} },
+    { "wallet",             "sendescapeexit",                   &sendescapeexit,                {"sidechain_id", "state_root_reference", "exits", "allow_unbroadcast"} },
     { "wallet",             "unloadwallet",                     &unloadwallet,                  {"wallet_name", "load_on_startup"} },
     { "wallet",             "upgradewallet",                    &upgradewallet,                 {"version"} },
     { "wallet",             "walletcreatefundedpsbt",           &walletcreatefundedpsbt,        {"inputs","outputs","locktime","options","bip32derivs"} },

@@ -13,6 +13,7 @@
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
 #include <validitysidechain/state.h>
+#include <validitysidechain/verifier.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -613,6 +614,81 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_invalid_scaffold_proof_envelope)
     std::string error;
     BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 18, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
     BOOST_CHECK_EQUAL(error, "invalid scaffold proof envelope");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_empty_proof_bytes)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 19, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(19);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 19, /* accepted_height= */ 621, public_inputs, {}, {}, &error));
+    BOOST_CHECK_EQUAL(error, "proof bytes must be non-empty");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_missing_data_chunks_for_nonzero_data_size)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 20, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(20);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.data_root = uint256S("abababababababababababababababababababababababababababababababab");
+    public_inputs.data_size = 4;
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 20, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 20, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
+    BOOST_CHECK_EQUAL(error, "data chunks missing for non-zero data_size");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_empty_data_chunk)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 21, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(21);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    const std::vector<std::vector<unsigned char>> data_chunks{{}};
+    public_inputs.data_root = ComputeValiditySidechainDataRoot(data_chunks);
+    public_inputs.data_size = 0;
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 21, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 21, /* accepted_height= */ 621, public_inputs, proof_bytes, data_chunks, &error));
+    BOOST_CHECK_EQUAL(error, "data chunk must be non-empty");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_mismatched_data_root)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 22, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(22);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const std::vector<std::vector<unsigned char>> data_chunks{{0x01, 0x02}, {0x03, 0x04}};
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.data_root = uint256S("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
+    public_inputs.data_size = 4;
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 22, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 22, /* accepted_height= */ 621, public_inputs, proof_bytes, data_chunks, &error));
+    BOOST_CHECK_EQUAL(error, "data root does not match published chunks");
 }
 
 BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_records)

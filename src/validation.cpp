@@ -171,10 +171,14 @@ namespace {
     static const std::pair<char, std::string> DB_DRIVECHAIN_STATE_RING_KEY = std::make_pair('D', "state-ring");
     static constexpr char DB_DRIVECHAIN_STATE_BY_HASH_PREFIX = 'E';
     static const std::pair<char, std::string> DB_VALIDITY_SIDECHAIN_STATE_KEY = std::make_pair('V', "state");
+    static const std::pair<char, std::string> DB_VALIDITY_SIDECHAIN_STATE_RING_KEY = std::make_pair('V', "state-ring");
+    static constexpr char DB_VALIDITY_SIDECHAIN_STATE_BY_HASH_PREFIX = 'W';
     static constexpr size_t DRIVECHAIN_STATE_CACHE_MAX_ENTRIES = 4096;
     static constexpr size_t DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES = 4096;
     static constexpr size_t DRIVECHAIN_STATE_SNAPSHOT_SEARCH_LIMIT = DRIVECHAIN_STATE_PERSISTED_MAX_ENTRIES;
     static constexpr size_t VALIDITY_SIDECHAIN_STATE_CACHE_MAX_ENTRIES = 4096;
+    static constexpr size_t VALIDITY_SIDECHAIN_STATE_PERSISTED_MAX_ENTRIES = 4096;
+    static constexpr size_t VALIDITY_SIDECHAIN_STATE_SNAPSHOT_SEARCH_LIMIT = VALIDITY_SIDECHAIN_STATE_PERSISTED_MAX_ENTRIES;
     static std::map<uint256, DrivechainState> g_drivechain_state_cache;
     static std::deque<uint256> g_drivechain_state_cache_order;
     static std::deque<uint256> g_drivechain_state_persisted_order;
@@ -185,6 +189,12 @@ namespace {
     static uint64_t g_drivechain_state_snapshots_written{0};
     static std::map<uint256, ValiditySidechainState> g_validitysidechain_state_cache;
     static std::deque<uint256> g_validitysidechain_state_cache_order;
+    static std::deque<uint256> g_validitysidechain_state_persisted_order;
+    static bool g_validitysidechain_state_persisted_order_loaded{false};
+    static uint64_t g_validitysidechain_state_cache_hits{0};
+    static uint64_t g_validitysidechain_state_cache_misses{0};
+    static uint64_t g_validitysidechain_state_recompute_fallbacks{0};
+    static uint64_t g_validitysidechain_state_snapshots_written{0};
 
     struct DrivechainStateSnapshot
     {
@@ -211,6 +221,11 @@ namespace {
     static inline std::pair<char, uint256> DrivechainStateByHashDbKey(const uint256& hash)
     {
         return std::make_pair(DB_DRIVECHAIN_STATE_BY_HASH_PREFIX, hash);
+    }
+
+    static inline std::pair<char, uint256> ValiditySidechainStateByHashDbKey(const uint256& hash)
+    {
+        return std::make_pair(DB_VALIDITY_SIDECHAIN_STATE_BY_HASH_PREFIX, hash);
     }
 
     static bool EnsurePersistedDrivechainSnapshotOrderLoaded() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
@@ -241,6 +256,36 @@ namespace {
             return false;
         }
         return pblocktree->Read(DrivechainStateByHashDbKey(hash), out_snapshot);
+    }
+
+    static bool EnsurePersistedValiditySidechainSnapshotOrderLoaded() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+        if (g_validitysidechain_state_persisted_order_loaded) {
+            return true;
+        }
+
+        g_validitysidechain_state_persisted_order.clear();
+        if (pblocktree != nullptr) {
+            std::vector<uint256> persisted_order;
+            if (pblocktree->Read(DB_VALIDITY_SIDECHAIN_STATE_RING_KEY, persisted_order)) {
+                g_validitysidechain_state_persisted_order.assign(persisted_order.begin(), persisted_order.end());
+            }
+        }
+
+        g_validitysidechain_state_persisted_order_loaded = true;
+        return true;
+    }
+
+    static bool LoadPersistedValiditySidechainStateSnapshotForHash(
+        const uint256& hash,
+        ValiditySidechainStateSnapshot& out_snapshot) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+        if (pblocktree == nullptr) {
+            return false;
+        }
+        return pblocktree->Read(ValiditySidechainStateByHashDbKey(hash), out_snapshot);
     }
 
     static void CacheDrivechainStateForHash(
@@ -356,12 +401,14 @@ namespace {
 
         const auto it = g_validitysidechain_state_cache.find(tip->GetBlockHash());
         if (it != g_validitysidechain_state_cache.end()) {
+            ++g_validitysidechain_state_cache_hits;
             chainstate.GetValiditySidechainState() = it->second;
             return true;
         }
 
         ValiditySidechainStateSnapshot persisted_snapshot;
-        if (!LoadPersistedValiditySidechainStateSnapshot(persisted_snapshot) ||
+        ++g_validitysidechain_state_cache_misses;
+        if (!LoadPersistedValiditySidechainStateSnapshotForHash(tip->GetBlockHash(), persisted_snapshot) ||
             persisted_snapshot.tip_hash != tip->GetBlockHash()) {
             return false;
         }
@@ -2256,6 +2303,13 @@ namespace {
 
         ValiditySidechainStateSnapshot snapshot;
         if (!LoadPersistedValiditySidechainStateSnapshot(snapshot)) {
+            if (!LoadPersistedValiditySidechainStateSnapshotForHash(tip->GetBlockHash(), snapshot)) {
+                return false;
+            }
+        }
+
+        if (snapshot.tip_hash != tip->GetBlockHash() &&
+            !LoadPersistedValiditySidechainStateSnapshotForHash(tip->GetBlockHash(), snapshot)) {
             return false;
         }
 
@@ -2338,6 +2392,40 @@ namespace {
             return false;
         }
 
+        if (!EnsurePersistedValiditySidechainSnapshotOrderLoaded()) {
+            return false;
+        }
+
+        if (tip != nullptr) {
+            const auto by_hash_key = ValiditySidechainStateByHashDbKey(snapshot.tip_hash);
+            if (!pblocktree->Write(by_hash_key, snapshot)) {
+                return false;
+            }
+
+            auto existing_it = std::find(
+                g_validitysidechain_state_persisted_order.begin(),
+                g_validitysidechain_state_persisted_order.end(),
+                snapshot.tip_hash);
+            if (existing_it != g_validitysidechain_state_persisted_order.end()) {
+                g_validitysidechain_state_persisted_order.erase(existing_it);
+            }
+            g_validitysidechain_state_persisted_order.push_back(snapshot.tip_hash);
+
+            while (g_validitysidechain_state_persisted_order.size() > VALIDITY_SIDECHAIN_STATE_PERSISTED_MAX_ENTRIES) {
+                const uint256 evict_hash = g_validitysidechain_state_persisted_order.front();
+                g_validitysidechain_state_persisted_order.pop_front();
+                pblocktree->Erase(ValiditySidechainStateByHashDbKey(evict_hash));
+            }
+
+            std::vector<uint256> persisted_order(
+                g_validitysidechain_state_persisted_order.begin(),
+                g_validitysidechain_state_persisted_order.end());
+            if (!pblocktree->Write(DB_VALIDITY_SIDECHAIN_STATE_RING_KEY, persisted_order)) {
+                return false;
+            }
+        }
+
+        ++g_validitysidechain_state_snapshots_written;
         CacheValiditySidechainStateForTip(chainstate);
         return true;
     }
@@ -2465,6 +2553,42 @@ namespace {
         return true;
     }
 
+    static bool RestoreValiditySidechainStateFromBestAncestorSnapshot(
+        CChainState& chainstate,
+        int& out_start_height) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        AssertLockHeld(cs_main);
+        out_start_height = 0;
+
+        const CBlockIndex* cursor = chainstate.m_chain.Tip();
+        size_t searched = 0;
+        while (cursor != nullptr && searched < VALIDITY_SIDECHAIN_STATE_SNAPSHOT_SEARCH_LIMIT) {
+            const uint256 cursor_hash = cursor->GetBlockHash();
+
+            const auto cache_it = g_validitysidechain_state_cache.find(cursor_hash);
+            if (cache_it != g_validitysidechain_state_cache.end()) {
+                ++g_validitysidechain_state_cache_hits;
+                chainstate.GetValiditySidechainState() = cache_it->second;
+                out_start_height = cursor->nHeight + 1;
+                return true;
+            }
+
+            ValiditySidechainStateSnapshot snapshot;
+            if (LoadPersistedValiditySidechainStateSnapshotForHash(cursor_hash, snapshot) &&
+                snapshot.tip_hash == cursor_hash) {
+                chainstate.GetValiditySidechainState() = std::move(snapshot.state);
+                CacheValiditySidechainStateForHash(cursor_hash, chainstate.GetValiditySidechainState());
+                out_start_height = cursor->nHeight + 1;
+                return true;
+            }
+
+            cursor = cursor->pprev;
+            ++searched;
+        }
+
+        return false;
+    }
+
     static bool RecomputeValiditySidechainStateFromActiveChain(
         CChainState& chainstate,
         const CChainParams& chainparams,
@@ -2472,9 +2596,13 @@ namespace {
     {
         AssertLockHeld(cs_main);
 
-        chainstate.GetValiditySidechainState() = ValiditySidechainState();
+        int replay_start_height = 0;
+        if (!RestoreValiditySidechainStateFromBestAncestorSnapshot(chainstate, replay_start_height)) {
+            chainstate.GetValiditySidechainState() = ValiditySidechainState();
+            replay_start_height = 0;
+        }
 
-        for (int h = 0; h <= chainstate.m_chain.Height(); ++h) {
+        for (int h = replay_start_height; h <= chainstate.m_chain.Height(); ++h) {
             const CBlockIndex* pindex = chainstate.m_chain[h];
             if (pindex == nullptr) {
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-recompute-null-index");
@@ -5043,6 +5171,7 @@ bool CChainState::DisconnectTip(
             return false;
         }
         if (!RestoreValiditySidechainStateForTipFromCache(*this)) {
+            ++g_validitysidechain_state_recompute_fallbacks;
             BlockValidationState validity_recompute_state;
             if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, validity_recompute_state)) {
                 return false;
@@ -5294,6 +5423,7 @@ bool CChainState::ActivateBestChainStep(BlockValidationState& state, const CChai
         return false;
     }
     if (fBlocksDisconnected && !RestoreValiditySidechainStateForTipFromCache(*this)) {
+        ++g_validitysidechain_state_recompute_fallbacks;
         if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, state)) {
             UpdateMempoolForReorg(m_mempool, disconnectpool, false);
             AbortNode(state, "Failed to recompute validity-sidechain state after disconnecting blocks; see debug.log for details");
@@ -6043,6 +6173,20 @@ DrivechainStateCacheStats GetDrivechainStateCacheStats()
     stats.cache_misses = g_drivechain_state_cache_misses;
     stats.recompute_fallbacks = g_drivechain_state_recompute_fallbacks;
     stats.snapshots_written = g_drivechain_state_snapshots_written;
+    return stats;
+}
+
+ValiditySidechainStateCacheStats GetValiditySidechainStateCacheStats()
+{
+    LOCK(cs_main);
+
+    ValiditySidechainStateCacheStats stats;
+    stats.cache_entries = static_cast<uint64_t>(g_validitysidechain_state_cache.size());
+    stats.max_entries = static_cast<uint64_t>(VALIDITY_SIDECHAIN_STATE_CACHE_MAX_ENTRIES);
+    stats.cache_hits = g_validitysidechain_state_cache_hits;
+    stats.cache_misses = g_validitysidechain_state_cache_misses;
+    stats.recompute_fallbacks = g_validitysidechain_state_recompute_fallbacks;
+    stats.snapshots_written = g_validitysidechain_state_snapshots_written;
     return stats;
 }
 
@@ -6884,6 +7028,7 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
         }
 
         BlockValidationState validity_recompute_state;
+        ++g_validitysidechain_state_recompute_fallbacks;
         if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, validity_recompute_state)) {
             return error("%s: validity-sidechain state recompute failed (%s)", __func__, validity_recompute_state.ToString());
         }
@@ -6901,6 +7046,7 @@ bool CChainState::LoadChainTip(const CChainParams& chainparams)
     if (!PersistDrivechainStateForTip(*this)) {
         return error("%s: drivechain state persist failed", __func__);
     }
+    ++g_validitysidechain_state_recompute_fallbacks;
     if (!RecomputeValiditySidechainStateFromActiveChain(*this, chainparams, dc_recompute_state)) {
         return error("%s: validity-sidechain state recompute failed (%s)", __func__, dc_recompute_state.ToString());
     }
@@ -7265,6 +7411,14 @@ void UnloadBlockIndex(CTxMemPool* mempool, ChainstateManager& chainman)
     g_drivechain_state_cache_misses = 0;
     g_drivechain_state_recompute_fallbacks = 0;
     g_drivechain_state_snapshots_written = 0;
+    g_validitysidechain_state_cache.clear();
+    g_validitysidechain_state_cache_order.clear();
+    g_validitysidechain_state_persisted_order.clear();
+    g_validitysidechain_state_persisted_order_loaded = false;
+    g_validitysidechain_state_cache_hits = 0;
+    g_validitysidechain_state_cache_misses = 0;
+    g_validitysidechain_state_recompute_fallbacks = 0;
+    g_validitysidechain_state_snapshots_written = 0;
     pindexBestInvalid = nullptr;
     pindexBestHeader = nullptr;
     if (mempool) mempool->clear();
