@@ -250,6 +250,7 @@ BASE_SCRIPTS = [
     'feature_drivechain_reorg_cache_metrics.py',
     'feature_validitysidechain_wallet.py',
     'validitysidechain_force_exit_recovery.py',
+    'validitysidechain_reclaim_reorg.py',
     'validitysidechain_restart_reorg.py',
     'validitysidechain_reorg_state_rollback.py',
     'drivechain_restart_state_persistence.py',
