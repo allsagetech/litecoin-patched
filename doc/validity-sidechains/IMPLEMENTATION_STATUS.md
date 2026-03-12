@@ -168,6 +168,8 @@ It also now has functional wallet/RPC coverage for:
 - restart persistence and snapshot-backed rollback across invalidated tips and
   competing-fork rollback of accepted batches, verified withdrawals, and
   escape-exit/nullifier state
+- competing-fork rollback of pending and matured force-exit request state so
+  losing-fork censorship recovery data does not survive reorg
 - competing-fork rollback of stale-deposit reclaim state so reclaimable
   deposits reappear deterministically after losing-fork rollback
 
