@@ -37,6 +37,7 @@
 #include <util/translation.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/state.h>
+#include <validitysidechain/verifier.h>
 #include <validation.h>
 #include <validationinterface.h>
 #include <warnings.h>
@@ -1697,6 +1698,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("max_deposit_reclaim_delay", static_cast<int64_t>(supported.max_deposit_reclaim_delay));
     result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
+    result.pushKV("batch_verifier_mode", supported.scaffolding_only ? "scaffold_noop_only" : "disabled");
     return result;
 }
 
@@ -1725,6 +1727,7 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("latest_batch_number", static_cast<int64_t>(sidechain.latest_batch_number));
     result.pushKV("executed_withdrawal_count", static_cast<int64_t>(sidechain.executed_withdrawal_count));
     result.pushKV("executed_escape_exit_count", static_cast<int64_t>(sidechain.executed_escape_exit_count));
+    result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
     result.pushKV("config", ValiditySidechainConfigToJSON(sidechain.config));
     result.pushKV("queue_state", ValiditySidechainQueueStateToJSON(sidechain.queue_state));
 
@@ -1735,6 +1738,9 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
         batch_obj.pushKV("batch_number", static_cast<int64_t>(batch.batch_number));
         batch_obj.pushKV("prior_state_root", batch.prior_state_root.GetHex());
         batch_obj.pushKV("new_state_root", batch.new_state_root.GetHex());
+        batch_obj.pushKV("l1_message_root_before", batch.l1_message_root_before.GetHex());
+        batch_obj.pushKV("l1_message_root_after", batch.l1_message_root_after.GetHex());
+        batch_obj.pushKV("consumed_queue_messages", static_cast<int64_t>(batch.consumed_queue_messages));
         batch_obj.pushKV("withdrawal_root", batch.withdrawal_root.GetHex());
         batch_obj.pushKV("data_root", batch.data_root.GetHex());
         batch_obj.pushKV("accepted_height", batch.accepted_height);
@@ -1782,8 +1788,10 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("trustless_enforced", false);
     result.pushKV("activation_candidate", false);
     result.pushKV("legacy_drivechain_withdrawal_path_active", true);
-    result.pushKV("state_persistence_enabled", false);
+    result.pushKV("state_persistence_enabled", true);
     result.pushKV("registration_validation_available", true);
+    result.pushKV("batch_validation_available", true);
+    result.pushKV("batch_validation_mode", "scaffold_noop_only");
     result.pushKV("supported_proof_configs", supported_configs);
     result.pushKV("sidechains", sidechains);
     return result;

@@ -22,7 +22,7 @@ static constexpr size_t UINT256_BYTES = uint256::WIDTH;
 
 static constexpr size_t VALIDITY_SIDECHAIN_CONFIG_BYTES = 94;
 static constexpr size_t VALIDITY_SIDECHAIN_DEPOSIT_BYTES = 112;
-static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 200;
+static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 204;
 static constexpr size_t VALIDITY_SIDECHAIN_FORCE_EXIT_BYTES = 112;
 
 static void AppendLE32(std::vector<unsigned char>& out, uint32_t v)
@@ -181,6 +181,10 @@ bool DecodeValiditySidechainScript(const CScript& scriptPubKey, ValiditySidechai
             }
             break;
         case ValiditySidechainScriptInfo::Kind::COMMIT_VALIDITY_BATCH:
+            if (info.metadata_pushes.size() < 2) {
+                return false;
+            }
+            break;
         case ValiditySidechainScriptInfo::Kind::UNKNOWN:
             break;
     }
@@ -232,11 +236,13 @@ CScript BuildValiditySidechainDepositScript(uint8_t scid, const ValiditySidechai
 CScript BuildValiditySidechainCommitScript(
     uint8_t scid,
     const ValiditySidechainBatchPublicInputs& public_inputs,
-    const std::vector<std::vector<unsigned char>>& extra_metadata_pushes)
+    const std::vector<unsigned char>& proof_bytes,
+    const std::vector<std::vector<unsigned char>>& data_chunks)
 {
     std::vector<std::vector<unsigned char>> metadata_pushes;
     metadata_pushes.push_back(EncodeValiditySidechainBatchPublicInputs(public_inputs));
-    metadata_pushes.insert(metadata_pushes.end(), extra_metadata_pushes.begin(), extra_metadata_pushes.end());
+    metadata_pushes.push_back(proof_bytes);
+    metadata_pushes.insert(metadata_pushes.end(), data_chunks.begin(), data_chunks.end());
 
     const uint256 payload = ComputeValiditySidechainBatchCommitmentHash(scid, public_inputs);
     return BuildValiditySidechainScript(
@@ -404,6 +410,7 @@ std::vector<unsigned char> EncodeValiditySidechainBatchPublicInputs(const Validi
     AppendUint256(out, public_inputs.new_state_root);
     AppendUint256(out, public_inputs.l1_message_root_before);
     AppendUint256(out, public_inputs.l1_message_root_after);
+    AppendLE32(out, public_inputs.consumed_queue_messages);
     AppendUint256(out, public_inputs.withdrawal_root);
     AppendUint256(out, public_inputs.data_root);
     AppendLE32(out, public_inputs.data_size);
@@ -425,13 +432,33 @@ bool DecodeValiditySidechainBatchPublicInputs(
         !ReadUint256At(public_input_bytes, 36, public_inputs.new_state_root) ||
         !ReadUint256At(public_input_bytes, 68, public_inputs.l1_message_root_before) ||
         !ReadUint256At(public_input_bytes, 100, public_inputs.l1_message_root_after) ||
-        !ReadUint256At(public_input_bytes, 132, public_inputs.withdrawal_root) ||
-        !ReadUint256At(public_input_bytes, 164, public_inputs.data_root)) {
+        !ReadUint256At(public_input_bytes, 136, public_inputs.withdrawal_root) ||
+        !ReadUint256At(public_input_bytes, 168, public_inputs.data_root)) {
         return false;
     }
 
-    public_inputs.data_size = ReadLE32(public_input_bytes.data() + 196);
+    public_inputs.consumed_queue_messages = ReadLE32(public_input_bytes.data() + 132);
+    public_inputs.data_size = ReadLE32(public_input_bytes.data() + 200);
     out_public_inputs = public_inputs;
+    return true;
+}
+
+bool DecodeValiditySidechainCommitMetadata(
+    const ValiditySidechainScriptInfo& info,
+    ValiditySidechainBatchPublicInputs& out_public_inputs,
+    std::vector<unsigned char>& out_proof_bytes,
+    std::vector<std::vector<unsigned char>>& out_data_chunks)
+{
+    if (info.kind != ValiditySidechainScriptInfo::Kind::COMMIT_VALIDITY_BATCH ||
+        info.metadata_pushes.size() < 2) {
+        return false;
+    }
+    if (!DecodeValiditySidechainBatchPublicInputs(info.metadata_pushes.front(), out_public_inputs)) {
+        return false;
+    }
+
+    out_proof_bytes = info.metadata_pushes[1];
+    out_data_chunks.assign(info.metadata_pushes.begin() + 2, info.metadata_pushes.end());
     return true;
 }
 

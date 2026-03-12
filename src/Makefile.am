@@ -215,6 +215,7 @@ BITCOIN_CORE_H = \
   validitysidechain/registry.h \
   validitysidechain/script.h \
   validitysidechain/state.h \
+  validitysidechain/verifier.h \
   net.h \
   net_permissions.h \
   net_processing.h \
@@ -398,6 +399,7 @@ libbitcoin_server_a_SOURCES = \
   drivechain/state.cpp \
   validitysidechain/registry.cpp \
   validitysidechain/state.cpp \
+  validitysidechain/verifier.cpp \
   validationinterface.cpp \
   versionbits.cpp \
   $(BITCOIN_CORE_H)

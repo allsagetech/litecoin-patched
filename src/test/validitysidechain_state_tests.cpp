@@ -56,6 +56,21 @@ ValiditySidechainDepositData MakeDeposit(const uint256& deposit_id, const CScrip
     return deposit;
 }
 
+ValiditySidechainBatchPublicInputs MakeNoopBatchPublicInputs(const ValiditySidechain& sidechain, uint32_t batch_number)
+{
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.batch_number = batch_number;
+    public_inputs.prior_state_root = sidechain.current_state_root;
+    public_inputs.new_state_root = sidechain.current_state_root;
+    public_inputs.l1_message_root_before = sidechain.queue_state.root;
+    public_inputs.l1_message_root_after = sidechain.queue_state.root;
+    public_inputs.consumed_queue_messages = 0;
+    public_inputs.withdrawal_root = sidechain.current_withdrawal_root;
+    public_inputs.data_root = sidechain.current_data_root;
+    public_inputs.data_size = 0;
+    return public_inputs;
+}
+
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(validitysidechain_state_tests, BasicTestingSetup)
@@ -274,6 +289,101 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_deposit_and_reclaim)
     validation_state = BlockValidationState();
     BOOST_REQUIRE(state.ConnectBlock(reclaim_block, &reclaim_index, validation_state));
     BOOST_REQUIRE(state.GetPendingDeposit(4, deposit.deposit_id) == nullptr);
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_records_noop_scaffold_batch)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 5, /* registration_height= */ 300, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(5);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    std::string error;
+    BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 5, /* accepted_height= */ 320, public_inputs, {}, {}, &error));
+    BOOST_CHECK(error.empty());
+
+    sidechain = state.GetSidechain(5);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->latest_batch_number, 1U);
+    BOOST_REQUIRE_EQUAL(sidechain->accepted_batches.size(), 1U);
+    const ValiditySidechainAcceptedBatch* batch = state.GetAcceptedBatch(5, 1);
+    BOOST_REQUIRE(batch != nullptr);
+    BOOST_CHECK_EQUAL(batch->consumed_queue_messages, 0U);
+    BOOST_CHECK(batch->l1_message_root_before == public_inputs.l1_message_root_before);
+    BOOST_CHECK(batch->l1_message_root_after == public_inputs.l1_message_root_after);
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_handles_noop_batch_commit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 7, /* registration_height= */ 330, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(7);
+    BOOST_REQUIRE(sidechain != nullptr);
+    const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+
+    CMutableTransaction batch_tx;
+    batch_tx.vout.emplace_back(
+        /* nValueIn= */ 0,
+        BuildValiditySidechainCommitScript(
+            /* scid= */ 7,
+            public_inputs,
+            std::vector<unsigned char>{},
+            std::vector<std::vector<unsigned char>>{}));
+
+    CBlock block;
+    block.vtx.push_back(MakeTransactionRef(batch_tx));
+
+    CBlockIndex index;
+    index.nHeight = 331;
+
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
+
+    const ValiditySidechainAcceptedBatch* batch = state.GetAcceptedBatch(7, 1);
+    BOOST_REQUIRE(batch != nullptr);
+    BOOST_CHECK_EQUAL(batch->accepted_height, 331);
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_scaffold_state_or_queue_changes)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 6, /* registration_height= */ 310, config));
+
+    const CScript refund_script = CScript() << OP_TRUE;
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("0303030303030303030303030303030303030303030303030303030303030303"),
+        refund_script);
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 6, /* deposit_height= */ 311, deposit));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(6);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    {
+        ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+        public_inputs.new_state_root = uint256S("0404040404040404040404040404040404040404040404040404040404040404");
+
+        std::string error;
+        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, {}, {}, &error));
+        BOOST_CHECK_EQUAL(error, "scaffold verifier only allows no-op state root updates");
+    }
+
+    {
+        sidechain = state.GetSidechain(6);
+        BOOST_REQUIRE(sidechain != nullptr);
+        ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+        public_inputs.consumed_queue_messages = 1;
+        public_inputs.l1_message_root_after = uint256S("0505050505050505050505050505050505050505050505050505050505050505");
+
+        std::string error;
+        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, {}, {}, &error));
+        BOOST_CHECK_EQUAL(error, "scaffold verifier does not allow queue consumption yet");
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

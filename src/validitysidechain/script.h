@@ -45,7 +45,8 @@ CScript BuildValiditySidechainDepositScript(uint8_t scid, const ValiditySidechai
 CScript BuildValiditySidechainCommitScript(
     uint8_t scid,
     const ValiditySidechainBatchPublicInputs& public_inputs,
-    const std::vector<std::vector<unsigned char>>& extra_metadata_pushes = {});
+    const std::vector<unsigned char>& proof_bytes,
+    const std::vector<std::vector<unsigned char>>& data_chunks = {});
 CScript BuildValiditySidechainExecuteScript(uint8_t scid, uint32_t batch_number, const uint256& withdrawal_root);
 CScript BuildValiditySidechainForceExitScript(uint8_t scid, const ValiditySidechainForceExitData& request);
 CScript BuildValiditySidechainReclaimDepositScript(uint8_t scid, const ValiditySidechainDepositData& deposit);
@@ -63,6 +64,11 @@ std::vector<unsigned char> EncodeValiditySidechainBatchPublicInputs(const Validi
 bool DecodeValiditySidechainBatchPublicInputs(
     Span<const unsigned char> public_input_bytes,
     ValiditySidechainBatchPublicInputs& out_public_inputs);
+bool DecodeValiditySidechainCommitMetadata(
+    const ValiditySidechainScriptInfo& info,
+    ValiditySidechainBatchPublicInputs& out_public_inputs,
+    std::vector<unsigned char>& out_proof_bytes,
+    std::vector<std::vector<unsigned char>>& out_data_chunks);
 uint256 ComputeValiditySidechainBatchCommitmentHash(uint8_t scid, const ValiditySidechainBatchPublicInputs& public_inputs);
 
 std::vector<unsigned char> EncodeValiditySidechainForceExitData(const ValiditySidechainForceExitData& request);

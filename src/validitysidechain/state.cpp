@@ -8,6 +8,7 @@
 #include <hash.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
+#include <validitysidechain/verifier.h>
 
 #include <consensus/validation.h>
 #include <primitives/block.h>
@@ -15,6 +16,7 @@
 namespace {
 
 static constexpr unsigned char QUEUE_APPEND_MAGIC[] = {'V', 'S', 'C', 'Q', 'A', 0x01};
+static constexpr unsigned char QUEUE_CONSUME_MAGIC[] = {'V', 'S', 'C', 'Q', 'C', 0x01};
 static constexpr unsigned char QUEUE_TOMBSTONE_MAGIC[] = {'V', 'S', 'C', 'Q', 'T', 0x01};
 
 static bool DepositsEqual(const ValiditySidechainDepositData& lhs, const ValiditySidechainDepositData& rhs)
@@ -57,6 +59,22 @@ static uint256 ComputeQueueTombstoneRoot(
 {
     CHashWriter hw(SER_GETHASH, 0);
     hw.write((const char*)QUEUE_TOMBSTONE_MAGIC, sizeof(QUEUE_TOMBSTONE_MAGIC));
+    hw << sidechain_id;
+    hw << prior_root;
+    hw << entry.queue_index;
+    hw << entry.message_kind;
+    hw << entry.message_id;
+    hw << entry.message_hash;
+    return hw.GetHash();
+}
+
+static uint256 ComputeQueueConsumeRoot(
+    uint8_t sidechain_id,
+    const uint256& prior_root,
+    const ValiditySidechainQueueEntry& entry)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)QUEUE_CONSUME_MAGIC, sizeof(QUEUE_CONSUME_MAGIC));
     hw << sidechain_id;
     hw << prior_root;
     hw << entry.queue_index;
@@ -152,6 +170,67 @@ static bool FindUniqueRefundOutput(
     return refund_output_index != -1;
 }
 
+static bool ComputeConsumedQueueRoot(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages,
+    uint256& out_root,
+    std::string* error)
+{
+    out_root = sidechain.queue_state.root;
+    uint64_t next_queue_index = sidechain.queue_state.head_index;
+
+    for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
+        const auto queue_it = sidechain.queue_entries.find(next_queue_index);
+        if (queue_it == sidechain.queue_entries.end()) {
+            if (error != nullptr) {
+                *error = "batch references missing queue entry";
+            }
+            return false;
+        }
+        if (queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            if (error != nullptr) {
+                *error = "batch queue consumption is not a contiguous pending prefix";
+            }
+            return false;
+        }
+
+        out_root = ComputeQueueConsumeRoot(sidechain_id, out_root, queue_it->second);
+        ++next_queue_index;
+    }
+
+    return true;
+}
+
+static bool ConsumeQueuePrefix(
+    ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages,
+    std::string* error)
+{
+    uint256 root_after;
+    if (!ComputeConsumedQueueRoot(sidechain, sidechain_id, consumed_queue_messages, root_after, error)) {
+        return false;
+    }
+
+    uint64_t next_queue_index = sidechain.queue_state.head_index;
+    for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
+        auto queue_it = sidechain.queue_entries.find(next_queue_index);
+        if (queue_it == sidechain.queue_entries.end() ||
+            queue_it->second.status != ValiditySidechainQueueEntry::STATUS_PENDING) {
+            if (error != nullptr) {
+                *error = "batch queue entry changed during consumption";
+            }
+            return false;
+        }
+        queue_it->second.status = ValiditySidechainQueueEntry::STATUS_CONSUMED;
+        ++next_queue_index;
+    }
+
+    sidechain.queue_state.root = root_after;
+    return true;
+}
+
 } // namespace
 
 const ValiditySidechain* ValiditySidechainState::GetSidechain(uint8_t id) const
@@ -164,6 +243,17 @@ ValiditySidechain* ValiditySidechainState::GetSidechain(uint8_t id)
 {
     const auto it = sidechains.find(id);
     return it == sidechains.end() ? nullptr : &it->second;
+}
+
+const ValiditySidechainAcceptedBatch* ValiditySidechainState::GetAcceptedBatch(uint8_t sidechain_id, uint32_t batch_number) const
+{
+    const ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr) {
+        return nullptr;
+    }
+
+    const auto it = sidechain->accepted_batches.find(batch_number);
+    return it == sidechain->accepted_batches.end() ? nullptr : &it->second;
 }
 
 const ValiditySidechainPendingDeposit* ValiditySidechainState::GetPendingDeposit(uint8_t sidechain_id, const uint256& deposit_id) const
@@ -363,6 +453,121 @@ bool ValiditySidechainState::ReclaimDeposit(
     return true;
 }
 
+bool ValiditySidechainState::AcceptBatch(
+    uint8_t sidechain_id,
+    int accepted_height,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<unsigned char>& proof_bytes,
+    const std::vector<std::vector<unsigned char>>& data_chunks,
+    std::string* error)
+{
+    if (accepted_height < 0) {
+        if (error != nullptr) {
+            *error = "accepted height must be non-negative";
+        }
+        return false;
+    }
+
+    ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr || !sidechain->is_active) {
+        if (error != nullptr) {
+            *error = "unknown validity sidechain";
+        }
+        return false;
+    }
+    if (public_inputs.batch_number == 0) {
+        if (error != nullptr) {
+            *error = "batch number must be non-zero";
+        }
+        return false;
+    }
+    if (public_inputs.batch_number <= sidechain->latest_batch_number ||
+        sidechain->accepted_batches.count(public_inputs.batch_number) != 0) {
+        if (error != nullptr) {
+            *error = "batch number is not strictly monotonic";
+        }
+        return false;
+    }
+    if (public_inputs.prior_state_root != sidechain->current_state_root) {
+        if (error != nullptr) {
+            *error = "prior state root does not match current state root";
+        }
+        return false;
+    }
+    if (public_inputs.l1_message_root_before != sidechain->queue_state.root) {
+        if (error != nullptr) {
+            *error = "batch queue root before does not match current queue root";
+        }
+        return false;
+    }
+
+    ValiditySidechainBatchVerifierMode verifier_mode;
+    std::string verifier_error;
+    if (!VerifyValiditySidechainBatch(
+            sidechain->config,
+            sidechain_id,
+            public_inputs,
+            proof_bytes,
+            data_chunks,
+            sidechain->current_state_root,
+            sidechain->current_withdrawal_root,
+            sidechain->current_data_root,
+            sidechain->queue_state.root,
+            &verifier_error,
+            &verifier_mode)) {
+        if (error != nullptr) {
+            *error = verifier_error;
+        }
+        return false;
+    }
+    (void)verifier_mode;
+
+    uint256 expected_l1_message_root_after;
+    std::string queue_error;
+    if (!ComputeConsumedQueueRoot(*sidechain, sidechain_id, public_inputs.consumed_queue_messages, expected_l1_message_root_after, &queue_error)) {
+        if (error != nullptr) {
+            *error = queue_error;
+        }
+        return false;
+    }
+    if (expected_l1_message_root_after != public_inputs.l1_message_root_after) {
+        if (error != nullptr) {
+            *error = "batch queue root after does not match consumed prefix";
+        }
+        return false;
+    }
+
+    if (!ConsumeQueuePrefix(*sidechain, sidechain_id, public_inputs.consumed_queue_messages, &queue_error)) {
+        if (error != nullptr) {
+            *error = queue_error;
+        }
+        return false;
+    }
+
+    sidechain->current_state_root = public_inputs.new_state_root;
+    sidechain->current_withdrawal_root = public_inputs.withdrawal_root;
+    sidechain->current_data_root = public_inputs.data_root;
+    sidechain->latest_batch_number = public_inputs.batch_number;
+
+    ValiditySidechainAcceptedBatch batch;
+    batch.batch_number = public_inputs.batch_number;
+    batch.prior_state_root = public_inputs.prior_state_root;
+    batch.new_state_root = public_inputs.new_state_root;
+    batch.l1_message_root_before = public_inputs.l1_message_root_before;
+    batch.l1_message_root_after = public_inputs.l1_message_root_after;
+    batch.consumed_queue_messages = public_inputs.consumed_queue_messages;
+    batch.withdrawal_root = public_inputs.withdrawal_root;
+    batch.data_root = public_inputs.data_root;
+    batch.accepted_height = accepted_height;
+    sidechain->accepted_batches.emplace(batch.batch_number, batch);
+
+    RefreshQueueState(*sidechain, accepted_height);
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
 bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state)
 {
     const int height = pindex->nHeight;
@@ -434,6 +639,28 @@ bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex
                     std::string error;
                     if (!ReclaimDeposit(info.sidechain_id, height, deposit, &error)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-reclaim-invalid", error);
+                    }
+                    break;
+                }
+
+                case ValiditySidechainScriptInfo::Kind::COMMIT_VALIDITY_BATCH: {
+                    if (txout.nValue != 0) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-batch-marker-value");
+                    }
+
+                    ValiditySidechainBatchPublicInputs public_inputs;
+                    std::vector<unsigned char> proof_bytes;
+                    std::vector<std::vector<unsigned char>> data_chunks;
+                    if (!DecodeValiditySidechainCommitMetadata(info, public_inputs, proof_bytes, data_chunks)) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-batch-metadata-bad");
+                    }
+                    if (ComputeValiditySidechainBatchCommitmentHash(info.sidechain_id, public_inputs) != info.payload) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-batch-hash-mismatch");
+                    }
+
+                    std::string error;
+                    if (!AcceptBatch(info.sidechain_id, height, public_inputs, proof_bytes, data_chunks, &error)) {
+                        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-batch-invalid", error);
                     }
                     break;
                 }

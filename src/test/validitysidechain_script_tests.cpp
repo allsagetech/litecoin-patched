@@ -141,28 +141,34 @@ BOOST_AUTO_TEST_CASE(commit_script_roundtrip)
     public_inputs.new_state_root = uint256S("7777777777777777777777777777777777777777777777777777777777777777");
     public_inputs.l1_message_root_before = uint256S("8888888888888888888888888888888888888888888888888888888888888888");
     public_inputs.l1_message_root_after = uint256S("9999999999999999999999999999999999999999999999999999999999999999");
+    public_inputs.consumed_queue_messages = 3;
     public_inputs.withdrawal_root = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     public_inputs.data_root = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     public_inputs.data_size = 2048;
 
     const std::vector<unsigned char> proof_placeholder{0x01, 0x02, 0x03};
+    const std::vector<std::vector<unsigned char>> data_chunks{{0x04, 0x05}, {0x06}};
     const uint8_t sidechain_id = 9;
-    const CScript script = BuildValiditySidechainCommitScript(sidechain_id, public_inputs, {proof_placeholder});
+    const CScript script = BuildValiditySidechainCommitScript(sidechain_id, public_inputs, proof_placeholder, data_chunks);
 
     ValiditySidechainScriptInfo info;
     BOOST_REQUIRE(DecodeValiditySidechainScript(script, info));
     BOOST_CHECK(info.kind == ValiditySidechainScriptInfo::Kind::COMMIT_VALIDITY_BATCH);
     BOOST_CHECK_EQUAL(info.sidechain_id, sidechain_id);
-    BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), 2U);
+    BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), 4U);
 
     ValiditySidechainBatchPublicInputs decoded_public_inputs;
-    BOOST_REQUIRE(DecodeValiditySidechainBatchPublicInputs(info.primary_metadata, decoded_public_inputs));
+    std::vector<unsigned char> decoded_proof_bytes;
+    std::vector<std::vector<unsigned char>> decoded_data_chunks;
+    BOOST_REQUIRE(DecodeValiditySidechainCommitMetadata(info, decoded_public_inputs, decoded_proof_bytes, decoded_data_chunks));
     BOOST_CHECK_EQUAL(decoded_public_inputs.batch_number, public_inputs.batch_number);
     BOOST_CHECK(decoded_public_inputs.prior_state_root == public_inputs.prior_state_root);
     BOOST_CHECK(decoded_public_inputs.new_state_root == public_inputs.new_state_root);
+    BOOST_CHECK_EQUAL(decoded_public_inputs.consumed_queue_messages, public_inputs.consumed_queue_messages);
     BOOST_CHECK(decoded_public_inputs.withdrawal_root == public_inputs.withdrawal_root);
     BOOST_CHECK_EQUAL(decoded_public_inputs.data_size, public_inputs.data_size);
-    BOOST_CHECK(info.metadata_pushes[1] == proof_placeholder);
+    BOOST_CHECK(decoded_proof_bytes == proof_placeholder);
+    BOOST_CHECK(decoded_data_chunks == data_chunks);
     BOOST_CHECK(info.payload == ComputeValiditySidechainBatchCommitmentHash(sidechain_id, public_inputs));
 }
 

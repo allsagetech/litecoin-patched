@@ -12,6 +12,7 @@
 #include <map>
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 class CBlock;
 class CBlockIndex;
@@ -84,6 +85,7 @@ struct ValiditySidechainBatchPublicInputs
     uint256 new_state_root;
     uint256 l1_message_root_before;
     uint256 l1_message_root_after;
+    uint32_t consumed_queue_messages{0};
     uint256 withdrawal_root;
     uint256 data_root;
     uint32_t data_size{0};
@@ -95,6 +97,7 @@ struct ValiditySidechainBatchPublicInputs
                   obj.new_state_root,
                   obj.l1_message_root_before,
                   obj.l1_message_root_after,
+                  obj.consumed_queue_messages,
                   obj.withdrawal_root,
                   obj.data_root,
                   obj.data_size);
@@ -124,6 +127,9 @@ struct ValiditySidechainAcceptedBatch
     uint32_t batch_number{0};
     uint256 prior_state_root;
     uint256 new_state_root;
+    uint256 l1_message_root_before;
+    uint256 l1_message_root_after;
+    uint32_t consumed_queue_messages{0};
     uint256 withdrawal_root;
     uint256 data_root;
     int accepted_height{-1};
@@ -133,6 +139,9 @@ struct ValiditySidechainAcceptedBatch
         READWRITE(obj.batch_number,
                   obj.prior_state_root,
                   obj.new_state_root,
+                  obj.l1_message_root_before,
+                  obj.l1_message_root_after,
+                  obj.consumed_queue_messages,
                   obj.withdrawal_root,
                   obj.data_root,
                   obj.accepted_height);
@@ -256,12 +265,20 @@ public:
 
     const ValiditySidechain* GetSidechain(uint8_t id) const;
     ValiditySidechain* GetSidechain(uint8_t id);
+    const ValiditySidechainAcceptedBatch* GetAcceptedBatch(uint8_t sidechain_id, uint32_t batch_number) const;
     const ValiditySidechainPendingDeposit* GetPendingDeposit(uint8_t sidechain_id, const uint256& deposit_id) const;
     ValiditySidechain& GetOrCreateSidechain(uint8_t id, int registration_height);
     bool ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state);
     bool RegisterSidechain(uint8_t id, int registration_height, const ValiditySidechainConfig& config, std::string* error = nullptr);
     bool AddDeposit(uint8_t sidechain_id, int deposit_height, const ValiditySidechainDepositData& deposit, std::string* error = nullptr);
     bool ReclaimDeposit(uint8_t sidechain_id, int reclaim_height, const ValiditySidechainDepositData& deposit, std::string* error = nullptr);
+    bool AcceptBatch(
+        uint8_t sidechain_id,
+        int accepted_height,
+        const ValiditySidechainBatchPublicInputs& public_inputs,
+        const std::vector<unsigned char>& proof_bytes,
+        const std::vector<std::vector<unsigned char>>& data_chunks,
+        std::string* error = nullptr);
     void Reset();
 };
 

@@ -314,10 +314,15 @@ via a dedicated witness encoding:
 - `new_state_root`
 - `l1_message_root_before`
 - `l1_message_root_after`
+- `consumed_queue_messages`
 - `withdrawal_root`
 - `data_root`
 - `data_size`
+
+The transaction also carries:
+
 - `proof_bytes`
+- zero or more DA chunks whose ordered hash commitment must equal `data_root`
 
 Consensus rules:
 
@@ -326,11 +331,13 @@ Consensus rules:
 - `batch_number` must be strictly monotonic
 - `proof_bytes` must not exceed `max_proof_bytes`
 - the `(prior_state_root, new_state_root, withdrawal_root, data_root,
-  l1_message_root_before, l1_message_root_after, batch_number, sidechain_id)`
-  tuple must be bound into the proof's public inputs
+  l1_message_root_before, l1_message_root_after, consumed_queue_messages,
+  batch_number, sidechain_id)` tuple must be bound into the proof's public
+  inputs
 - the proof must verify under the registered verifier configuration
 - `l1_message_root_before` must equal the current Litecoin-maintained queue root
-- the batch must consume a contiguous queue prefix and produce
+- the batch must consume exactly `consumed_queue_messages` messages from the
+  current contiguous pending queue prefix and produce
   `l1_message_root_after`
 - all matured L1 force-exit requests must be included in the consumed prefix
 - any pending deposit request left unconsumed past `deposit_reclaim_delay`
@@ -346,6 +353,17 @@ State updates on success:
 - advance the queue head / mark the consumed queue prefix as processed
 - record `(batch_number, withdrawal_root, data_root, accepted_height)`
 - append published DA metadata needed for forced exits and auditability
+
+Current scaffold implementation note:
+
+- the current branch only enables `scaffolding_only` batch validation
+- that mode accepts `COMMIT_VALIDITY_BATCH` only when it is a no-op batch:
+  - `consumed_queue_messages = 0`
+  - `proof_bytes` is empty
+  - no DA chunks are present
+  - `new_state_root`, `withdrawal_root`, and `data_root` remain unchanged
+- this is plumbing for the future verifier path, not trustless batch
+  finalization
 
 Miner approval is not part of batch finalization.
 

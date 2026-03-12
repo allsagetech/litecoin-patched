@@ -277,6 +277,34 @@ static bool TryGetValiditySidechainReclaimKeyFromTx(const CTransaction& tx, std:
     return reclaim_count == 1;
 }
 
+static bool TryGetValiditySidechainBatchKeyFromTx(const CTransaction& tx, std::pair<uint8_t, uint32_t>& out_key)
+{
+    int batch_count = 0;
+
+    for (const auto& txout : tx.vout) {
+        ValiditySidechainScriptInfo info;
+        if (!DecodeValiditySidechainScript(txout.scriptPubKey, info) ||
+            info.kind != ValiditySidechainScriptInfo::Kind::COMMIT_VALIDITY_BATCH) {
+            continue;
+        }
+
+        ValiditySidechainBatchPublicInputs public_inputs;
+        std::vector<unsigned char> proof_bytes;
+        std::vector<std::vector<unsigned char>> data_chunks;
+        if (!DecodeValiditySidechainCommitMetadata(info, public_inputs, proof_bytes, data_chunks)) {
+            return false;
+        }
+
+        ++batch_count;
+        if (batch_count > 1) {
+            return false;
+        }
+        out_key = std::make_pair(info.sidechain_id, public_inputs.batch_number);
+    }
+
+    return batch_count == 1;
+}
+
 } // namespace
 
 CTxMemPoolEntry::CTxMemPoolEntry(const CTransactionRef& _tx, const CAmount& _nFee,
@@ -686,6 +714,12 @@ void CTxMemPool::addUnchecked(const CTxMemPoolEntry &entry, setEntries &setAnces
         assert(inserted);
     }
 
+    std::pair<uint8_t, uint32_t> validity_batch_key;
+    if (TryGetValiditySidechainBatchKeyFromTx(tx, validity_batch_key)) {
+        const bool inserted = mapValiditySidechainBatchByNumber.emplace(validity_batch_key, tx.GetHash()).second;
+        assert(inserted);
+    }
+
     std::set<uint256> setParentTransactions;
     for (const CTxInput& input : tx.GetInputs()) {
         mapNextTx.insert(std::make_pair(input.GetIndex(), &tx));
@@ -768,6 +802,11 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
     std::pair<uint8_t, uint256> validity_reclaim_key;
     if (TryGetValiditySidechainReclaimKeyFromTx(*ptx, validity_reclaim_key)) {
         mapValiditySidechainReclaimByDepositId.erase(validity_reclaim_key);
+    }
+
+    std::pair<uint8_t, uint32_t> validity_batch_key;
+    if (TryGetValiditySidechainBatchKeyFromTx(*ptx, validity_batch_key)) {
+        mapValiditySidechainBatchByNumber.erase(validity_batch_key);
     }
 
     for (const CTxInput& txin : ptx->GetInputs())
@@ -993,6 +1032,7 @@ void CTxMemPool::_clear()
     mapDrivechainRegisterBySidechain.clear();
     mapValiditySidechainDepositById.clear();
     mapValiditySidechainReclaimByDepositId.clear();
+    mapValiditySidechainBatchByNumber.clear();
     mapTxOutputs_MWEB.clear();
     totalTxSize = 0;
     cachedInnerUsage = 0;
@@ -1378,6 +1418,12 @@ bool CTxMemPool::HasValiditySidechainReclaim(const std::pair<uint8_t, uint256>& 
 {
     AssertLockHeld(cs);
     return mapValiditySidechainReclaimByDepositId.count(key) != 0;
+}
+
+bool CTxMemPool::HasValiditySidechainBatch(const std::pair<uint8_t, uint32_t>& key) const
+{
+    AssertLockHeld(cs);
+    return mapValiditySidechainBatchByNumber.count(key) != 0;
 }
 
 bool CTxMemPool::HasNoInputsOf(const CTransaction &tx) const

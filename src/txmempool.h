@@ -645,6 +645,11 @@ public:
     std::map<std::pair<uint8_t, uint256>, uint256> mapValiditySidechainReclaimByDepositId GUARDED_BY(cs);
 
     /**
+     * Index validity-sidechain batch commits by (sidechain_id, batch_number).
+     */
+    std::map<std::pair<uint8_t, uint32_t>, uint256> mapValiditySidechainBatchByNumber GUARDED_BY(cs);
+
+    /**
      * Maps MWEB output IDs to mempool transactions that create them.
      */
     std::map<mw::Hash, const CTransaction*> mapTxOutputs_MWEB GUARDED_BY(cs);
@@ -729,6 +734,8 @@ public:
     bool HasValiditySidechainDeposit(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return true if a mempool tx already reclaims this validity-sidechain deposit id. */
     bool HasValiditySidechainReclaim(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /** Return true if a mempool tx already commits this validity-sidechain batch number. */
+    bool HasValiditySidechainBatch(const std::pair<uint8_t, uint32_t>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Remove a set of transactions from the mempool.
      *  If a transaction is in this set, then all in-mempool descendants must

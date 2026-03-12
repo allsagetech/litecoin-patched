@@ -323,6 +323,8 @@ This means the `BMM_REQUEST` and `BMM_ACCEPT` code may either:
 - implement registration validation against a fixed verifier registry
 - implement deposit queue insertion and queue-root tracking
 - implement `COMMIT_VALIDITY_BATCH`
+- start with a scaffold-only verifier mode that is explicit about not being
+  trustless
 - persist accepted batches and withdrawal roots
 
 ### Phase 3: Withdrawal Execution
@@ -369,6 +371,8 @@ Current branch status:
 - registration config encoding exists in `src/validitysidechain/script.*`
 - deposit queue message encoding exists in `src/validitysidechain/script.*`
 - batch public-input encoding exists in `src/validitysidechain/script.*`
+- batch metadata decoding now explicitly separates public inputs, proof bytes,
+  and DA chunks in `src/validitysidechain/script.*`
 - force-exit request encoding exists in `src/validitysidechain/script.*`
 - registration config prevalidation exists for supported profile tuples and
   resource bounds
@@ -377,11 +381,18 @@ Current branch status:
 - deposit queue insertion, stale-deposit reclaim metadata, and reclaim-path
   escrow accounting now exist in `src/validitysidechain/state.*` and
   `src/validation.cpp`
+- accepted-batch state tracking, batch-number monotonicity, queue-prefix
+  transition plumbing, and mempool duplicate tracking now exist for
+  `COMMIT_VALIDITY_BATCH`
+- the current verifier mode is explicitly `scaffold_noop_only`, which allows
+  only no-op batch commits while the real zk verifier path is still missing
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
-  registration-prevalidation availability
+  registration plus batch-validation availability
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   though ancestor snapshot replay is still drivechain-only
-- withdrawal leaf, DA chunk, and escape-exit encodings remain to be specified
+- withdrawal leaf and escape-exit encodings remain to be specified
+- trustless proof verification, DA-carrying batches, queue-consuming batches,
+  verified withdrawals, and exit paths are still outstanding
 
 ## 8. Bottom Line
 
