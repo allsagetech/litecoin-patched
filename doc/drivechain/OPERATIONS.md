@@ -1,6 +1,7 @@
-# Drivechain Operations Runbook
+# Legacy Drivechain Operations Runbook
 
-This runbook documents practical operator flow for the Drivechain implementation in this repository.
+This runbook documents practical operator flow for the legacy Drivechain
+implementation in this repository.
 
 ## 1. Preconditions
 

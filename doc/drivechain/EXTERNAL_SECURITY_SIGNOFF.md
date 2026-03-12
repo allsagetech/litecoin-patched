@@ -1,6 +1,7 @@
-# Drivechain External Security Sign-Off
+# Legacy Drivechain External Security Sign-Off
 
-Use this file as the manual release gate for external review and sign-off criteria.
+Use this file as the manual release gate for external review and sign-off
+criteria for the legacy Drivechain implementation.
 All `PENDING` values below must be completed before a release tag push.
 
 Validation rules enforced by `contrib/devtools/drivechain_production_gate.py`:

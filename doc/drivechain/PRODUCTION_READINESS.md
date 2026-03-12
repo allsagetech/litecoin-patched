@@ -1,7 +1,7 @@
-# Drivechain Production Readiness Gates
+# Legacy Drivechain Production Readiness Gates
 
-This document defines the required production gates for Drivechain deployments
-from this repository.
+This document defines the required production gates for legacy Drivechain
+deployments from this repository.
 
 Status model:
 - `ENFORCED`: Checked by CI or static policy in-repo.

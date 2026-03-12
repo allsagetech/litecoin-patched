@@ -10,6 +10,10 @@ License: MIT
 
 # Abstract
 
+Legacy status note: this document describes the legacy miner-voted drivechain
+model retained for migration context while the repository moves toward
+validity-enforced sidechains.
+
 This proposal defines Litecoin-native, miner-enforced sidechains. LTC is locked on the Litecoin mainchain, sidechains are produced via blind merged mining, and LTC can be released only through a pre-committed withdrawal bundle that Litecoin miners approve on-chain over fixed vote windows. The design is inspired by BIP300/301, but LIP-0005 is specified for Litecoin's 2.5-minute blocks, scrypt miner set, and activation policy.
 
 This soft fork adds a new opcode (`OP_DRIVECHAIN`) and new output type (`TxoutType::DRIVECHAIN`) which enable six operations:

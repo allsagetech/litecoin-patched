@@ -1,7 +1,7 @@
-# Drivechain Public Signet Runbook
+# Legacy Drivechain Public Signet Runbook
 
 This document separates the in-repo signet deliverables from the external
-operator work required to run a public drivechain burn-in network.
+operator work required to run a public legacy drivechain burn-in network.
 
 ## 1. In-Repo Deliverables
 

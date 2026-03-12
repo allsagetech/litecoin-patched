@@ -1,6 +1,8 @@
-# Signet Soft-Fork Test Runbook
+# Legacy Drivechain Signet Soft-Fork Test Runbook
 
-This runbook is for trusted testers validating the drivechain soft-fork behavior on signet.
+This runbook is for trusted testers validating the legacy drivechain soft-fork
+behavior on signet while the repo transitions toward validity-enforced
+sidechains.
 
 Tested source baseline:
 
@@ -84,6 +86,7 @@ Ask testers to send:
 
 ## Recommended message to testers
 
-Please test the drivechain soft-fork build on signet using the provided binaries for commit `b75b076`.
-Confirm that `getblockchaininfo` reports drivechain as `active`, verify the node survives restart cleanly,
-and send back any RPC errors, crashes, or unexpected drivechain behavior.
+Please test the legacy drivechain soft-fork build on signet using the provided
+binaries for commit `b75b076`. Confirm that `getblockchaininfo` reports
+drivechain as `active`, verify the node survives restart cleanly, and send back
+any RPC errors, crashes, or unexpected drivechain behavior.

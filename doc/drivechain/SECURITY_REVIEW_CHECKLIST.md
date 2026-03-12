@@ -1,6 +1,7 @@
-# Drivechain Security Review Checklist
+# Legacy Drivechain Security Review Checklist
 
-Use this checklist before public testnet/mainnet deployment.
+Use this checklist before public testnet/mainnet deployment of the legacy
+Drivechain implementation.
 
 ## Consensus Correctness
 

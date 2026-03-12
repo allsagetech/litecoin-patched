@@ -1,6 +1,7 @@
-# Drivechain Staged Rollout Plan
+# Legacy Drivechain Staged Rollout Plan
 
-This plan defines rollout phases for production-grade Drivechain activation.
+This plan defines rollout phases for production-grade activation of the legacy
+Drivechain implementation.
 
 ## Phase 0: Pre-Release Gate
 

@@ -20,10 +20,10 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------
-  # 0) Drivechain production readiness gates (static checks)
+  # 0) Legacy Drivechain production readiness gates (static checks)
   # ------------------------------------------------------------
   drivechain-production-gates:
-    name: Drivechain production gates
+    name: Legacy Drivechain production gates
     runs-on: ubuntu-22.04
     timeout-minutes: 10
 
@@ -324,10 +324,10 @@ jobs:
           run_one feature_drivechain_signet.py
 
   # ------------------------------------------------------------
-  # 3) Drivechain functional tests (everything but master)
+  # 3) Legacy Drivechain functional tests (everything but master)
   # ------------------------------------------------------------
   drivechain-functional-tests:
-    name: Drivechain functional tests
+    name: Legacy Drivechain functional tests
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     needs: [drivechain-production-gates, segwit-functional-tests, signet-functional-tests]
@@ -424,11 +424,11 @@ jobs:
       - name: build
         run: make -j4
 
-      - name: Run drivechain unit tests
+      - name: Run legacy drivechain unit tests
         run: |
           src/test/test_litecoin --catch_system_errors=no --run_test=drivechain_script_tests
 
-      - name: Run drivechain functional tests
+      - name: Run legacy drivechain functional tests
         env:
           LC_ALL: C
         run: |

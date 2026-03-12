@@ -1,6 +1,7 @@
-# Drivechain Incident Response Runbook
+# Legacy Drivechain Incident Response Runbook
 
-This runbook covers operational response for high-severity Drivechain incidents.
+This runbook covers operational response for high-severity incidents affecting
+the legacy Drivechain implementation.
 
 ## Severity Levels
 
