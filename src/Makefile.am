@@ -212,6 +212,7 @@ BITCOIN_CORE_H = \
   mweb/mweb_wallet.h \
   drivechain/script.h \
   drivechain/state.h \
+  validitysidechain/registry.h \
   validitysidechain/script.h \
   validitysidechain/state.h \
   net.h \
@@ -395,6 +396,7 @@ libbitcoin_server_a_SOURCES = \
   txmempool.cpp \
   validation.cpp \
   drivechain/state.cpp \
+  validitysidechain/registry.cpp \
   validitysidechain/state.cpp \
   validationinterface.cpp \
   versionbits.cpp \

@@ -35,6 +35,7 @@
 #include <util/strencodings.h>
 #include <util/system.h>
 #include <util/translation.h>
+#include <validitysidechain/registry.h>
 #include <validitysidechain/state.h>
 #include <validation.h>
 #include <validationinterface.h>
@@ -1673,6 +1674,32 @@ static UniValue ValiditySidechainConfigToJSON(const ValiditySidechainConfig& con
     return result;
 }
 
+static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySidechainConfig& supported)
+{
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("profile_name", supported.profile_name);
+    result.pushKV("scaffolding_only", supported.scaffolding_only);
+    result.pushKV("version", static_cast<int>(supported.version));
+    result.pushKV("proof_system_id", static_cast<int>(supported.proof_system_id));
+    result.pushKV("circuit_family_id", static_cast<int>(supported.circuit_family_id));
+    result.pushKV("verifier_id", static_cast<int>(supported.verifier_id));
+    result.pushKV("public_input_version", static_cast<int>(supported.public_input_version));
+    result.pushKV("state_root_format", static_cast<int>(supported.state_root_format));
+    result.pushKV("deposit_message_format", static_cast<int>(supported.deposit_message_format));
+    result.pushKV("withdrawal_leaf_format", static_cast<int>(supported.withdrawal_leaf_format));
+    result.pushKV("balance_leaf_format", static_cast<int>(supported.balance_leaf_format));
+    result.pushKV("data_availability_mode", static_cast<int>(supported.data_availability_mode));
+    result.pushKV("max_batch_data_bytes_limit", static_cast<int64_t>(supported.max_batch_data_bytes_limit));
+    result.pushKV("max_proof_bytes_limit", static_cast<int64_t>(supported.max_proof_bytes_limit));
+    result.pushKV("min_force_inclusion_delay", static_cast<int64_t>(supported.min_force_inclusion_delay));
+    result.pushKV("max_force_inclusion_delay", static_cast<int64_t>(supported.max_force_inclusion_delay));
+    result.pushKV("min_deposit_reclaim_delay", static_cast<int64_t>(supported.min_deposit_reclaim_delay));
+    result.pushKV("max_deposit_reclaim_delay", static_cast<int64_t>(supported.max_deposit_reclaim_delay));
+    result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
+    result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
+    return result;
+}
+
 static UniValue ValiditySidechainQueueStateToJSON(const ValiditySidechainQueueState& queue_state)
 {
     UniValue result(UniValue::VOBJ);
@@ -1747,12 +1774,16 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
             sidechains.push_back(ValiditySidechainToJSON(entry.second));
         }
     }
+    for (const auto& supported : GetSupportedValiditySidechainConfigs()) {
+        supported_configs.push_back(SupportedValiditySidechainConfigToJSON(supported));
+    }
 
     result.pushKV("implementation_status", "scaffolding");
     result.pushKV("trustless_enforced", false);
     result.pushKV("activation_candidate", false);
     result.pushKV("legacy_drivechain_withdrawal_path_active", true);
     result.pushKV("state_persistence_enabled", false);
+    result.pushKV("registration_validation_available", true);
     result.pushKV("supported_proof_configs", supported_configs);
     result.pushKV("sidechains", sidechains);
     return result;

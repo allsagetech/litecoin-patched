@@ -4,6 +4,8 @@
 
 #include <validitysidechain/state.h>
 
+#include <validitysidechain/registry.h>
+
 const ValiditySidechain* ValiditySidechainState::GetSidechain(uint8_t id) const
 {
     const auto it = sidechains.find(id);
@@ -30,6 +32,40 @@ ValiditySidechain& ValiditySidechainState::GetOrCreateSidechain(uint8_t id, int 
         sidechain.registration_height = registration_height;
     }
     return sidechain;
+}
+
+bool ValiditySidechainState::RegisterSidechain(
+    uint8_t id,
+    int registration_height,
+    const ValiditySidechainConfig& config,
+    std::string* error)
+{
+    if (registration_height < 0) {
+        if (error != nullptr) {
+            *error = "registration height must be non-negative";
+        }
+        return false;
+    }
+    if (!ValidateValiditySidechainConfig(config, error)) {
+        return false;
+    }
+    if (sidechains.count(id) != 0) {
+        if (error != nullptr) {
+            *error = "sidechain id already registered";
+        }
+        return false;
+    }
+
+    ValiditySidechain sidechain;
+    sidechain.id = id;
+    sidechain.registration_height = registration_height;
+    sidechain.is_active = true;
+    sidechain.config = config;
+    sidechain.current_state_root = config.initial_state_root;
+    sidechain.current_withdrawal_root = config.initial_withdrawal_root;
+
+    sidechains.emplace(id, sidechain);
+    return true;
 }
 
 void ValiditySidechainState::Reset()

@@ -364,10 +364,16 @@ If implementation starts from the current branch, the highest-signal sequence is
 
 Current branch status:
 
+- fixed scaffold-only proof-config registry exists in
+  `src/validitysidechain/registry.*`
 - registration config encoding exists in `src/validitysidechain/script.*`
 - deposit queue message encoding exists in `src/validitysidechain/script.*`
 - batch public-input encoding exists in `src/validitysidechain/script.*`
 - force-exit request encoding exists in `src/validitysidechain/script.*`
+- registration config prevalidation exists for supported profile tuples and
+  resource bounds
+- `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
+  registration-prevalidation availability
 - queue tombstone, withdrawal leaf, DA chunk, and escape-exit encodings remain
   to be specified
 

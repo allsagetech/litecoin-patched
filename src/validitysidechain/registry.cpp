@@ -1,0 +1,108 @@
+// Copyright (c) 2026 AllSageTech, LLC
+// Distributed under the MIT software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#include <validitysidechain/registry.h>
+
+namespace {
+
+static bool FailValidation(std::string* error, const char* message)
+{
+    if (error != nullptr) {
+        *error = message;
+    }
+    return false;
+}
+
+static bool MatchesProfileTuple(
+    const SupportedValiditySidechainConfig& supported,
+    const ValiditySidechainConfig& config)
+{
+    return supported.version == config.version &&
+           supported.proof_system_id == config.proof_system_id &&
+           supported.circuit_family_id == config.circuit_family_id &&
+           supported.verifier_id == config.verifier_id &&
+           supported.public_input_version == config.public_input_version &&
+           supported.state_root_format == config.state_root_format &&
+           supported.deposit_message_format == config.deposit_message_format &&
+           supported.withdrawal_leaf_format == config.withdrawal_leaf_format &&
+           supported.balance_leaf_format == config.balance_leaf_format &&
+           supported.data_availability_mode == config.data_availability_mode;
+}
+
+} // namespace
+
+const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidechainConfigs()
+{
+    static const std::vector<SupportedValiditySidechainConfig> supported_configs{
+        {
+            /* profile_name               = */ "scaffold_onchain_da_v1",
+            /* scaffolding_only           = */ true,
+            /* version                    = */ 1,
+            /* proof_system_id            = */ 1,
+            /* circuit_family_id          = */ 1,
+            /* verifier_id                = */ 1,
+            /* public_input_version       = */ 1,
+            /* state_root_format          = */ 1,
+            /* deposit_message_format     = */ 1,
+            /* withdrawal_leaf_format     = */ 1,
+            /* balance_leaf_format        = */ 1,
+            /* data_availability_mode     = */ 1,
+            /* max_batch_data_bytes_limit = */ 64 * 1024,
+            /* max_proof_bytes_limit      = */ 16 * 1024,
+            /* min_force_inclusion_delay  = */ 12,
+            /* max_force_inclusion_delay  = */ 7 * 144,
+            /* min_deposit_reclaim_delay  = */ 144,
+            /* max_deposit_reclaim_delay  = */ 28 * 144,
+            /* min_escape_hatch_delay     = */ 288,
+            /* max_escape_hatch_delay     = */ 56 * 144,
+        },
+    };
+
+    return supported_configs;
+}
+
+const SupportedValiditySidechainConfig* FindSupportedValiditySidechainConfig(const ValiditySidechainConfig& config)
+{
+    for (const auto& supported : GetSupportedValiditySidechainConfigs()) {
+        if (MatchesProfileTuple(supported, config)) {
+            return &supported;
+        }
+    }
+    return nullptr;
+}
+
+bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std::string* error)
+{
+    if (config.version == 0) {
+        return FailValidation(error, "config version must be non-zero");
+    }
+
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return FailValidation(error, "unsupported proof configuration tuple");
+    }
+
+    if (config.max_batch_data_bytes == 0 ||
+        config.max_batch_data_bytes > supported->max_batch_data_bytes_limit) {
+        return FailValidation(error, "max_batch_data_bytes exceeds supported limit");
+    }
+    if (config.max_proof_bytes == 0 ||
+        config.max_proof_bytes > supported->max_proof_bytes_limit) {
+        return FailValidation(error, "max_proof_bytes exceeds supported limit");
+    }
+    if (config.force_inclusion_delay < supported->min_force_inclusion_delay ||
+        config.force_inclusion_delay > supported->max_force_inclusion_delay) {
+        return FailValidation(error, "force_inclusion_delay outside supported range");
+    }
+    if (config.deposit_reclaim_delay < supported->min_deposit_reclaim_delay ||
+        config.deposit_reclaim_delay > supported->max_deposit_reclaim_delay) {
+        return FailValidation(error, "deposit_reclaim_delay outside supported range");
+    }
+    if (config.escape_hatch_delay < supported->min_escape_hatch_delay ||
+        config.escape_hatch_delay > supported->max_escape_hatch_delay) {
+        return FailValidation(error, "escape_hatch_delay outside supported range");
+    }
+
+    return true;
+}
