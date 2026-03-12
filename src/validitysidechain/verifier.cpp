@@ -6,12 +6,26 @@
 
 #include <hash.h>
 #include <validitysidechain/registry.h>
+#include <validitysidechain/script.h>
 
+#include <algorithm>
+#include <iterator>
 #include <limits>
 
 namespace {
 
 static constexpr unsigned char DATA_ROOT_MAGIC[] = {'V', 'S', 'C', 'R', 0x01};
+static constexpr unsigned char SCAFFOLD_PROOF_MAGIC[] = {'V', 'S', 'C', 'P', 0x01};
+static constexpr size_t UINT256_SERIALIZED_SIZE = 32;
+
+struct ValiditySidechainScaffoldProofEnvelope
+{
+    uint256 batch_commitment;
+    uint256 current_state_root;
+    uint256 current_withdrawal_root;
+    uint256 current_data_root;
+    uint256 current_l1_message_root;
+};
 
 static bool FailValidation(std::string* error, const char* message)
 {
@@ -19,6 +33,61 @@ static bool FailValidation(std::string* error, const char* message)
         *error = message;
     }
     return false;
+}
+
+static void AppendUint256(std::vector<unsigned char>& out, const uint256& value)
+{
+    out.insert(out.end(), value.begin(), value.end());
+}
+
+static bool ReadUint256(
+    const std::vector<unsigned char>& bytes,
+    size_t offset,
+    uint256& out_value)
+{
+    if (offset > bytes.size() || bytes.size() - offset < UINT256_SERIALIZED_SIZE) {
+        return false;
+    }
+
+    out_value = uint256(std::vector<unsigned char>(
+        bytes.begin() + offset,
+        bytes.begin() + offset + UINT256_SERIALIZED_SIZE));
+    return true;
+}
+
+static std::vector<unsigned char> EncodeValiditySidechainScaffoldProofEnvelope(
+    const ValiditySidechainScaffoldProofEnvelope& envelope)
+{
+    std::vector<unsigned char> out;
+    out.insert(out.end(), std::begin(SCAFFOLD_PROOF_MAGIC), std::end(SCAFFOLD_PROOF_MAGIC));
+    AppendUint256(out, envelope.batch_commitment);
+    AppendUint256(out, envelope.current_state_root);
+    AppendUint256(out, envelope.current_withdrawal_root);
+    AppendUint256(out, envelope.current_data_root);
+    AppendUint256(out, envelope.current_l1_message_root);
+    return out;
+}
+
+static bool DecodeValiditySidechainScaffoldProofEnvelope(
+    const std::vector<unsigned char>& proof_bytes,
+    ValiditySidechainScaffoldProofEnvelope& out_envelope)
+{
+    if (proof_bytes.size() != sizeof(SCAFFOLD_PROOF_MAGIC) + (UINT256_SERIALIZED_SIZE * 5)) {
+        return false;
+    }
+    if (!std::equal(
+            std::begin(SCAFFOLD_PROOF_MAGIC),
+            std::end(SCAFFOLD_PROOF_MAGIC),
+            proof_bytes.begin())) {
+        return false;
+    }
+
+    size_t offset = sizeof(SCAFFOLD_PROOF_MAGIC);
+    return ReadUint256(proof_bytes, offset, out_envelope.batch_commitment) &&
+           ReadUint256(proof_bytes, offset += UINT256_SERIALIZED_SIZE, out_envelope.current_state_root) &&
+           ReadUint256(proof_bytes, offset += UINT256_SERIALIZED_SIZE, out_envelope.current_withdrawal_root) &&
+           ReadUint256(proof_bytes, offset += UINT256_SERIALIZED_SIZE, out_envelope.current_data_root) &&
+           ReadUint256(proof_bytes, offset += UINT256_SERIALIZED_SIZE, out_envelope.current_l1_message_root);
 }
 
 } // namespace
@@ -41,7 +110,7 @@ const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVer
         case ValiditySidechainBatchVerifierMode::DISABLED:
             return "disabled";
         case ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY:
-            return "scaffold_queue_prefix_only";
+            return "scaffold_queue_prefix_commitment_v1";
     }
 
     return "unknown";
@@ -63,6 +132,24 @@ uint256 ComputeValiditySidechainDataRoot(const std::vector<std::vector<unsigned 
         }
     }
     return hw.GetHash();
+}
+
+std::vector<unsigned char> BuildValiditySidechainScaffoldBatchProof(
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const uint256& current_state_root,
+    const uint256& current_withdrawal_root,
+    const uint256& current_data_root,
+    const uint256& current_l1_message_root)
+{
+    const ValiditySidechainScaffoldProofEnvelope envelope{
+        /* batch_commitment        = */ ComputeValiditySidechainBatchCommitmentHash(sidechain_id, public_inputs),
+        /* current_state_root      = */ current_state_root,
+        /* current_withdrawal_root = */ current_withdrawal_root,
+        /* current_data_root       = */ current_data_root,
+        /* current_l1_message_root = */ current_l1_message_root,
+    };
+    return EncodeValiditySidechainScaffoldProofEnvelope(envelope);
 }
 
 bool VerifyValiditySidechainBatch(
@@ -113,8 +200,18 @@ bool VerifyValiditySidechainBatch(
         return FailValidation(error, "proof verifier is not implemented for this profile");
     }
 
-    if (!proof_bytes.empty()) {
-        return FailValidation(error, "scaffold verifier requires empty proof bytes");
+    ValiditySidechainScaffoldProofEnvelope envelope;
+    if (!DecodeValiditySidechainScaffoldProofEnvelope(proof_bytes, envelope)) {
+        return FailValidation(error, "invalid scaffold proof envelope");
+    }
+    if (envelope.batch_commitment != ComputeValiditySidechainBatchCommitmentHash(sidechain_id, public_inputs)) {
+        return FailValidation(error, "scaffold proof envelope does not match batch commitment");
+    }
+    if (envelope.current_state_root != current_state_root ||
+        envelope.current_withdrawal_root != current_withdrawal_root ||
+        envelope.current_data_root != current_data_root ||
+        envelope.current_l1_message_root != current_l1_message_root) {
+        return FailValidation(error, "scaffold proof envelope does not match current chainstate roots");
     }
     if (public_inputs.new_state_root != current_state_root) {
         return FailValidation(error, "scaffold verifier only allows no-op state root updates");

@@ -98,6 +98,36 @@ std::vector<ValiditySidechainWithdrawalProof> BuildWithdrawalProofsForTest(
     return proofs;
 }
 
+std::vector<ValiditySidechainEscapeExitProof> BuildEscapeExitProofsForTest(
+    const std::vector<ValiditySidechainEscapeExitLeaf>& exits)
+{
+    std::vector<ValiditySidechainEscapeExitProof> proofs;
+    proofs.reserve(exits.size());
+    for (uint32_t i = 0; i < exits.size(); ++i) {
+        ValiditySidechainEscapeExitProof proof;
+        if (!BuildValiditySidechainEscapeExitProof(exits, i, proof)) {
+            BOOST_FAIL("failed to build escape-exit proof for test");
+            return {};
+        }
+        proofs.push_back(std::move(proof));
+    }
+    return proofs;
+}
+
+std::vector<unsigned char> BuildScaffoldBatchProofForTest(
+    uint8_t sidechain_id,
+    const ValiditySidechain& sidechain,
+    const ValiditySidechainBatchPublicInputs& public_inputs)
+{
+    return BuildValiditySidechainScaffoldBatchProof(
+        sidechain_id,
+        public_inputs,
+        sidechain.current_state_root,
+        sidechain.current_withdrawal_root,
+        sidechain.current_data_root,
+        sidechain.queue_state.root);
+}
+
 ValiditySidechainForceExitData MakeForceExitRequest(const uint256& account_id, const CScript& destination_script, CAmount amount = 2 * COIN)
 {
     ValiditySidechainForceExitData request;
@@ -477,8 +507,9 @@ BOOST_AUTO_TEST_CASE(accept_batch_records_noop_scaffold_batch)
     BOOST_REQUIRE(sidechain != nullptr);
 
     const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 5, *sidechain, public_inputs);
     std::string error;
-    BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 5, /* accepted_height= */ 320, public_inputs, {}, {}, &error));
+    BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 5, /* accepted_height= */ 320, public_inputs, proof_bytes, {}, &error));
     BOOST_CHECK(error.empty());
 
     sidechain = state.GetSidechain(5);
@@ -501,6 +532,7 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_noop_batch_commit)
     const ValiditySidechain* sidechain = state.GetSidechain(7);
     BOOST_REQUIRE(sidechain != nullptr);
     const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 7, *sidechain, public_inputs);
 
     CMutableTransaction batch_tx;
     batch_tx.vout.emplace_back(
@@ -508,7 +540,7 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_noop_batch_commit)
         BuildValiditySidechainCommitScript(
             /* scid= */ 7,
             public_inputs,
-            std::vector<unsigned char>{},
+            proof_bytes,
             std::vector<std::vector<unsigned char>>{}));
 
     CBlock block;
@@ -543,9 +575,10 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_scaffold_state_or_queue_changes)
     {
         ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
         public_inputs.new_state_root = uint256S("0404040404040404040404040404040404040404040404040404040404040404");
+        const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 6, *sidechain, public_inputs);
 
         std::string error;
-        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, {}, {}, &error));
+        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, proof_bytes, {}, &error));
         BOOST_CHECK_EQUAL(error, "scaffold verifier only allows no-op state root updates");
     }
 
@@ -555,11 +588,31 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_scaffold_state_or_queue_changes)
         ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
         public_inputs.consumed_queue_messages = 1;
         public_inputs.l1_message_root_after = sidechain->queue_state.root;
+        const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 6, *sidechain, public_inputs);
 
         std::string error;
-        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, {}, {}, &error));
+        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, proof_bytes, {}, &error));
         BOOST_CHECK_EQUAL(error, "batch queue root after does not match consumed prefix");
     }
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_invalid_scaffold_proof_envelope)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 18, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(18);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 18, *sidechain, public_inputs);
+    BOOST_REQUIRE(!proof_bytes.empty());
+    proof_bytes.pop_back();
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 18, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
+    BOOST_CHECK_EQUAL(error, "invalid scaffold proof envelope");
 }
 
 BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_records)
@@ -588,9 +641,10 @@ BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_recor
     ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
     public_inputs.consumed_queue_messages = 2;
     public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 14, /* consumed_queue_messages= */ 2);
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 14, *sidechain, public_inputs);
 
     std::string error;
-    BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 14, /* accepted_height= */ 503, public_inputs, {}, {}, &error));
+    BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 14, /* accepted_height= */ 503, public_inputs, proof_bytes, {}, &error));
     BOOST_CHECK(error.empty());
 
     sidechain = state.GetSidechain(14);
@@ -640,9 +694,10 @@ BOOST_AUTO_TEST_CASE(accept_batch_requires_matured_force_exit_consumption)
         ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
         public_inputs.consumed_queue_messages = 1;
         public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 15, /* consumed_queue_messages= */ 1);
+        const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 15, *sidechain, public_inputs);
 
         std::string error;
-        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 15, /* accepted_height= */ idle_index.nHeight, public_inputs, {}, {}, &error));
+        BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 15, /* accepted_height= */ idle_index.nHeight, public_inputs, proof_bytes, {}, &error));
         BOOST_CHECK_EQUAL(error, "batch must consume all matured force-exit requests in reachable queue prefix");
     }
 
@@ -652,9 +707,10 @@ BOOST_AUTO_TEST_CASE(accept_batch_requires_matured_force_exit_consumption)
         ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
         public_inputs.consumed_queue_messages = 2;
         public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 15, /* consumed_queue_messages= */ 2);
+        const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 15, *sidechain, public_inputs);
 
         std::string error;
-        BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 15, /* accepted_height= */ idle_index.nHeight, public_inputs, {}, {}, &error));
+        BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 15, /* accepted_height= */ idle_index.nHeight, public_inputs, proof_bytes, {}, &error));
         BOOST_CHECK(error.empty());
     }
 }
@@ -789,20 +845,21 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_requires_halt_and_tracks_replay)
         MakeEscapeExitLeaf(uint256S("3131313131313131313131313131313131313131313131313131313131313131"), payout_b, 3 * COIN),
     };
     const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    const std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
     sidechain->current_state_root = escape_root;
 
     std::string error;
-    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay - 1, escape_root, exits, &error));
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay - 1, escape_root, exit_proofs, &error));
     BOOST_CHECK_EQUAL(error, "escape hatch delay not reached");
 
-    BOOST_REQUIRE(state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay, escape_root, exits, &error));
+    BOOST_REQUIRE(state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
     BOOST_CHECK(error.empty());
     BOOST_CHECK_EQUAL(sidechain->escrow_balance, 4 * COIN);
     BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 2U);
     BOOST_CHECK(state.HasExecutedEscapeExit(12, exits[0].exit_id));
     BOOST_CHECK(state.HasExecutedEscapeExit(12, exits[1].exit_id));
 
-    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay, escape_root, exits, &error));
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
     BOOST_CHECK_EQUAL(error, "escape-exit id already executed");
 }
 
@@ -823,12 +880,13 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_escape_exit_execution)
         MakeEscapeExitLeaf(uint256S("3333333333333333333333333333333333333333333333333333333333333333"), payout_b, 2 * COIN),
     };
     const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    const std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
     sidechain->current_state_root = escape_root;
 
     CMutableTransaction tx;
     tx.vout.emplace_back(
         /* nValueIn= */ 0,
-        BuildValiditySidechainEscapeExitScript(/* scid= */ 13, escape_root, exits));
+        BuildValiditySidechainEscapeExitScript(/* scid= */ 13, escape_root, exit_proofs));
     tx.vout.emplace_back(1 * COIN, payout_a);
     tx.vout.emplace_back(2 * COIN, payout_b);
 
@@ -842,6 +900,35 @@ BOOST_AUTO_TEST_CASE(connect_block_handles_escape_exit_execution)
     BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
     BOOST_CHECK(state.HasExecutedEscapeExit(13, exits[0].exit_id));
     BOOST_CHECK(state.HasExecutedEscapeExit(13, exits[1].exit_id));
+}
+
+BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_invalid_merkle_proof)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 17, /* registration_height= */ 600, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(17);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 7 * COIN;
+
+    const CScript payout_a = CScript() << OP_14;
+    const CScript payout_b = CScript() << OP_15;
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        MakeEscapeExitLeaf(uint256S("3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b"), payout_a, 2 * COIN),
+        MakeEscapeExitLeaf(uint256S("3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"), payout_b, 1 * COIN),
+    };
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    sidechain->current_state_root = escape_root;
+
+    std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
+    BOOST_REQUIRE(!exit_proofs.empty());
+    BOOST_REQUIRE(!exit_proofs.front().sibling_hashes.empty());
+    exit_proofs.front().sibling_hashes[0] = uint256S("3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d");
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 17, /* execution_height= */ 600 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
+    BOOST_CHECK_EQUAL(error, "escape-exit proof does not match referenced state root");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -386,10 +386,11 @@ Current branch status:
 - accepted-batch state tracking, batch-number monotonicity, queue-prefix
   transition plumbing, and mempool duplicate tracking now exist for
   `COMMIT_VALIDITY_BATCH`
-- the current verifier mode is explicitly `scaffold_queue_prefix_only`, which
-  allows deterministic queue-prefix consumption with no proof bytes and no
-  state-root / withdrawal-root changes while the real zk verifier path is still
-  missing
+- the current verifier mode is explicitly
+  `scaffold_queue_prefix_commitment_v1`, which requires a deterministic
+  scaffold proof envelope, allows deterministic queue-prefix consumption, and
+  still forbids state-root / withdrawal-root changes while the real zk
+  verifier path is missing
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking
@@ -398,12 +399,15 @@ Current branch status:
 - `EXECUTE_ESCAPE_EXIT` now has fixed escape-exit leaf encoding, inactivity
   gating, escrow decrement, executed-exit replay protection, and mempool
   duplicate tracking
-- the current escape-exit path is also scaffold-only because it requires the
-  full ordered escape-exit leaf list and matches a deterministic full-list root
-  against `current_state_root`
+- `EXECUTE_ESCAPE_EXIT` now uses deterministic Merkle-style proof objects
+  against `current_state_root`, but it is still scaffold-only because those
+  proofs are not yet backed by the final user-state circuit
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration, force-exit, batch-validation, withdrawal, and escape-exit
   plumbing availability
+- the legacy `getdrivechaininfo`, `senddrivechainbundle`, and
+  `senddrivechainexecute` RPC surfaces are now explicitly marked deprecated,
+  while the underlying legacy consensus path remains active during migration
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   though ancestor snapshot replay is still drivechain-only
 - trustless proof verification, DA-carrying batches, proof-backed queue

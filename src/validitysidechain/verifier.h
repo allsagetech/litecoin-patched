@@ -20,6 +20,13 @@ enum class ValiditySidechainBatchVerifierMode : uint8_t {
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config);
 const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVerifierMode mode);
 uint256 ComputeValiditySidechainDataRoot(const std::vector<std::vector<unsigned char>>& data_chunks);
+std::vector<unsigned char> BuildValiditySidechainScaffoldBatchProof(
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const uint256& current_state_root,
+    const uint256& current_withdrawal_root,
+    const uint256& current_data_root,
+    const uint256& current_l1_message_root);
 bool VerifyValiditySidechainBatch(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,

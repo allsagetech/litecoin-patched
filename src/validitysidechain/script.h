@@ -57,7 +57,7 @@ CScript BuildValiditySidechainReclaimDepositScript(uint8_t scid, const ValidityS
 CScript BuildValiditySidechainEscapeExitScript(
     uint8_t scid,
     const uint256& state_root_reference,
-    const std::vector<ValiditySidechainEscapeExitLeaf>& exits);
+    const std::vector<ValiditySidechainEscapeExitProof>& exit_proofs);
 
 std::vector<unsigned char> EncodeValiditySidechainConfig(const ValiditySidechainConfig& config);
 bool DecodeValiditySidechainConfig(Span<const unsigned char> config_bytes, ValiditySidechainConfig& out_config);
@@ -102,9 +102,20 @@ std::vector<unsigned char> EncodeValiditySidechainEscapeExitLeaf(const ValidityS
 bool DecodeValiditySidechainEscapeExitLeaf(
     Span<const unsigned char> exit_bytes,
     ValiditySidechainEscapeExitLeaf& out_exit);
+std::vector<unsigned char> EncodeValiditySidechainEscapeExitProof(const ValiditySidechainEscapeExitProof& proof);
+bool DecodeValiditySidechainEscapeExitProof(
+    Span<const unsigned char> proof_bytes,
+    ValiditySidechainEscapeExitProof& out_proof);
 bool DecodeValiditySidechainEscapeExitMetadata(
     const ValiditySidechainScriptInfo& info,
-    std::vector<ValiditySidechainEscapeExitLeaf>& out_exits);
+    std::vector<ValiditySidechainEscapeExitProof>& out_exit_proofs);
+bool BuildValiditySidechainEscapeExitProof(
+    const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
+    uint32_t leaf_index,
+    ValiditySidechainEscapeExitProof& out_proof);
+bool VerifyValiditySidechainEscapeExitProof(
+    const ValiditySidechainEscapeExitProof& proof,
+    const uint256& expected_root);
 uint256 ComputeValiditySidechainEscapeExitRoot(const std::vector<ValiditySidechainEscapeExitLeaf>& exits);
 
 std::vector<unsigned char> EncodeValiditySidechainForceExitData(const ValiditySidechainForceExitData& request);

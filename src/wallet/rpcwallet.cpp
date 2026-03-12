@@ -1203,7 +1203,9 @@ static RPCHelpMan senddrivechainbundle()
 {
     return RPCHelpMan{
         "senddrivechainbundle",
+        "DEPRECATED legacy RPC.\n"
         "Create, fund, sign and broadcast a drivechain BUNDLE_COMMIT transaction.\n"
+        "This remains available only while the legacy drivechain withdrawal path is still active.\n"
         "This publishes a bundle hash for a sidechain.\n"
         "The sidechain must already exist (created by a prior confirmed REGISTER).\n"
         "Commit outputs are always created with zero value to avoid burning funds.\n",
@@ -1357,7 +1359,9 @@ static RPCHelpMan senddrivechainexecute()
 {
     return RPCHelpMan{
         "senddrivechainexecute",
-        "Create, fund, sign and broadcast a Drivechain EXECUTE transaction paying exact withdrawals.\n",
+        "DEPRECATED legacy RPC.\n"
+        "Create, fund, sign and broadcast a Drivechain EXECUTE transaction paying exact withdrawals.\n"
+        "This remains available only while the legacy drivechain withdrawal path is still active.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"bundle_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Committed bundle hash (32 bytes hex)"},

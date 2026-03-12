@@ -242,6 +242,12 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
         },
     };
     const uint256 state_root_reference = ComputeValiditySidechainEscapeExitRoot(exits);
+    std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+    for (uint32_t i = 0; i < exits.size(); ++i) {
+        ValiditySidechainEscapeExitProof proof;
+        BOOST_REQUIRE(BuildValiditySidechainEscapeExitProof(exits, i, proof));
+        exit_proofs.push_back(std::move(proof));
+    }
 
     {
         ValiditySidechainScriptInfo info;
@@ -283,18 +289,22 @@ BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
     {
         ValiditySidechainScriptInfo info;
         BOOST_REQUIRE(DecodeValiditySidechainScript(
-            BuildValiditySidechainEscapeExitScript(sidechain_id, state_root_reference, exits),
+            BuildValiditySidechainEscapeExitScript(sidechain_id, state_root_reference, exit_proofs),
             info));
         BOOST_CHECK(info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT);
         BOOST_CHECK(info.payload == state_root_reference);
-        BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), exits.size());
+        BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), exit_proofs.size());
 
-        std::vector<ValiditySidechainEscapeExitLeaf> decoded_exits;
-        BOOST_REQUIRE(DecodeValiditySidechainEscapeExitMetadata(info, decoded_exits));
-        BOOST_REQUIRE_EQUAL(decoded_exits.size(), exits.size());
-        BOOST_CHECK(decoded_exits[0].exit_id == exits[0].exit_id);
-        BOOST_CHECK_EQUAL(decoded_exits[1].amount, exits[1].amount);
-        BOOST_CHECK(decoded_exits[1].destination_commitment == exits[1].destination_commitment);
+        std::vector<ValiditySidechainEscapeExitProof> decoded_exit_proofs;
+        BOOST_REQUIRE(DecodeValiditySidechainEscapeExitMetadata(info, decoded_exit_proofs));
+        BOOST_REQUIRE_EQUAL(decoded_exit_proofs.size(), exit_proofs.size());
+        BOOST_CHECK(decoded_exit_proofs[0].exit.exit_id == exits[0].exit_id);
+        BOOST_CHECK_EQUAL(decoded_exit_proofs[1].exit.amount, exits[1].amount);
+        BOOST_CHECK(decoded_exit_proofs[1].exit.destination_commitment == exits[1].destination_commitment);
+        BOOST_CHECK_EQUAL(decoded_exit_proofs[0].leaf_index, 0U);
+        BOOST_CHECK_EQUAL(decoded_exit_proofs[0].leaf_count, static_cast<uint32_t>(exits.size()));
+        BOOST_CHECK(VerifyValiditySidechainEscapeExitProof(decoded_exit_proofs[0], state_root_reference));
+        BOOST_CHECK(VerifyValiditySidechainEscapeExitProof(decoded_exit_proofs[1], state_root_reference));
     }
 }
 

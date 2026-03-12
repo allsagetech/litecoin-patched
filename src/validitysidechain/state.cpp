@@ -224,20 +224,20 @@ static bool MatchWithdrawalOutputs(
 static bool MatchEscapeExitOutputs(
     const CTransaction& tx,
     int marker_index,
-    const std::vector<ValiditySidechainEscapeExitLeaf>& exits)
+    const std::vector<ValiditySidechainEscapeExitProof>& exit_proofs)
 {
-    if (exits.empty()) {
+    if (exit_proofs.empty()) {
         return false;
     }
 
     const size_t start = static_cast<size_t>(marker_index) + 1;
-    if (tx.vout.size() < start + exits.size()) {
+    if (tx.vout.size() < start + exit_proofs.size()) {
         return false;
     }
 
-    for (size_t i = 0; i < exits.size(); ++i) {
+    for (size_t i = 0; i < exit_proofs.size(); ++i) {
         const CTxOut& txout = tx.vout[start + i];
-        const ValiditySidechainEscapeExitLeaf& exit = exits[i];
+        const ValiditySidechainEscapeExitLeaf& exit = exit_proofs[i].exit;
         ValiditySidechainScriptInfo validity_info;
         DrivechainScriptInfo drivechain_info;
         if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) ||
@@ -1014,7 +1014,7 @@ bool ValiditySidechainState::ExecuteEscapeExits(
     uint8_t sidechain_id,
     int execution_height,
     const uint256& state_root_reference,
-    const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
+    const std::vector<ValiditySidechainEscapeExitProof>& exit_proofs,
     std::string* error)
 {
     if (execution_height < 0) {
@@ -1031,7 +1031,7 @@ bool ValiditySidechainState::ExecuteEscapeExits(
         }
         return false;
     }
-    if (exits.empty()) {
+    if (exit_proofs.empty()) {
         if (error != nullptr) {
             *error = "escape-exit metadata is empty";
         }
@@ -1052,17 +1052,16 @@ bool ValiditySidechainState::ExecuteEscapeExits(
         return false;
     }
 
-    const uint256 computed_root = ComputeValiditySidechainEscapeExitRoot(exits);
-    if (computed_root != state_root_reference) {
-        if (error != nullptr) {
-            *error = "escape-exit list does not match referenced state root";
-        }
-        return false;
-    }
-
     CAmount total_amount = 0;
     std::set<uint256> new_ids;
-    for (const auto& exit : exits) {
+    for (const auto& proof : exit_proofs) {
+        const ValiditySidechainEscapeExitLeaf& exit = proof.exit;
+        if (!VerifyValiditySidechainEscapeExitProof(proof, state_root_reference)) {
+            if (error != nullptr) {
+                *error = "escape-exit proof does not match referenced state root";
+            }
+            return false;
+        }
         if (!MoneyRange(exit.amount) || exit.amount <= 0) {
             if (error != nullptr) {
                 *error = "escape-exit amount out of range";
@@ -1247,16 +1246,16 @@ bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-marker-value");
                     }
 
-                    std::vector<ValiditySidechainEscapeExitLeaf> exits;
-                    if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+                    std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+                    if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-metadata-bad");
                     }
-                    if (!MatchEscapeExitOutputs(*tx, static_cast<int>(out_i), exits)) {
+                    if (!MatchEscapeExitOutputs(*tx, static_cast<int>(out_i), exit_proofs)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-payout-mismatch");
                     }
 
                     std::string error;
-                    if (!ExecuteEscapeExits(info.sidechain_id, height, info.payload, exits, &error)) {
+                    if (!ExecuteEscapeExits(info.sidechain_id, height, info.payload, exit_proofs, &error)) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-invalid", error);
                     }
                     break;

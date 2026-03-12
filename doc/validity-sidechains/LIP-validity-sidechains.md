@@ -358,10 +358,12 @@ Current scaffold implementation note:
 
 - the current branch only enables `scaffolding_only` batch validation
 - that mode accepts `COMMIT_VALIDITY_BATCH` only when it is a no-op batch:
-  - `consumed_queue_messages = 0`
-  - `proof_bytes` is empty
+  - `proof_bytes` must be a deterministic scaffold envelope binding the batch
+    commitment and the current chainstate roots
   - no DA chunks are present
   - `new_state_root`, `withdrawal_root`, and `data_root` remain unchanged
+  - queue-prefix consumption is still allowed, and all matured force-exit
+    requests in the reachable prefix must be consumed
 - this is plumbing for the future verifier path, not trustless batch
   finalization
 
@@ -544,13 +546,13 @@ Consensus rules:
 
 Current scaffold note:
 
-- the current branch does not yet verify per-user state proofs for
-  `EXECUTE_ESCAPE_EXIT`
-- instead, it temporarily requires the full ordered escape-exit leaf list in
-  the transaction metadata and matches a deterministic full-list root against
-  `current_state_root`
-- this is only a staging format for plumbing and replay protection, not the
-  final trustless escape-exit design
+- the current branch now uses deterministic Merkle-style escape-exit proof
+  objects instead of the temporary full-list leaf encoding
+- each claim still references the latest accepted `current_state_root` and
+  proves membership in a staging escape-exit tree, not a final user balance
+  circuit
+- this is plumbing for replay protection and exact payout enforcement, not the
+  final trustless per-user state-proof design
 
 Without this mechanism, a halted sequencer can still trap users even if every
 posted batch was valid.

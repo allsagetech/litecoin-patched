@@ -1557,7 +1557,9 @@ static RPCHelpMan getdrivechaininfo()
 {
     return RPCHelpMan{
         "getdrivechaininfo",
-        "Returns basic information about drivechains tracked by this node.\n",
+        "DEPRECATED legacy RPC.\n"
+        "Returns basic information about legacy drivechains tracked by this node.\n"
+        "Use getvaliditysidechaininfo for the validity-sidechain migration path.\n",
         {},
         RPCResults{},
         RPCExamples{
@@ -1640,6 +1642,8 @@ static UniValue getdrivechaininfo(const JSONRPCRequest& request)
     }
 
     result.pushKV("sidechains", scs);
+    result.pushKV("deprecated", true);
+    result.pushKV("replacement_rpc", "getvaliditysidechaininfo");
     const DrivechainStateCacheStats cache_stats = GetDrivechainStateCacheStats();
     UniValue cache(UniValue::VOBJ);
     cache.pushKV("entries", static_cast<int64_t>(cache_stats.cache_entries));
@@ -1698,7 +1702,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("max_deposit_reclaim_delay", static_cast<int64_t>(supported.max_deposit_reclaim_delay));
     result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
-    result.pushKV("batch_verifier_mode", supported.scaffolding_only ? "scaffold_queue_prefix_only" : "disabled");
+    result.pushKV("batch_verifier_mode", supported.scaffolding_only ? "scaffold_queue_prefix_commitment_v1" : "disabled");
     return result;
 }
 
@@ -1789,15 +1793,16 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("trustless_enforced", false);
     result.pushKV("activation_candidate", false);
     result.pushKV("legacy_drivechain_withdrawal_path_active", true);
+    result.pushKV("legacy_drivechain_rpc_deprecated", true);
     result.pushKV("state_persistence_enabled", true);
     result.pushKV("registration_validation_available", true);
     result.pushKV("force_exit_request_available", true);
     result.pushKV("batch_validation_available", true);
-    result.pushKV("batch_validation_mode", "scaffold_queue_prefix_only");
+    result.pushKV("batch_validation_mode", "scaffold_queue_prefix_commitment_v1");
     result.pushKV("verified_withdrawal_execution_available", true);
     result.pushKV("verified_withdrawal_execution_mode", "merkle_inclusion_scaffold");
     result.pushKV("escape_exit_available", true);
-    result.pushKV("escape_exit_mode", "full_list_root_only_scaffold");
+    result.pushKV("escape_exit_mode", "merkle_inclusion_scaffold");
     result.pushKV("supported_proof_configs", supported_configs);
     result.pushKV("sidechains", sidechains);
     return result;

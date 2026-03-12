@@ -95,22 +95,22 @@ static bool MatchValidityWithdrawalPayouts(
 static bool MatchValidityEscapeExitPayouts(
     const CTransaction& tx,
     int marker_index,
-    const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
+    const std::vector<ValiditySidechainEscapeExitProof>& exit_proofs,
     CAmount& out_total)
 {
     out_total = 0;
-    if (exits.empty()) {
+    if (exit_proofs.empty()) {
         return false;
     }
 
     const size_t start = static_cast<size_t>(marker_index) + 1;
-    if (tx.vout.size() < start + exits.size()) {
+    if (tx.vout.size() < start + exit_proofs.size()) {
         return false;
     }
 
-    for (size_t i = 0; i < exits.size(); ++i) {
+    for (size_t i = 0; i < exit_proofs.size(); ++i) {
         const CTxOut& txout = tx.vout[start + i];
-        const ValiditySidechainEscapeExitLeaf& exit = exits[i];
+        const ValiditySidechainEscapeExitLeaf& exit = exit_proofs[i].exit;
         if (IsDrivechainOutput(txout.scriptPubKey) ||
             txout.nValue != exit.amount ||
             Hash(txout.scriptPubKey.begin(), txout.scriptPubKey.end()) != exit.destination_commitment) {
@@ -250,12 +250,12 @@ static bool ComputeSidechainTxInputCredit(const CTransaction& tx, CAmount& out_c
     }
 
     if (escape_exit_marker_index != -1) {
-        std::vector<ValiditySidechainEscapeExitLeaf> exits;
-        if (!DecodeValiditySidechainEscapeExitMetadata(escape_exit_info, exits)) {
+        std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+        if (!DecodeValiditySidechainEscapeExitMetadata(escape_exit_info, exit_proofs)) {
             return false;
         }
 
-        return MatchValidityEscapeExitPayouts(tx, escape_exit_marker_index, exits, out_credit);
+        return MatchValidityEscapeExitPayouts(tx, escape_exit_marker_index, exit_proofs, out_credit);
     }
 
     out_credit = reclaim_deposit.amount;
@@ -500,8 +500,8 @@ static bool TryGetValiditySidechainEscapeExitKeysFromTx(
             continue;
         }
 
-        std::vector<ValiditySidechainEscapeExitLeaf> exits;
-        if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+        std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+        if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
             return false;
         }
 
@@ -509,7 +509,8 @@ static bool TryGetValiditySidechainEscapeExitKeysFromTx(
         if (execute_count > 1) {
             return false;
         }
-        for (const auto& exit : exits) {
+        for (const auto& proof : exit_proofs) {
+            const ValiditySidechainEscapeExitLeaf& exit = proof.exit;
             const auto key = std::make_pair(info.sidechain_id, exit.exit_id);
             if (!unique_keys.insert(key).second) {
                 return false;

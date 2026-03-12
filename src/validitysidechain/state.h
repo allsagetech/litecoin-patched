@@ -159,6 +159,14 @@ struct ValiditySidechainEscapeExitLeaf
     }
 };
 
+struct ValiditySidechainEscapeExitProof
+{
+    ValiditySidechainEscapeExitLeaf exit;
+    uint32_t leaf_index{0};
+    uint32_t leaf_count{0};
+    std::vector<uint256> sibling_hashes;
+};
+
 struct ValiditySidechainAcceptedBatch
 {
     uint32_t batch_number{0};
@@ -354,7 +362,7 @@ public:
         uint8_t sidechain_id,
         int execution_height,
         const uint256& state_root_reference,
-        const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
+        const std::vector<ValiditySidechainEscapeExitProof>& exit_proofs,
         std::string* error = nullptr);
     void Reset();
 };

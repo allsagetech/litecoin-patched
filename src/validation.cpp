@@ -783,25 +783,25 @@ namespace {
     static bool MatchValidityEscapeExitPayouts(
         const CTransaction& tx,
         int marker_index,
-        const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
+        const std::vector<ValiditySidechainEscapeExitProof>& exit_proofs,
         CAmount* out_total = nullptr)
     {
         if (out_total != nullptr) {
             *out_total = 0;
         }
-        if (exits.empty()) {
+        if (exit_proofs.empty()) {
             return false;
         }
 
         const size_t start = static_cast<size_t>(marker_index) + 1;
-        if (tx.vout.size() < start + exits.size()) {
+        if (tx.vout.size() < start + exit_proofs.size()) {
             return false;
         }
 
         CAmount total = 0;
-        for (size_t i = 0; i < exits.size(); ++i) {
+        for (size_t i = 0; i < exit_proofs.size(); ++i) {
             const CTxOut& txout = tx.vout[start + i];
-            const ValiditySidechainEscapeExitLeaf& exit = exits[i];
+            const ValiditySidechainEscapeExitLeaf& exit = exit_proofs[i].exit;
             if (IsDrivechainOutput(txout.scriptPubKey) ||
                 txout.nValue != exit.amount ||
                 ComputeScriptCommitment(txout.scriptPubKey) != exit.destination_commitment) {
@@ -958,11 +958,11 @@ namespace {
                 return false;
             }
         } else if (escape_exit_marker_index != -1) {
-            std::vector<ValiditySidechainEscapeExitLeaf> exits;
-            if (!DecodeValiditySidechainEscapeExitMetadata(escape_exit_info, exits)) {
+            std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+            if (!DecodeValiditySidechainEscapeExitMetadata(escape_exit_info, exit_proofs)) {
                 return false;
             }
-            if (!MatchValidityEscapeExitPayouts(tx, escape_exit_marker_index, exits, &out_credit)) {
+            if (!MatchValidityEscapeExitPayouts(tx, escape_exit_marker_index, exit_proofs, &out_credit)) {
                 return false;
             }
         } else {
@@ -1204,8 +1204,8 @@ namespace {
                 continue;
             }
 
-            std::vector<ValiditySidechainEscapeExitLeaf> exits;
-            if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+            std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+            if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
                 return false;
             }
 
@@ -1214,7 +1214,8 @@ namespace {
                 return false;
             }
 
-            for (const auto& exit : exits) {
+            for (const auto& proof : exit_proofs) {
+                const ValiditySidechainEscapeExitLeaf& exit = proof.exit;
                 const auto key = std::make_pair(info.sidechain_id, exit.exit_id);
                 if (!unique_keys.insert(key).second) {
                     return false;
@@ -1417,11 +1418,11 @@ namespace {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-marker-value");
                         }
 
-                        std::vector<ValiditySidechainEscapeExitLeaf> exits;
-                        if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+                        std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+                        if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-metadata-bad");
                         }
-                        if (!MatchValidityEscapeExitPayouts(*tx, static_cast<int>(out_i), exits)) {
+                        if (!MatchValidityEscapeExitPayouts(*tx, static_cast<int>(out_i), exit_proofs)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-payout-mismatch");
                         }
                         if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
@@ -1429,7 +1430,7 @@ namespace {
                         }
 
                         std::string error;
-                        if (!block_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, height, info.payload, exits, &error)) {
+                        if (!block_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, height, info.payload, exit_proofs, &error)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-invalid", error);
                         }
                         break;
@@ -2163,11 +2164,11 @@ namespace {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-marker-value");
                     }
 
-                    std::vector<ValiditySidechainEscapeExitLeaf> exits;
-                    if (!DecodeValiditySidechainEscapeExitMetadata(info, exits)) {
+                    std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+                    if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-metadata-bad");
                     }
-                    if (!MatchValidityEscapeExitPayouts(tx, static_cast<int>(out_i), exits)) {
+                    if (!MatchValidityEscapeExitPayouts(tx, static_cast<int>(out_i), exit_proofs)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-payout-mismatch");
                     }
                     if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
@@ -2175,7 +2176,7 @@ namespace {
                     }
 
                     std::string error;
-                    if (!tx_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, next_height, info.payload, exits, &error)) {
+                    if (!tx_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, next_height, info.payload, exit_proofs, &error)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-invalid", error);
                     }
                     break;
