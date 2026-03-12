@@ -740,7 +740,7 @@ litecoin_wallet_SOURCES = bitcoin-wallet.cpp
 litecoin_wallet_CPPFLAGS = $(litecoin_bin_cppflags)
 litecoin_wallet_CXXFLAGS = $(litecoin_bin_cxxflags)
 litecoin_wallet_LDFLAGS = $(litecoin_bin_ldflags)
-litecoin_wallet_LDADD = $(LIBBITCOIN_WALLET_TOOL) $(litecoin_bin_ldadd)
+litecoin_wallet_LDADD = $(LIBBITCOIN_WALLET_TOOL) $(litecoin_bin_ldadd) $(LIBBITCOIN_SERVER)
 
 if TARGET_WINDOWS
 litecoin_wallet_SOURCES += bitcoin-wallet-res.rc
