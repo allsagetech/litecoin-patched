@@ -17,6 +17,7 @@
 #include <policy/policy.h>
 #include <policy/rbf.h>
 #include <pubkey.h>
+#include <random.h>
 #include <rpc/rawtransaction_util.h>
 #include <rpc/server.h>
 #include <rpc/util.h>
@@ -46,6 +47,9 @@
 #include <wallet/walletutil.h>
 #include <drivechain/script.h>
 #include <hash.h>
+#include <validitysidechain/registry.h>
+#include <validitysidechain/script.h>
+#include <validitysidechain/verifier.h>
 #include <wallet/fees.h>
 
 #include <stdint.h>
@@ -1004,6 +1008,163 @@ static std::pair<std::string, uint8_t> SendDrivechainRegisterWithAutoId(
     throw JSONRPCError(RPC_INVALID_PARAMETER, "No unused sidechain_id available (all 0-255 are in use)");
 }
 
+static uint8_t ParseUint8Value(const UniValue& value, const std::string& field_name)
+{
+    const int value_int = value.get_int();
+    if (value_int < 0 || value_int > std::numeric_limits<uint8_t>::max()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, field_name + " must be between 0 and 255");
+    }
+    return static_cast<uint8_t>(value_int);
+}
+
+static uint32_t ParseUint32Value(const UniValue& value, const std::string& field_name)
+{
+    const int64_t value_int = value.get_int64();
+    if (value_int < 0 || value_int > std::numeric_limits<uint32_t>::max()) {
+        throw JSONRPCError(
+            RPC_INVALID_PARAMETER,
+            strprintf("%s must be between 0 and %u", field_name, std::numeric_limits<uint32_t>::max()));
+    }
+    return static_cast<uint32_t>(value_int);
+}
+
+static uint64_t ParseUint64Value(const UniValue& value, const std::string& field_name)
+{
+    const int64_t value_int = value.get_int64();
+    if (value_int < 0) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, field_name + " must be non-negative");
+    }
+    return static_cast<uint64_t>(value_int);
+}
+
+static CScript ParseRpcScriptObject(const UniValue& obj, const std::string& context)
+{
+    RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+    const bool has_address = obj.exists("address") && !obj["address"].isNull();
+    const bool has_script = obj.exists("script") && !obj["script"].isNull();
+    if (has_address == has_script) {
+        throw JSONRPCError(
+            RPC_INVALID_PARAMETER,
+            context + " must contain exactly one of address or script");
+    }
+
+    if (has_address) {
+        const std::string address = obj["address"].get_str();
+        const CTxDestination dest = DecodeDestination(address);
+        if (!IsValidDestination(dest)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Litecoin address: " + address);
+        }
+        return GetScriptForDestination(dest);
+    }
+
+    const std::string script_hex = obj["script"].get_str();
+    if (!IsHex(script_hex)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, context + " script is not hex");
+    }
+
+    const std::vector<unsigned char> bytes = ParseHex(script_hex);
+    return CScript(bytes.begin(), bytes.end());
+}
+
+static uint256 ComputeRpcScriptCommitment(const CScript& script)
+{
+    return Hash(script.begin(), script.end());
+}
+
+static bool GetValiditySidechainFromChain(CWallet& wallet, uint8_t sidechain_id, ValiditySidechain& out_sidechain)
+{
+    if (!wallet.HaveChain()) {
+        return false;
+    }
+
+    for (const auto& sidechain : wallet.chain().getValiditySidechains()) {
+        if (sidechain.id == sidechain_id) {
+            out_sidechain = sidechain;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool HasValiditySidechainInChain(CWallet& wallet, uint8_t sidechain_id)
+{
+    ValiditySidechain sidechain;
+    return GetValiditySidechainFromChain(wallet, sidechain_id, sidechain);
+}
+
+static bool IsSidechainIdInUse(CWallet& wallet, uint8_t sidechain_id)
+{
+    if (!wallet.HaveChain()) {
+        return false;
+    }
+
+    bool owner_auth_required = false;
+    DrivechainSidechainPolicy policy;
+    if (wallet.chain().getDrivechainSidechain(sidechain_id, owner_auth_required, policy)) {
+        return true;
+    }
+
+    return HasValiditySidechainInChain(wallet, sidechain_id);
+}
+
+static ValiditySidechainConfig ParseValiditySidechainConfigObject(const UniValue& obj)
+{
+    RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+    ValiditySidechainConfig config;
+    config.version = ParseUint8Value(find_value(obj, "version"), "config.version");
+    config.proof_system_id = ParseUint8Value(find_value(obj, "proof_system_id"), "config.proof_system_id");
+    config.circuit_family_id = ParseUint8Value(find_value(obj, "circuit_family_id"), "config.circuit_family_id");
+    config.verifier_id = ParseUint8Value(find_value(obj, "verifier_id"), "config.verifier_id");
+    config.public_input_version = ParseUint8Value(find_value(obj, "public_input_version"), "config.public_input_version");
+    config.state_root_format = ParseUint8Value(find_value(obj, "state_root_format"), "config.state_root_format");
+    config.deposit_message_format = ParseUint8Value(find_value(obj, "deposit_message_format"), "config.deposit_message_format");
+    config.withdrawal_leaf_format = ParseUint8Value(find_value(obj, "withdrawal_leaf_format"), "config.withdrawal_leaf_format");
+    config.balance_leaf_format = ParseUint8Value(find_value(obj, "balance_leaf_format"), "config.balance_leaf_format");
+    config.data_availability_mode = ParseUint8Value(find_value(obj, "data_availability_mode"), "config.data_availability_mode");
+    config.max_batch_data_bytes = ParseUint32Value(find_value(obj, "max_batch_data_bytes"), "config.max_batch_data_bytes");
+    config.max_proof_bytes = ParseUint32Value(find_value(obj, "max_proof_bytes"), "config.max_proof_bytes");
+    config.force_inclusion_delay = ParseUint32Value(find_value(obj, "force_inclusion_delay"), "config.force_inclusion_delay");
+    config.deposit_reclaim_delay = ParseUint32Value(find_value(obj, "deposit_reclaim_delay"), "config.deposit_reclaim_delay");
+    config.escape_hatch_delay = ParseUint32Value(find_value(obj, "escape_hatch_delay"), "config.escape_hatch_delay");
+    config.initial_state_root = ParseHashO(obj, "initial_state_root");
+    config.initial_withdrawal_root = ParseHashO(obj, "initial_withdrawal_root");
+    return config;
+}
+
+static ValiditySidechainBatchPublicInputs ParseValiditySidechainBatchPublicInputsObject(const UniValue& obj)
+{
+    RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.batch_number = ParseUint32Value(find_value(obj, "batch_number"), "public_inputs.batch_number");
+    public_inputs.prior_state_root = ParseHashO(obj, "prior_state_root");
+    public_inputs.new_state_root = ParseHashO(obj, "new_state_root");
+    public_inputs.l1_message_root_before = ParseHashO(obj, "l1_message_root_before");
+    public_inputs.l1_message_root_after = ParseHashO(obj, "l1_message_root_after");
+    public_inputs.consumed_queue_messages = ParseUint32Value(
+        find_value(obj, "consumed_queue_messages"),
+        "public_inputs.consumed_queue_messages");
+    public_inputs.withdrawal_root = ParseHashO(obj, "withdrawal_root");
+    public_inputs.data_root = ParseHashO(obj, "data_root");
+    public_inputs.data_size = ParseUint32Value(find_value(obj, "data_size"), "public_inputs.data_size");
+    return public_inputs;
+}
+
+static std::vector<std::vector<unsigned char>> ParseHexArray(const UniValue& arr, const std::string& field_name)
+{
+    RPCTypeCheckArgument(arr, UniValue::VARR);
+
+    std::vector<std::vector<unsigned char>> out;
+    out.reserve(arr.size());
+    for (size_t i = 0; i < arr.size(); ++i) {
+        out.push_back(ParseHexV(arr[i], strprintf("%s[%u]", field_name, static_cast<unsigned>(i))));
+    }
+    return out;
+}
+
 static RPCHelpMan senddrivechainregister()
 {
     return RPCHelpMan{
@@ -1437,6 +1598,428 @@ static RPCHelpMan senddrivechainexecute()
                 /*verbose=*/false,
                 /*preflight_mempool_accept=*/!allow_unbroadcast);
             return res;
+        },
+    };
+}
+
+static RPCHelpMan sendvaliditysidechainregister()
+{
+    return RPCHelpMan{
+        "sendvaliditysidechainregister",
+        "Create, fund, sign and broadcast a validity-sidechain REGISTER transaction.\n"
+        "The config must match one of the node's supported proof configuration profiles.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"config", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Validity-sidechain config",
+                {
+                    {"version", RPCArg::Type::NUM, RPCArg::Optional::NO, "Protocol version"},
+                    {"proof_system_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Proof system id"},
+                    {"circuit_family_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Circuit family id"},
+                    {"verifier_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Verifier id"},
+                    {"public_input_version", RPCArg::Type::NUM, RPCArg::Optional::NO, "Public-input encoding version"},
+                    {"state_root_format", RPCArg::Type::NUM, RPCArg::Optional::NO, "State-root format id"},
+                    {"deposit_message_format", RPCArg::Type::NUM, RPCArg::Optional::NO, "Deposit-message format id"},
+                    {"withdrawal_leaf_format", RPCArg::Type::NUM, RPCArg::Optional::NO, "Withdrawal-leaf format id"},
+                    {"balance_leaf_format", RPCArg::Type::NUM, RPCArg::Optional::NO, "Balance-leaf format id"},
+                    {"data_availability_mode", RPCArg::Type::NUM, RPCArg::Optional::NO, "Data-availability mode id"},
+                    {"max_batch_data_bytes", RPCArg::Type::NUM, RPCArg::Optional::NO, "Maximum batch data bytes"},
+                    {"max_proof_bytes", RPCArg::Type::NUM, RPCArg::Optional::NO, "Maximum proof bytes"},
+                    {"force_inclusion_delay", RPCArg::Type::NUM, RPCArg::Optional::NO, "Force-inclusion delay in blocks"},
+                    {"deposit_reclaim_delay", RPCArg::Type::NUM, RPCArg::Optional::NO, "Deposit reclaim delay in blocks"},
+                    {"escape_hatch_delay", RPCArg::Type::NUM, RPCArg::Optional::NO, "Escape hatch delay in blocks"},
+                    {"initial_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Initial state root"},
+                    {"initial_withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Initial withdrawal root"},
+                }},
+            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Amount to attach to the marker output (default: 0)"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                {RPCResult::Type::NUM, "sidechain_id", "Registered sidechain id"},
+                {RPCResult::Type::STR_HEX, "config_hash", "Configuration hash"},
+            }},
+        RPCExamples{
+            HelpExampleCli("sendvaliditysidechainregister",
+                "7 '{\"version\":1,\"proof_system_id\":1,\"circuit_family_id\":1,\"verifier_id\":1,"
+                "\"public_input_version\":1,\"state_root_format\":1,\"deposit_message_format\":1,"
+                "\"withdrawal_leaf_format\":1,\"balance_leaf_format\":1,\"data_availability_mode\":1,"
+                "\"max_batch_data_bytes\":65536,\"max_proof_bytes\":16384,\"force_inclusion_delay\":12,"
+                "\"deposit_reclaim_delay\":144,\"escape_hatch_delay\":288,"
+                "\"initial_state_root\":\"11...11\",\"initial_withdrawal_root\":\"22...22\"}'")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
+            const ValiditySidechainConfig config = ParseValiditySidechainConfigObject(request.params[1]);
+
+            std::string validation_error;
+            if (!ValidateValiditySidechainConfig(config, &validation_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, validation_error);
+            }
+
+            CAmount amount = 0;
+            if (request.params.size() > 2 && !request.params[2].isNull()) {
+                amount = AmountFromValue(request.params[2]);
+            }
+
+            bool subtract_fee_from_amount = false;
+            if (request.params.size() > 3 && !request.params[3].isNull()) {
+                subtract_fee_from_amount = request.params[3].get_bool();
+            }
+
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+            if (IsSidechainIdInUse(*pwallet, sidechain_id)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is already registered");
+            }
+
+            CCoinControl coin_control;
+            const std::string txid = SendToDrivechainScript(
+                *pwallet,
+                BuildValiditySidechainRegisterScript(sidechain_id, config),
+                amount,
+                coin_control,
+                subtract_fee_from_amount);
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("txid", txid);
+            result.pushKV("sidechain_id", static_cast<int>(sidechain_id));
+            result.pushKV("config_hash", ComputeValiditySidechainConfigHash(config).GetHex());
+            return result;
+        },
+    };
+}
+
+static RPCHelpMan sendvaliditydeposit()
+{
+    return RPCHelpMan{
+        "sendvaliditydeposit",
+        "Create, fund, sign and broadcast a validity-sidechain DEPOSIT transaction.\n"
+        "If deposit_id or nonce are omitted, wallet-side randomness is used.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"destination_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte sidechain destination commitment"},
+            {"refund_destination", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Refund destination on Litecoin",
+                {
+                    {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Litecoin refund address"},
+                    {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw refund scriptPubKey hex"},
+                }},
+            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Deposit amount in " + CURRENCY_UNIT},
+            {"nonce", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional deposit nonce (default: random uint64)"},
+            {"deposit_id", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional 32-byte deposit id (default: random hash)"},
+            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from deposit amount (default: false)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                {RPCResult::Type::STR_HEX, "deposit_id", "The deposit id"},
+                {RPCResult::Type::STR_HEX, "deposit_message_hash", "The committed deposit message hash"},
+                {RPCResult::Type::NUM, "nonce", "The deposit nonce"},
+            }},
+        RPCExamples{
+            HelpExampleCli("sendvaliditydeposit",
+                "7 \"33...33\" '{\"address\":\"rltc1q...\"}' 1.25 7 \"44...44\"")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
+            const uint256 destination_commitment = ParseHashV(request.params[1], "destination_commitment");
+            const CScript refund_script = ParseRpcScriptObject(request.params[2], "refund_destination");
+
+            if (!HasValiditySidechainInChain(*pwallet, sidechain_id)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
+            }
+
+            ValiditySidechainDepositData deposit;
+            deposit.amount = AmountFromValue(request.params[3]);
+            deposit.destination_commitment = destination_commitment;
+            deposit.refund_script_commitment = ComputeRpcScriptCommitment(refund_script);
+            deposit.nonce = (request.params.size() > 4 && !request.params[4].isNull())
+                ? ParseUint64Value(request.params[4], "nonce")
+                : FastRandomContext().rand64();
+            deposit.deposit_id = (request.params.size() > 5 && !request.params[5].isNull())
+                ? ParseHashV(request.params[5], "deposit_id")
+                : GetRandHash();
+
+            bool subtract_fee_from_amount = false;
+            if (request.params.size() > 6 && !request.params[6].isNull()) {
+                subtract_fee_from_amount = request.params[6].get_bool();
+            }
+
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+
+            CCoinControl coin_control;
+            const std::string txid = SendToDrivechainScript(
+                *pwallet,
+                BuildValiditySidechainDepositScript(sidechain_id, deposit),
+                deposit.amount,
+                coin_control,
+                subtract_fee_from_amount);
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("txid", txid);
+            result.pushKV("deposit_id", deposit.deposit_id.GetHex());
+            result.pushKV("deposit_message_hash", ComputeValiditySidechainDepositMessageHash(sidechain_id, deposit).GetHex());
+            result.pushKV("nonce", deposit.nonce);
+            return result;
+        },
+    };
+}
+
+static RPCHelpMan sendforceexitrequest()
+{
+    return RPCHelpMan{
+        "sendforceexitrequest",
+        "Create, fund, sign and broadcast a validity-sidechain REQUEST_FORCE_EXIT transaction.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"account_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte account identifier"},
+            {"exit_asset_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte asset identifier"},
+            {"max_exit_amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Maximum exit amount in " + CURRENCY_UNIT},
+            {"destination", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Exit destination on Litecoin",
+                {
+                    {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Litecoin destination address"},
+                    {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw destination scriptPubKey hex"},
+                }},
+            {"nonce", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional force-exit nonce (default: random uint64)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                {RPCResult::Type::STR_HEX, "request_hash", "The force-exit request hash"},
+                {RPCResult::Type::NUM, "nonce", "The force-exit nonce"},
+            }},
+        RPCExamples{
+            HelpExampleCli("sendforceexitrequest",
+                "7 \"55...55\" \"66...66\" 0.5 '{\"address\":\"rltc1q...\"}' 9")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
+
+            if (!HasValiditySidechainInChain(*pwallet, sidechain_id)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
+            }
+
+            ValiditySidechainForceExitData request_data;
+            request_data.account_id = ParseHashV(request.params[1], "account_id");
+            request_data.exit_asset_id = ParseHashV(request.params[2], "exit_asset_id");
+            request_data.max_exit_amount = AmountFromValue(request.params[3]);
+            request_data.destination_commitment = ComputeRpcScriptCommitment(ParseRpcScriptObject(request.params[4], "destination"));
+            request_data.nonce = (request.params.size() > 5 && !request.params[5].isNull())
+                ? ParseUint64Value(request.params[5], "nonce")
+                : FastRandomContext().rand64();
+
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+
+            CCoinControl coin_control;
+            const std::string txid = SendToDrivechainScript(
+                *pwallet,
+                BuildValiditySidechainForceExitScript(sidechain_id, request_data),
+                /*amount=*/0,
+                coin_control,
+                /*subtract_fee_from_amount=*/false);
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("txid", txid);
+            result.pushKV("request_hash", ComputeValiditySidechainForceExitHash(sidechain_id, request_data).GetHex());
+            result.pushKV("nonce", request_data.nonce);
+            return result;
+        },
+    };
+}
+
+static RPCHelpMan sendstaledepositreclaim()
+{
+    return RPCHelpMan{
+        "sendstaledepositreclaim",
+        "Create, fund, sign and broadcast a validity-sidechain RECLAIM_STALE_DEPOSIT transaction.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"deposit", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Pending deposit metadata",
+                {
+                    {"deposit_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte deposit id"},
+                    {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Deposit amount in " + CURRENCY_UNIT},
+                    {"destination_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte sidechain destination commitment"},
+                    {"nonce", RPCArg::Type::NUM, RPCArg::Optional::NO, "Deposit nonce"},
+                }},
+            {"refund_destination", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Refund destination on Litecoin",
+                {
+                    {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Litecoin refund address"},
+                    {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw refund scriptPubKey hex"},
+                }},
+            {"allow_unbroadcast", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "If true, skip preflight mempool rejection (default: false)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                {RPCResult::Type::STR_HEX, "deposit_id", "The reclaimed deposit id"},
+            }},
+        RPCExamples{
+            HelpExampleCli("sendstaledepositreclaim",
+                "7 '{\"deposit_id\":\"44...44\",\"amount\":1.25,\"destination_commitment\":\"33...33\",\"nonce\":7}' '{\"address\":\"rltc1q...\"}'")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
+
+            if (!HasValiditySidechainInChain(*pwallet, sidechain_id)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
+            }
+
+            const UniValue& deposit_obj = request.params[1].get_obj();
+            const CScript refund_script = ParseRpcScriptObject(request.params[2], "refund_destination");
+
+            ValiditySidechainDepositData deposit;
+            deposit.deposit_id = ParseHashO(deposit_obj, "deposit_id");
+            deposit.amount = AmountFromValue(find_value(deposit_obj, "amount"));
+            deposit.destination_commitment = ParseHashO(deposit_obj, "destination_commitment");
+            deposit.refund_script_commitment = ComputeRpcScriptCommitment(refund_script);
+            deposit.nonce = ParseUint64Value(find_value(deposit_obj, "nonce"), "deposit.nonce");
+
+            bool allow_unbroadcast = false;
+            if (request.params.size() > 3 && !request.params[3].isNull()) {
+                allow_unbroadcast = request.params[3].get_bool();
+            }
+
+            std::vector<CRecipient> recipients;
+            recipients.reserve(2);
+            recipients.push_back({BuildValiditySidechainReclaimDepositScript(sidechain_id, deposit), /*nAmount=*/0, /*subtract_fee=*/false});
+            recipients.push_back({refund_script, deposit.amount, /*subtract_fee=*/false});
+
+            CCoinControl coin_control;
+            mapValue_t map_value;
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+            const std::string txid = SendMoneyNoShuffle(
+                pwallet,
+                coin_control,
+                recipients,
+                map_value,
+                /*verbose=*/false,
+                /*preflight_mempool_accept=*/!allow_unbroadcast).get_str();
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("txid", txid);
+            result.pushKV("deposit_id", deposit.deposit_id.GetHex());
+            return result;
+        },
+    };
+}
+
+static RPCHelpMan sendvaliditybatch()
+{
+    return RPCHelpMan{
+        "sendvaliditybatch",
+        "Create, fund, sign and broadcast a validity-sidechain COMMIT_VALIDITY_BATCH transaction.\n"
+        "If proof_bytes is omitted and the sidechain uses the scaffold verifier profile, the wallet builds the deterministic scaffold proof envelope automatically.\n",
+        {
+            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
+            {"public_inputs", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Batch public inputs",
+                {
+                    {"batch_number", RPCArg::Type::NUM, RPCArg::Optional::NO, "Batch number"},
+                    {"prior_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Prior finalized state root"},
+                    {"new_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "New finalized state root"},
+                    {"l1_message_root_before", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root before batch consumption"},
+                    {"l1_message_root_after", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root after batch consumption"},
+                    {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages"},
+                    {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Withdrawal root"},
+                    {"data_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Data-availability root"},
+                    {"data_size", RPCArg::Type::NUM, RPCArg::Optional::NO, "Published data size in bytes"},
+                }},
+            {"proof_bytes", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional proof bytes. Omit to auto-build the scaffold proof envelope when supported."},
+            {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings",
+                {
+                    {"chunk", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Data chunk hex"},
+                }},
+            {"allow_unbroadcast", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "If true, skip preflight mempool rejection (default: false)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                {RPCResult::Type::STR_HEX, "batch_commitment_hash", "The batch commitment hash"},
+                {RPCResult::Type::BOOL, "auto_scaffold_proof", "True if the wallet auto-built the scaffold proof envelope"},
+            }},
+        RPCExamples{
+            HelpExampleCli("sendvaliditybatch",
+                "7 '{\"batch_number\":1,\"prior_state_root\":\"11...11\",\"new_state_root\":\"11...11\","
+                "\"l1_message_root_before\":\"00...00\",\"l1_message_root_after\":\"00...00\","
+                "\"consumed_queue_messages\":0,\"withdrawal_root\":\"22...22\",\"data_root\":\"00...00\",\"data_size\":0}'")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+            if (!wallet) return NullUniValue;
+            CWallet* const pwallet = wallet.get();
+
+            const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
+
+            ValiditySidechain sidechain;
+            if (!GetValiditySidechainFromChain(*pwallet, sidechain_id, sidechain)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
+            }
+
+            const ValiditySidechainBatchPublicInputs public_inputs =
+                ParseValiditySidechainBatchPublicInputsObject(request.params[1]);
+            const std::vector<std::vector<unsigned char>> data_chunks =
+                (request.params.size() > 3 && !request.params[3].isNull())
+                    ? ParseHexArray(request.params[3], "data_chunks")
+                    : std::vector<std::vector<unsigned char>>{};
+
+            std::vector<unsigned char> proof_bytes;
+            bool auto_scaffold_proof = false;
+            if (request.params.size() > 2 && !request.params[2].isNull()) {
+                proof_bytes = ParseHexV(request.params[2], "proof_bytes");
+            } else {
+                if (GetValiditySidechainBatchVerifierMode(sidechain.config) != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "proof_bytes are required for non-scaffold profiles");
+                }
+                proof_bytes = BuildValiditySidechainScaffoldBatchProof(
+                    sidechain_id,
+                    public_inputs,
+                    sidechain.current_state_root,
+                    sidechain.current_withdrawal_root,
+                    sidechain.current_data_root,
+                    sidechain.queue_state.root);
+                auto_scaffold_proof = true;
+            }
+
+            bool allow_unbroadcast = false;
+            if (request.params.size() > 4 && !request.params[4].isNull()) {
+                allow_unbroadcast = request.params[4].get_bool();
+            }
+
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+
+            CCoinControl coin_control;
+            const std::string txid = SendToDrivechainScript(
+                *pwallet,
+                BuildValiditySidechainCommitScript(sidechain_id, public_inputs, proof_bytes, data_chunks),
+                /*amount=*/0,
+                coin_control,
+                /*subtract_fee_from_amount=*/false,
+                /*preflight_mempool_accept=*/!allow_unbroadcast);
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("txid", txid);
+            result.pushKV("batch_commitment_hash", ComputeValiditySidechainBatchCommitmentHash(sidechain_id, public_inputs).GetHex());
+            result.pushKV("auto_scaffold_proof", auto_scaffold_proof);
+            return result;
         },
     };
 }
@@ -5779,6 +6362,11 @@ static const CRPCCommand commands[] =
     { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "owner_addresses"} },
     { "wallet",             "senddrivechainbmmrequest",         &senddrivechainbmmrequest,      {"sidechain_id", "side_block_hash", "prev_main_block_hash", "amount", "subtractfeefromamount"} },
     { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id", "bundle_hash", "withdrawals", "allow_unbroadcast"} },
+    { "wallet",             "sendvaliditysidechainregister",    &sendvaliditysidechainregister, {"sidechain_id", "config", "amount", "subtractfeefromamount"} },
+    { "wallet",             "sendvaliditydeposit",              &sendvaliditydeposit,           {"sidechain_id", "destination_commitment", "refund_destination", "amount", "nonce", "deposit_id", "subtractfeefromamount"} },
+    { "wallet",             "sendforceexitrequest",             &sendforceexitrequest,          {"sidechain_id", "account_id", "exit_asset_id", "max_exit_amount", "destination", "nonce"} },
+    { "wallet",             "sendstaledepositreclaim",          &sendstaledepositreclaim,       {"sidechain_id", "deposit", "refund_destination", "allow_unbroadcast"} },
+    { "wallet",             "sendvaliditybatch",                &sendvaliditybatch,             {"sidechain_id", "public_inputs", "proof_bytes", "data_chunks", "allow_unbroadcast"} },
     { "wallet",             "unloadwallet",                     &unloadwallet,                  {"wallet_name", "load_on_startup"} },
     { "wallet",             "upgradewallet",                    &upgradewallet,                 {"version"} },
     { "wallet",             "walletcreatefundedpsbt",           &walletcreatefundedpsbt,        {"inputs","outputs","locktime","options","bip32derivs"} },

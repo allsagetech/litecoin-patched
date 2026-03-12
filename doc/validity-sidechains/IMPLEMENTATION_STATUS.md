@@ -62,6 +62,8 @@ The following core behaviors exist on this branch:
 - executed-withdrawal replay protection
 - executed escape-exit replay protection
 - read-only RPC reporting for validity-sidechain state
+- wallet send-path RPCs for registration, deposit, force-exit request,
+  stale-deposit reclaim, and scaffold batch submission
 
 ## 3. What Is Still Scaffold-Only
 
@@ -118,20 +120,24 @@ legacy consensus behavior can be deleted safely.
 
 ## 5. Wallet and RPC Gaps
 
-The new protocol does not yet have the final operator RPC surface.
+The new protocol now has a partial operator RPC surface.
 
-Missing wallet/RPC work includes:
+Currently available wallet/RPC send-paths:
 
 - `sendvaliditysidechainregister`
 - `sendvaliditydeposit`
 - `sendvaliditybatch`
-- `sendverifiedwithdrawals`
 - `sendforceexitrequest`
 - `sendstaledepositreclaim`
+
+Still missing wallet/RPC work:
+
+- `sendverifiedwithdrawals`
 - `sendescapeexit`
 
-So far, the new path is strongest on consensus/state scaffolding and weakest on
-wallet send-path ergonomics.
+So far, the new path can exercise registration, queue insertion, scaffold batch
+submission, and stale-deposit recovery from the wallet, but proof-execution
+ergonomics are still incomplete.
 
 ## 6. Testing Status
 
@@ -142,6 +148,14 @@ The branch has unit coverage for the new parsing/state layers, including:
 - batch scaffold acceptance
 - withdrawal proof execution
 - escape-exit proof execution
+
+It also now has functional wallet/RPC coverage for:
+
+- validity-sidechain registration
+- deposit submission
+- force-exit request submission
+- scaffold batch submission with auto-built scaffold proof bytes
+- stale-deposit reclaim
 
 What is still missing or incomplete:
 
@@ -159,7 +173,9 @@ If continuing this branch in another chat, the recommended order is:
 2. Make `COMMIT_VALIDITY_BATCH` accept real state-root, withdrawal-root, and
    data-root transitions under proof verification.
 3. Replace the escape-exit staging tree with final user-state proof semantics.
-4. Add the `sendvalidity*` wallet RPC surface.
+4. Add the remaining proof-execution wallet RPCs
+   (`sendverifiedwithdrawals` and `sendescapeexit`) and finish the operator
+   send-path.
 5. Add functional tests for the full validity-sidechain path.
 6. Only then convert the deprecated legacy drivechain RPCs into hard failures
    and begin removing the legacy consensus path.
