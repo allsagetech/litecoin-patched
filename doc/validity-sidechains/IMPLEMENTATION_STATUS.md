@@ -159,6 +159,8 @@ It also now has functional wallet/RPC coverage for:
 - force-exit request submission
 - scaffold batch submission with auto-built scaffold proof bytes
 - malformed batch DA rejection for missing chunks and bad `data_root`
+- forced-inclusion recovery by requiring matured force-exit requests to be
+  consumed by the accepted queue prefix
 - verified withdrawal execution
 - escape-exit execution
 - stale-deposit reclaim
