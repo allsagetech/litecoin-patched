@@ -4,6 +4,9 @@ This document maps the current drivechain implementation in this repository onto
 the target architecture defined in
 `doc/validity-sidechains/LIP-validity-sidechains.md`.
 
+For the current branch status and recommended next steps, start with
+`doc/validity-sidechains/IMPLEMENTATION_STATUS.md`.
+
 The short version is:
 
 - keep Litecoin escrow accounting

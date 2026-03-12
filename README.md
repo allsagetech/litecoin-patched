@@ -69,6 +69,7 @@ The Travis CI system makes sure that every pull request is built for Windows, Li
 
 Trustless sidechain redesign materials are documented in:
 
+- [doc/validity-sidechains/IMPLEMENTATION_STATUS.md](doc/validity-sidechains/IMPLEMENTATION_STATUS.md)
 - [doc/validity-sidechains/LIP-validity-sidechains.md](doc/validity-sidechains/LIP-validity-sidechains.md)
 - [doc/validity-sidechains/MIGRATION_MAP.md](doc/validity-sidechains/MIGRATION_MAP.md)
 - [doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md](doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md)

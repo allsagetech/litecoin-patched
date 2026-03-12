@@ -6,6 +6,9 @@ Type: Standards Track - Consensus
 Created: 2026-03-11
 License: MIT
 
+Companion implementation-status doc:
+`doc/validity-sidechains/IMPLEMENTATION_STATUS.md`
+
 ---
 
 # Abstract

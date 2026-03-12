@@ -4,6 +4,9 @@ This document defines the minimum conditions under which the protocol described
 in `doc/validity-sidechains/LIP-validity-sidechains.md` may be described as
 trustless or considered for activation planning.
 
+For current branch status, see
+`doc/validity-sidechains/IMPLEMENTATION_STATUS.md`.
+
 If any item in this document is unmet, the project should describe the design as
 an incomplete draft rather than a trustless sidechain system.
 
