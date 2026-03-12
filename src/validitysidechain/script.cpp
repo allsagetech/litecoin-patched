@@ -24,7 +24,7 @@ static constexpr unsigned char ESCAPE_EXIT_LEAF_HASH_MAGIC[] = {'V', 'S', 'C', '
 static constexpr unsigned char ESCAPE_EXIT_NODE_HASH_MAGIC[] = {'V', 'S', 'C', 'E', 0x03};
 static constexpr unsigned char FORCE_EXIT_HASH_MAGIC[] = {'V', 'S', 'C', 'X', 0x01};
 static constexpr unsigned char ACCEPTED_BATCH_ID_MAGIC[] = {'V', 'S', 'C', 'A', 0x01};
-static constexpr size_t UINT256_BYTES = uint256::WIDTH;
+static constexpr size_t UINT256_BYTES = sizeof(uint256);
 
 static constexpr size_t VALIDITY_SIDECHAIN_CONFIG_BYTES = 94;
 static constexpr size_t VALIDITY_SIDECHAIN_DEPOSIT_BYTES = 112;
