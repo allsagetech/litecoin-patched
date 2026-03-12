@@ -9,6 +9,7 @@
 #include <optional.h>               // For Optional and nullopt
 #include <primitives/transaction.h> // For CTransactionRef
 #include <util/settings.h>          // For util::SettingsValue
+#include <validitysidechain/state.h>
 
 #include <functional>
 #include <memory>
@@ -162,6 +163,9 @@ public:
     //! Look up registered sidechain owner-auth policy data from active chain state.
     //! Returns false if the sidechain is not registered.
     virtual bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, DrivechainSidechainPolicy& sidechain_policy) = 0;
+
+    //! Return the currently tracked validity-sidechain scaffold state from the active chain.
+    virtual std::vector<ValiditySidechain> getValiditySidechains() = 0;
 
     //! Estimate fraction of total transactions verified if blocks up to
     //! the specified block hash are verified.

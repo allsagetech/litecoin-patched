@@ -65,9 +65,19 @@ These tests can be run (if the [test dependencies](/test) are installed) with: `
 
 The Travis CI system makes sure that every pull request is built for Windows, Linux, and macOS, and that unit/sanity tests are run automatically.
 
-### Drivechain Production Docs
+### Validity Sidechain Design Draft
 
-Drivechain integration guidance and release gates are documented in:
+Trustless sidechain redesign materials are documented in:
+
+- [doc/validity-sidechains/LIP-validity-sidechains.md](doc/validity-sidechains/LIP-validity-sidechains.md)
+- [doc/validity-sidechains/MIGRATION_MAP.md](doc/validity-sidechains/MIGRATION_MAP.md)
+- [doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md](doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md)
+
+### Legacy Drivechain Docs
+
+The current branch still contains legacy drivechain implementation material. It
+is retained only as migration context while the validity-sidechain design is
+specified and implemented:
 
 - [CREDITS_DRIVECHAIN.md](CREDITS_DRIVECHAIN.md)
 - [doc/drivechain/LIP-drivechain.md](doc/drivechain/LIP-drivechain.md)

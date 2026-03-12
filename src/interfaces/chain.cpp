@@ -30,6 +30,7 @@
 #include <uint256.h>
 #include <univalue.h>
 #include <util/system.h>
+#include <validitysidechain/state.h>
 #include <validation.h>
 #include <validationinterface.h>
 
@@ -259,6 +260,17 @@ public:
         owner_auth_required = sc->owner_auth_required;
         sidechain_policy = sc->sidechain_policy;
         return true;
+    }
+    std::vector<ValiditySidechain> getValiditySidechains() override
+    {
+        LOCK(::cs_main);
+        std::vector<ValiditySidechain> sidechains;
+        const auto& state = ::ChainstateActive().GetValiditySidechainState();
+        sidechains.reserve(state.sidechains.size());
+        for (const auto& entry : state.sidechains) {
+            sidechains.push_back(entry.second);
+        }
+        return sidechains;
     }
     double guessVerificationProgress(const uint256& block_hash) override
     {

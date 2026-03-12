@@ -160,4 +160,28 @@ BOOST_AUTO_TEST_CASE(hasBlocks)
     BOOST_CHECK(!chain->hasBlocks(active.Tip()->GetBlockHash(), 6, 50));
 }
 
+BOOST_AUTO_TEST_CASE(getValiditySidechains)
+{
+    auto chain = interfaces::MakeChain(m_node);
+
+    {
+        LOCK(cs_main);
+        auto& state = ChainstateActive().GetValiditySidechainState();
+        auto& sidechain = state.GetOrCreateSidechain(/* id= */ 4, /* registration_height= */ 125);
+        sidechain.escrow_balance = 42;
+        sidechain.latest_batch_number = 7;
+        sidechain.queue_state.pending_deposit_count = 3;
+        sidechain.executed_withdrawal_count = 2;
+    }
+
+    const auto sidechains = chain->getValiditySidechains();
+    BOOST_REQUIRE_EQUAL(sidechains.size(), 1U);
+    BOOST_CHECK_EQUAL(sidechains.front().id, 4);
+    BOOST_CHECK_EQUAL(sidechains.front().registration_height, 125);
+    BOOST_CHECK_EQUAL(sidechains.front().escrow_balance, 42);
+    BOOST_CHECK_EQUAL(sidechains.front().latest_batch_number, 7U);
+    BOOST_CHECK_EQUAL(sidechains.front().queue_state.pending_deposit_count, 3U);
+    BOOST_CHECK_EQUAL(sidechains.front().executed_withdrawal_count, 2U);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

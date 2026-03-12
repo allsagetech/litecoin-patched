@@ -22,6 +22,7 @@
 #include <sync.h>
 #include <txmempool.h> // For CTxMemPool::cs
 #include <txdb.h>
+#include <validitysidechain/state.h>
 #include <versionbits.h>
 #include <serialize.h>
 
@@ -607,6 +608,9 @@ public:
     //! Drivechain state tracked for this specific chainstate/tip.
     DrivechainState m_drivechain_state;
 
+    //! Validity-sidechain scaffold state tracked for this specific chainstate/tip.
+    ValiditySidechainState m_validitysidechain_state;
+
     /**
      * The blockhash which is the base of the snapshot this chainstate was created from.
      *
@@ -642,6 +646,16 @@ public:
     DrivechainState& GetDrivechainState() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         return m_drivechain_state;
+    }
+
+    const ValiditySidechainState& GetValiditySidechainState() const EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        return m_validitysidechain_state;
+    }
+
+    ValiditySidechainState& GetValiditySidechainState() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+    {
+        return m_validitysidechain_state;
     }
 
     //! @returns A reference to a wrapped view of the in-memory UTXO set that

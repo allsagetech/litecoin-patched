@@ -35,6 +35,7 @@
 #include <util/strencodings.h>
 #include <util/system.h>
 #include <util/translation.h>
+#include <validitysidechain/state.h>
 #include <validation.h>
 #include <validationinterface.h>
 #include <warnings.h>
@@ -1649,6 +1650,114 @@ static UniValue getdrivechaininfo(const JSONRPCRequest& request)
     return result;
 }
 
+static UniValue ValiditySidechainConfigToJSON(const ValiditySidechainConfig& config)
+{
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("version", static_cast<int>(config.version));
+    result.pushKV("proof_system_id", static_cast<int>(config.proof_system_id));
+    result.pushKV("circuit_family_id", static_cast<int>(config.circuit_family_id));
+    result.pushKV("verifier_id", static_cast<int>(config.verifier_id));
+    result.pushKV("public_input_version", static_cast<int>(config.public_input_version));
+    result.pushKV("state_root_format", static_cast<int>(config.state_root_format));
+    result.pushKV("deposit_message_format", static_cast<int>(config.deposit_message_format));
+    result.pushKV("withdrawal_leaf_format", static_cast<int>(config.withdrawal_leaf_format));
+    result.pushKV("balance_leaf_format", static_cast<int>(config.balance_leaf_format));
+    result.pushKV("data_availability_mode", static_cast<int>(config.data_availability_mode));
+    result.pushKV("max_batch_data_bytes", static_cast<int64_t>(config.max_batch_data_bytes));
+    result.pushKV("max_proof_bytes", static_cast<int64_t>(config.max_proof_bytes));
+    result.pushKV("force_inclusion_delay", static_cast<int64_t>(config.force_inclusion_delay));
+    result.pushKV("deposit_reclaim_delay", static_cast<int64_t>(config.deposit_reclaim_delay));
+    result.pushKV("escape_hatch_delay", static_cast<int64_t>(config.escape_hatch_delay));
+    result.pushKV("initial_state_root", config.initial_state_root.GetHex());
+    result.pushKV("initial_withdrawal_root", config.initial_withdrawal_root.GetHex());
+    return result;
+}
+
+static UniValue ValiditySidechainQueueStateToJSON(const ValiditySidechainQueueState& queue_state)
+{
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("root", queue_state.root.GetHex());
+    result.pushKV("head_index", static_cast<int64_t>(queue_state.head_index));
+    result.pushKV("pending_message_count", static_cast<int64_t>(queue_state.pending_message_count));
+    result.pushKV("pending_deposit_count", static_cast<int64_t>(queue_state.pending_deposit_count));
+    result.pushKV("pending_force_exit_count", static_cast<int64_t>(queue_state.pending_force_exit_count));
+    result.pushKV("reclaimable_deposit_count", static_cast<int64_t>(queue_state.reclaimable_deposit_count));
+    return result;
+}
+
+static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
+{
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("id", static_cast<int>(sidechain.id));
+    result.pushKV("registration_height", sidechain.registration_height);
+    result.pushKV("is_active", sidechain.is_active);
+    result.pushKV("escrow_balance", sidechain.escrow_balance);
+    result.pushKV("current_state_root", sidechain.current_state_root.GetHex());
+    result.pushKV("current_withdrawal_root", sidechain.current_withdrawal_root.GetHex());
+    result.pushKV("current_data_root", sidechain.current_data_root.GetHex());
+    result.pushKV("latest_batch_number", static_cast<int64_t>(sidechain.latest_batch_number));
+    result.pushKV("executed_withdrawal_count", static_cast<int64_t>(sidechain.executed_withdrawal_count));
+    result.pushKV("executed_escape_exit_count", static_cast<int64_t>(sidechain.executed_escape_exit_count));
+    result.pushKV("config", ValiditySidechainConfigToJSON(sidechain.config));
+    result.pushKV("queue_state", ValiditySidechainQueueStateToJSON(sidechain.queue_state));
+
+    UniValue accepted_batches(UniValue::VARR);
+    for (const auto& entry : sidechain.accepted_batches) {
+        const ValiditySidechainAcceptedBatch& batch = entry.second;
+        UniValue batch_obj(UniValue::VOBJ);
+        batch_obj.pushKV("batch_number", static_cast<int64_t>(batch.batch_number));
+        batch_obj.pushKV("prior_state_root", batch.prior_state_root.GetHex());
+        batch_obj.pushKV("new_state_root", batch.new_state_root.GetHex());
+        batch_obj.pushKV("withdrawal_root", batch.withdrawal_root.GetHex());
+        batch_obj.pushKV("data_root", batch.data_root.GetHex());
+        batch_obj.pushKV("accepted_height", batch.accepted_height);
+        accepted_batches.push_back(batch_obj);
+    }
+    result.pushKV("accepted_batches", accepted_batches);
+    return result;
+}
+
+static RPCHelpMan getvaliditysidechaininfo()
+{
+    return RPCHelpMan{
+        "getvaliditysidechaininfo",
+        "Returns the current validity-sidechain scaffold state tracked by this node.\n",
+        {},
+        RPCResults{},
+        RPCExamples{
+            HelpExampleCli("getvaliditysidechaininfo", "") +
+            HelpExampleRpc("getvaliditysidechaininfo", "")
+        }
+    };
+}
+
+static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
+{
+    const RPCHelpMan& help = getvaliditysidechaininfo();
+    help.Check(request);
+
+    UniValue result(UniValue::VOBJ);
+    UniValue sidechains(UniValue::VARR);
+    UniValue supported_configs(UniValue::VARR);
+
+    {
+        LOCK(cs_main);
+        const ValiditySidechainState& state = ::ChainstateActive().GetValiditySidechainState();
+        for (const auto& entry : state.sidechains) {
+            sidechains.push_back(ValiditySidechainToJSON(entry.second));
+        }
+    }
+
+    result.pushKV("implementation_status", "scaffolding");
+    result.pushKV("trustless_enforced", false);
+    result.pushKV("activation_candidate", false);
+    result.pushKV("legacy_drivechain_withdrawal_path_active", true);
+    result.pushKV("state_persistence_enabled", false);
+    result.pushKV("supported_proof_configs", supported_configs);
+    result.pushKV("sidechains", sidechains);
+    return result;
+}
+
 /** Comparison function for sorting the getchaintips heads.  */
 struct CompareBlocksByHeight
 {
@@ -2754,6 +2863,7 @@ static const CRPCCommand commands[] =
   //  --------------------- ------------------------  -----------------------  ----------
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      {} },
     { "blockchain",         "getdrivechaininfo",      &getdrivechaininfo,      {} },
+    { "blockchain",         "getvaliditysidechaininfo", &getvaliditysidechaininfo, {} },
     { "blockchain",         "getchaintxstats",        &getchaintxstats,        {"nblocks", "blockhash"} },
     { "blockchain",         "getblockstats",          &getblockstats,          {"hash_or_height", "stats"} },
     { "blockchain",         "getbestblockhash",       &getbestblockhash,       {} },
