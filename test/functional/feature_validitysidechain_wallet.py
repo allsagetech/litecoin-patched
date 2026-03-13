@@ -5,7 +5,8 @@
 from decimal import Decimal
 import struct
 
-from test_framework.messages import hash256, ser_uint256, uint256_from_str
+from test_framework.messages import CTransaction, CTxOut, hash256, ser_uint256, uint256_from_str
+from test_framework.script import CScript
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 
@@ -97,6 +98,59 @@ def compute_data_root(chunks):
         payload.extend(struct.pack("<I", len(chunk)))
         payload.extend(chunk)
     return f"{hash256_uint256(bytes(payload)):064x}"
+
+
+def encode_pushdata(payload):
+    if len(payload) < 0x4C:
+        return bytes([len(payload)]) + payload
+    if len(payload) <= 0xFF:
+        return b"\x4c" + bytes([len(payload)]) + payload
+    if len(payload) <= 0xFFFF:
+        return b"\x4d" + struct.pack("<H", len(payload)) + payload
+    return b"\x4e" + struct.pack("<I", len(payload)) + payload
+
+
+def encode_batch_public_inputs(public_inputs):
+    return (
+        struct.pack("<I", public_inputs["batch_number"]) +
+        ser_uint256(int(public_inputs["prior_state_root"], 16)) +
+        ser_uint256(int(public_inputs["new_state_root"], 16)) +
+        ser_uint256(int(public_inputs["l1_message_root_before"], 16)) +
+        ser_uint256(int(public_inputs["l1_message_root_after"], 16)) +
+        struct.pack("<I", public_inputs["consumed_queue_messages"]) +
+        ser_uint256(int(public_inputs["withdrawal_root"], 16)) +
+        ser_uint256(int(public_inputs["data_root"], 16)) +
+        struct.pack("<I", public_inputs["data_size"])
+    )
+
+
+def compute_batch_commitment_hash(sidechain_id, public_inputs):
+    return f"{hash256_uint256(b'VSCB\x01' + bytes([sidechain_id]) + encode_batch_public_inputs(public_inputs)):064x}"
+
+
+def encode_batch_data_chunk(index, chunk_count, chunk_bytes):
+    return struct.pack("<II", index, chunk_count) + chunk_bytes
+
+
+def build_commit_script(sidechain_id, public_inputs, proof_bytes, encoded_chunks):
+    payload = ser_uint256(int(compute_batch_commitment_hash(sidechain_id, public_inputs), 16))
+    raw = bytearray([0x6A, 0xB4])
+    raw.extend(encode_pushdata(bytes([sidechain_id])))
+    raw.extend(encode_pushdata(payload))
+    raw.extend(encode_pushdata(bytes([0x08])))
+    raw.extend(encode_pushdata(encode_batch_public_inputs(public_inputs)))
+    raw.extend(encode_pushdata(proof_bytes))
+    for chunk in encoded_chunks:
+        raw.extend(encode_pushdata(chunk))
+    return CScript(bytes(raw))
+
+
+def fund_and_sign_script_tx(node, script, amount):
+    tx = CTransaction()
+    tx.vin = []
+    tx.vout = [CTxOut(amount, script)]
+    funded = node.fundrawtransaction(tx.serialize().hex())["hex"]
+    return node.signrawtransactionwithwallet(funded)["hex"]
 
 
 def build_script_destination(node):
@@ -283,6 +337,28 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             bad_da_root_public_inputs,
             None,
             ["01"],
+        )
+
+        self.log.info("Rejecting a batch whose DA chunk metadata is out of order.")
+        malformed_da_public_inputs = dict(public_inputs)
+        malformed_chunks = [b"\x01", b"\x02\x03"]
+        malformed_da_public_inputs["data_root"] = compute_data_root(malformed_chunks)
+        malformed_da_public_inputs["data_size"] = sum(len(chunk) for chunk in malformed_chunks)
+        malformed_script = build_commit_script(
+            sidechain_id,
+            malformed_da_public_inputs,
+            bytes.fromhex("01"),
+            [
+                encode_batch_data_chunk(1, 2, malformed_chunks[1]),
+                encode_batch_data_chunk(0, 2, malformed_chunks[0]),
+            ],
+        )
+        malformed_batch_hex = fund_and_sign_script_tx(node, malformed_script, 0)
+        assert_raises_rpc_error(
+            -26,
+            "validitysidechain-batch-metadata-bad",
+            node.sendrawtransaction,
+            malformed_batch_hex,
         )
 
         self.log.info("Rejecting a batch whose proof bytes exceed the configured limit.")
