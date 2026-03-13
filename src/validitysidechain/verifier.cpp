@@ -4,11 +4,14 @@
 
 #include <validitysidechain/verifier.h>
 
+#include <fs.h>
 #include <hash.h>
+#include <util/system.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 
@@ -17,6 +20,10 @@ namespace {
 static constexpr unsigned char DATA_ROOT_MAGIC[] = {'V', 'S', 'C', 'R', 0x01};
 static constexpr unsigned char SCAFFOLD_PROOF_MAGIC[] = {'V', 'S', 'C', 'P', 0x01};
 static constexpr size_t UINT256_SERIALIZED_SIZE = 32;
+static constexpr char VERIFIER_ARTIFACTS_DIR[] = "artifacts";
+static constexpr char VERIFIER_NAMESPACE_DIR[] = "validitysidechain";
+static constexpr char VERIFIER_PROFILE_MANIFEST[] = "profile.json";
+static constexpr char VERIFIER_BATCH_VK[] = "batch_vk.bin";
 
 struct ValiditySidechainScaffoldProofEnvelope
 {
@@ -124,6 +131,57 @@ static bool ValidatePublishedBatchData(
     return true;
 }
 
+static bool PopulateVerifierAssetsStatus(
+    const SupportedValiditySidechainConfig& supported,
+    ValiditySidechainVerifierAssetsStatus& out_status)
+{
+    out_status.requires_external_assets = supported.requires_external_verifier_assets;
+    out_status.artifact_name = supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name;
+
+    if (!supported.requires_external_verifier_assets || supported.verifier_artifact_name == nullptr) {
+        out_status.assets_present = true;
+        out_status.backend_ready = true;
+        out_status.status = "embedded scaffold verifier";
+        return true;
+    }
+
+    const fs::path artifact_dir = GetDataDir() / VERIFIER_ARTIFACTS_DIR / VERIFIER_NAMESPACE_DIR / supported.verifier_artifact_name;
+    const fs::path manifest_path = artifact_dir / VERIFIER_PROFILE_MANIFEST;
+    const fs::path verifying_key_path = artifact_dir / VERIFIER_BATCH_VK;
+
+    out_status.artifact_dir = artifact_dir.string();
+    out_status.profile_manifest_path = manifest_path.string();
+    out_status.verifying_key_path = verifying_key_path.string();
+
+    try {
+        const bool has_manifest = fs::exists(manifest_path) && fs::is_regular_file(manifest_path);
+        const bool has_vk = fs::exists(verifying_key_path) && fs::is_regular_file(verifying_key_path);
+
+        if (has_vk) {
+            out_status.verifying_key_bytes = static_cast<uint64_t>(fs::file_size(verifying_key_path));
+        }
+
+        out_status.assets_present = has_manifest && has_vk && out_status.verifying_key_bytes > 0;
+        if (!has_manifest) {
+            out_status.status = "missing profile manifest";
+            return true;
+        }
+        if (!has_vk || out_status.verifying_key_bytes == 0) {
+            out_status.status = "missing verifying key";
+            return true;
+        }
+
+        out_status.backend_ready = false;
+        out_status.status = "assets found but Groth16 verifier backend is not implemented";
+        return true;
+    } catch (const fs::filesystem_error& e) {
+        out_status.assets_present = false;
+        out_status.backend_ready = false;
+        out_status.status = fsbridge::get_filesystem_error_message(e);
+        return false;
+    }
+}
+
 } // namespace
 
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config)
@@ -136,6 +194,11 @@ ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const V
         supported->profile_name != nullptr &&
         std::string(supported->profile_name) == "scaffold_transition_da_v1") {
         return ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT;
+    }
+    if (!supported->scaffolding_only &&
+        supported->profile_name != nullptr &&
+        std::string(supported->profile_name) == "groth16_bls12_381_poseidon_v1") {
+        return ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1;
     }
     if (supported->scaffolding_only) {
         return ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY;
@@ -152,6 +215,8 @@ const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVer
             return "scaffold_queue_prefix_commitment_v1";
         case ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT:
             return "scaffold_transition_commitment_v1";
+        case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1:
+            return "groth16_bls12_381_poseidon_v1";
     }
 
     return "unknown";
@@ -173,6 +238,19 @@ uint256 ComputeValiditySidechainDataRoot(const std::vector<std::vector<unsigned 
         }
     }
     return hw.GetHash();
+}
+
+bool GetValiditySidechainVerifierAssetsStatus(
+    const ValiditySidechainConfig& config,
+    ValiditySidechainVerifierAssetsStatus& out_status)
+{
+    out_status = ValiditySidechainVerifierAssetsStatus{};
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        out_status.status = "unsupported proof configuration tuple";
+        return false;
+    }
+    return PopulateVerifierAssetsStatus(*supported, out_status);
 }
 
 std::vector<unsigned char> BuildValiditySidechainScaffoldBatchProof(
@@ -227,8 +305,21 @@ bool VerifyValiditySidechainBatch(
     }
 
     if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY &&
-        mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT) {
+        mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT &&
+        mode != ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1) {
         return FailValidation(error, "proof verifier is not implemented for this profile");
+    }
+
+    if (mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1) {
+        ValiditySidechainVerifierAssetsStatus assets_status;
+        GetValiditySidechainVerifierAssetsStatus(config, assets_status);
+        if (!assets_status.assets_present) {
+            return FailValidation(error, "verifier assets missing for supported profile");
+        }
+        if (!assets_status.backend_ready) {
+            return FailValidation(error, "Groth16 verifier backend is not implemented for this profile");
+        }
+        return FailValidation(error, "Groth16 verifier backend is not implemented for this profile");
     }
 
     ValiditySidechainScaffoldProofEnvelope envelope;

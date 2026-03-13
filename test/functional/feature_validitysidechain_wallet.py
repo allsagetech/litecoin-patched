@@ -180,8 +180,18 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         mining_address = node.getnewaddress()
         node.generatetoaddress(101, mining_address)
 
+        info = node.getvaliditysidechaininfo()
+        assert_equal(info["batch_validation_mode"], "profile_specific")
         supported = get_supported_profile(node, "scaffold_onchain_da_v1")
         transition_supported = get_supported_profile(node, "scaffold_transition_da_v1")
+        real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_supported["scaffolding_only"], False)
+        assert_equal(real_supported["requires_external_verifier_assets"], True)
+        assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_supported["verifier_assets"]["required"], True)
+        assert_equal(real_supported["verifier_assets"]["available"], False)
+        assert_equal(real_supported["verifier_assets"]["backend_ready"], False)
 
         withdrawals = [
             {
@@ -530,6 +540,42 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(transition_sidechain["accepted_batches"][0]["new_state_root"], transition_public_inputs["new_state_root"])
         assert_equal(transition_sidechain["accepted_batches"][0]["withdrawal_root"], transition_public_inputs["withdrawal_root"])
         assert_equal(transition_sidechain["accepted_batches"][0]["data_root"], transition_public_inputs["data_root"])
+
+        self.log.info("Registering the proposed Groth16 profile and confirming it hard-fails without verifier assets.")
+        real_sidechain_id = 9
+        real_config = build_register_config(
+            real_supported,
+            initial_state_root="55" * 32,
+            initial_withdrawal_root="66" * 32,
+        )
+        node.sendvaliditysidechainregister(real_sidechain_id, real_config)
+        node.generate(1)
+
+        real_sidechain = get_sidechain_info(node, real_sidechain_id)
+        assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_sidechain["verifier_assets"]["required"], True)
+        assert_equal(real_sidechain["verifier_assets"]["available"], False)
+        assert_equal(real_sidechain["verifier_assets"]["backend_ready"], False)
+
+        real_public_inputs = {
+            "batch_number": 1,
+            "prior_state_root": real_sidechain["current_state_root"],
+            "new_state_root": "77" * 32,
+            "l1_message_root_before": real_sidechain["queue_state"]["root"],
+            "l1_message_root_after": real_sidechain["queue_state"]["root"],
+            "consumed_queue_messages": 0,
+            "withdrawal_root": "88" * 32,
+            "data_root": "00" * 32,
+            "data_size": 0,
+        }
+        assert_raises_rpc_error(
+            -26,
+            "verifier assets missing for supported profile",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_public_inputs,
+            "01",
+        )
 
 
 if __name__ == "__main__":

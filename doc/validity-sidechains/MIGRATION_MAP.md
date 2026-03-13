@@ -397,11 +397,12 @@ Current branch status:
 - accepted-batch state tracking, batch-number monotonicity, queue-prefix
   transition plumbing, and mempool duplicate tracking now exist for
   `COMMIT_VALIDITY_BATCH`
-- the current branch still exposes only scaffold verifier modes:
-  `scaffold_queue_prefix_commitment_v1` for no-op-root batches and
-  `scaffold_transition_commitment_v1` for deterministic root/DA transitions;
-  both rely on the deterministic scaffold proof envelope instead of a real zk
-  verifier path
+- the current branch exposes two scaffold verifier modes plus one proposed real
+  Groth16 profile slot:
+  `scaffold_queue_prefix_commitment_v1` for no-op-root batches,
+  `scaffold_transition_commitment_v1` for deterministic root/DA transitions,
+  and `groth16_bls12_381_poseidon_v1` as a fixed non-scaffold tuple that still
+  hard-fails until verifier assets and the real backend are supplied
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking

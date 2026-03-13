@@ -32,7 +32,7 @@ That RPC currently reports:
 - `trustless_enforced = false`
 - `activation_candidate = false`
 - `legacy_drivechain_withdrawal_path_active = true`
-- `batch_validation_mode = "scaffold_profiles_only"`
+- `batch_validation_mode = "profile_specific"`
 - `verified_withdrawal_execution_mode = "merkle_inclusion_scaffold"`
 - `escape_exit_mode = "merkle_inclusion_scaffold"`
 
@@ -75,15 +75,17 @@ The current implementation is not yet the final trustless design.
 
 ### Batch verification
 
-`COMMIT_VALIDITY_BATCH` currently uses scaffold verifier profiles:
+`COMMIT_VALIDITY_BATCH` currently uses two scaffold verifier profiles plus one
+proposed real profile slot:
 
 - supported profile names:
   - `scaffold_onchain_da_v1`
   - `scaffold_transition_da_v1`
-- registry flag: `scaffolding_only = true`
+  - `groth16_bls12_381_poseidon_v1`
 - verifier modes:
   - `scaffold_queue_prefix_commitment_v1`
   - `scaffold_transition_commitment_v1`
+  - `groth16_bls12_381_poseidon_v1`
 
 This means:
 
@@ -97,6 +99,9 @@ This means:
   withdrawal-root, and data-root updates with empty DA
 - the transition scaffold profile now allows deterministic root and DA updates,
   but they are still not backed by a real zk proof
+- the proposed Groth16 profile now has a fixed consensus tuple and expected
+  verifier-asset layout, but batch validation still hard-fails until the
+  verifying key assets exist and the real verifier backend is implemented
 
 There is not yet a real zk verifier backend in the repository.
 

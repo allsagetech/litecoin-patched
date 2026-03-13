@@ -16,11 +16,28 @@ enum class ValiditySidechainBatchVerifierMode : uint8_t {
     DISABLED = 0,
     SCAFFOLD_QUEUE_PREFIX_ONLY = 1,
     SCAFFOLD_TRANSITION_COMMITMENT = 2,
+    GROTH16_BLS12_381_POSEIDON_V1 = 3,
+};
+
+struct ValiditySidechainVerifierAssetsStatus
+{
+    bool requires_external_assets{false};
+    bool assets_present{false};
+    bool backend_ready{false};
+    std::string artifact_name;
+    std::string artifact_dir;
+    std::string profile_manifest_path;
+    std::string verifying_key_path;
+    uint64_t verifying_key_bytes{0};
+    std::string status;
 };
 
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config);
 const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVerifierMode mode);
 uint256 ComputeValiditySidechainDataRoot(const std::vector<std::vector<unsigned char>>& data_chunks);
+bool GetValiditySidechainVerifierAssetsStatus(
+    const ValiditySidechainConfig& config,
+    ValiditySidechainVerifierAssetsStatus& out_status);
 std::vector<unsigned char> BuildValiditySidechainScaffoldBatchProof(
     uint8_t sidechain_id,
     const ValiditySidechainBatchPublicInputs& public_inputs,

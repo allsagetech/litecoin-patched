@@ -1680,6 +1680,21 @@ static UniValue ValiditySidechainConfigToJSON(const ValiditySidechainConfig& con
     return result;
 }
 
+static UniValue ValiditySidechainVerifierAssetsToJSON(const ValiditySidechainVerifierAssetsStatus& status)
+{
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("required", status.requires_external_assets);
+    result.pushKV("available", status.assets_present);
+    result.pushKV("backend_ready", status.backend_ready);
+    result.pushKV("artifact_name", status.artifact_name);
+    result.pushKV("artifact_dir", status.artifact_dir);
+    result.pushKV("profile_manifest_path", status.profile_manifest_path);
+    result.pushKV("verifying_key_path", status.verifying_key_path);
+    result.pushKV("verifying_key_bytes", static_cast<int64_t>(status.verifying_key_bytes));
+    result.pushKV("status", status.status);
+    return result;
+}
+
 static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySidechainConfig& supported)
 {
     ValiditySidechainConfig config;
@@ -1693,10 +1708,14 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     config.withdrawal_leaf_format = supported.withdrawal_leaf_format;
     config.balance_leaf_format = supported.balance_leaf_format;
     config.data_availability_mode = supported.data_availability_mode;
+    ValiditySidechainVerifierAssetsStatus assets_status;
+    GetValiditySidechainVerifierAssetsStatus(config, assets_status);
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("profile_name", supported.profile_name);
+    result.pushKV("verifier_artifact_name", supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name);
     result.pushKV("scaffolding_only", supported.scaffolding_only);
+    result.pushKV("requires_external_verifier_assets", supported.requires_external_verifier_assets);
     result.pushKV("version", static_cast<int>(supported.version));
     result.pushKV("proof_system_id", static_cast<int>(supported.proof_system_id));
     result.pushKV("circuit_family_id", static_cast<int>(supported.circuit_family_id));
@@ -1716,6 +1735,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
+    result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
     return result;
 }
 
@@ -1814,6 +1834,9 @@ static bool GetValidityAcceptedBatchPublication(
 
 static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
 {
+    ValiditySidechainVerifierAssetsStatus assets_status;
+    GetValiditySidechainVerifierAssetsStatus(sidechain.config, assets_status);
+
     UniValue result(UniValue::VOBJ);
     result.pushKV("id", static_cast<int>(sidechain.id));
     result.pushKV("registration_height", sidechain.registration_height);
@@ -1826,6 +1849,7 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("executed_withdrawal_count", static_cast<int64_t>(sidechain.executed_withdrawal_count));
     result.pushKV("executed_escape_exit_count", static_cast<int64_t>(sidechain.executed_escape_exit_count));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
+    result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
     result.pushKV("config", ValiditySidechainConfigToJSON(sidechain.config));
     result.pushKV("queue_state", ValiditySidechainQueueStateToJSON(sidechain.queue_state));
 
@@ -1900,7 +1924,7 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("registration_validation_available", true);
     result.pushKV("force_exit_request_available", true);
     result.pushKV("batch_validation_available", true);
-    result.pushKV("batch_validation_mode", "scaffold_profiles_only");
+    result.pushKV("batch_validation_mode", "profile_specific");
     result.pushKV("verified_withdrawal_execution_available", true);
     result.pushKV("verified_withdrawal_execution_mode", "merkle_inclusion_scaffold");
     result.pushKV("escape_exit_available", true);
