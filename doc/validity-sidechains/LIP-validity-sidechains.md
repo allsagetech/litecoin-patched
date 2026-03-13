@@ -360,13 +360,15 @@ State updates on success:
 Current scaffold implementation note:
 
 - the current branch only enables `scaffolding_only` batch validation
-- that mode accepts `COMMIT_VALIDITY_BATCH` only when it is a no-op batch:
-  - `proof_bytes` must be a deterministic scaffold envelope binding the batch
-    commitment and the current chainstate roots
+- both scaffold modes require `proof_bytes` to be a deterministic scaffold
+  envelope binding the batch commitment and the current chainstate roots
+- `scaffold_queue_prefix_commitment_v1` only accepts no-op batches:
   - no DA chunks are present
   - `new_state_root`, `withdrawal_root`, and `data_root` remain unchanged
-  - queue-prefix consumption is still allowed, and all matured force-exit
-    requests in the reachable prefix must be consumed
+- `scaffold_transition_commitment_v1` accepts deterministic root and DA
+  transitions, but still without a real zk proof backend
+- queue-prefix consumption is still allowed in scaffold mode, and all matured
+  force-exit requests in the reachable prefix must be consumed
 - this is plumbing for the future verifier path, not trustless batch
   finalization
 

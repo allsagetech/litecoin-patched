@@ -397,11 +397,11 @@ Current branch status:
 - accepted-batch state tracking, batch-number monotonicity, queue-prefix
   transition plumbing, and mempool duplicate tracking now exist for
   `COMMIT_VALIDITY_BATCH`
-- the current verifier mode is explicitly
-  `scaffold_queue_prefix_commitment_v1`, which requires a deterministic
-  scaffold proof envelope, allows deterministic queue-prefix consumption, and
-  still forbids state-root / withdrawal-root changes while the real zk
-  verifier path is missing
+- the current branch still exposes only scaffold verifier modes:
+  `scaffold_queue_prefix_commitment_v1` for no-op-root batches and
+  `scaffold_transition_commitment_v1` for deterministic root/DA transitions;
+  both rely on the deterministic scaffold proof envelope instead of a real zk
+  verifier path
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking

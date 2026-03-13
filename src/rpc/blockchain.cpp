@@ -1682,6 +1682,18 @@ static UniValue ValiditySidechainConfigToJSON(const ValiditySidechainConfig& con
 
 static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySidechainConfig& supported)
 {
+    ValiditySidechainConfig config;
+    config.version = supported.version;
+    config.proof_system_id = supported.proof_system_id;
+    config.circuit_family_id = supported.circuit_family_id;
+    config.verifier_id = supported.verifier_id;
+    config.public_input_version = supported.public_input_version;
+    config.state_root_format = supported.state_root_format;
+    config.deposit_message_format = supported.deposit_message_format;
+    config.withdrawal_leaf_format = supported.withdrawal_leaf_format;
+    config.balance_leaf_format = supported.balance_leaf_format;
+    config.data_availability_mode = supported.data_availability_mode;
+
     UniValue result(UniValue::VOBJ);
     result.pushKV("profile_name", supported.profile_name);
     result.pushKV("scaffolding_only", supported.scaffolding_only);
@@ -1703,7 +1715,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("max_deposit_reclaim_delay", static_cast<int64_t>(supported.max_deposit_reclaim_delay));
     result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
-    result.pushKV("batch_verifier_mode", supported.scaffolding_only ? "scaffold_queue_prefix_commitment_v1" : "disabled");
+    result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
     return result;
 }
 
@@ -1888,7 +1900,7 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("registration_validation_available", true);
     result.pushKV("force_exit_request_available", true);
     result.pushKV("batch_validation_available", true);
-    result.pushKV("batch_validation_mode", "scaffold_queue_prefix_commitment_v1");
+    result.pushKV("batch_validation_mode", "scaffold_profiles_only");
     result.pushKV("verified_withdrawal_execution_available", true);
     result.pushKV("verified_withdrawal_execution_mode", "merkle_inclusion_scaffold");
     result.pushKV("escape_exit_available", true);

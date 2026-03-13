@@ -23,9 +23,14 @@ namespace {
 
 static constexpr unsigned char TEST_QUEUE_CONSUME_MAGIC[] = {'V', 'S', 'C', 'Q', 'C', 0x01};
 
-ValiditySidechainConfig MakeSupportedConfig()
+ValiditySidechainConfig MakeSupportedConfig(size_t supported_index = 0)
 {
-    const SupportedValiditySidechainConfig& supported = GetSupportedValiditySidechainConfigs().front();
+    const auto& supported_configs = GetSupportedValiditySidechainConfigs();
+    if (supported_index >= supported_configs.size()) {
+        BOOST_FAIL("requested unsupported config index");
+        return ValiditySidechainConfig{};
+    }
+    const SupportedValiditySidechainConfig& supported = supported_configs.at(supported_index);
 
     ValiditySidechainConfig config;
     config.version = supported.version;
@@ -223,9 +228,17 @@ BOOST_FIXTURE_TEST_SUITE(validitysidechain_state_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 {
     const auto& supported_configs = GetSupportedValiditySidechainConfigs();
-    BOOST_REQUIRE_EQUAL(supported_configs.size(), 1U);
+    BOOST_REQUIRE_EQUAL(supported_configs.size(), 2U);
     BOOST_CHECK_EQUAL(std::string(supported_configs.front().profile_name), "scaffold_onchain_da_v1");
     BOOST_CHECK(supported_configs.front().scaffolding_only);
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 0)),
+        ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY);
+    BOOST_CHECK_EQUAL(std::string(supported_configs.back().profile_name), "scaffold_transition_da_v1");
+    BOOST_CHECK(supported_configs.back().scaffolding_only);
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 1)),
+        ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT);
 
     const ValiditySidechainConfig config = MakeSupportedConfig();
     std::string error;
@@ -240,7 +253,7 @@ BOOST_AUTO_TEST_CASE(validation_rejects_invalid_profiles_and_limits)
 
     {
         ValiditySidechainConfig config = MakeSupportedConfig();
-        config.verifier_id = supported.verifier_id + 1;
+        config.verifier_id = 255;
 
         std::string error;
         BOOST_CHECK(!ValidateValiditySidechainConfig(config, &error));
@@ -595,6 +608,61 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_scaffold_state_or_queue_changes)
         BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, proof_bytes, {}, &error));
         BOOST_CHECK_EQUAL(error, "batch queue root after does not match consumed prefix");
     }
+}
+
+BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 1);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 26, /* registration_height= */ 700, config));
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(config),
+        ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT);
+
+    const CScript refund_script = CScript() << OP_TRUE;
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a"),
+        refund_script,
+        6 * COIN);
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 26, /* deposit_height= */ 701, deposit));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(26);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const std::vector<std::vector<unsigned char>> data_chunks{
+        {0xaa, 0xbb},
+        {0xcc, 0xdd, 0xee},
+    };
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.new_state_root = uint256S("4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b");
+    public_inputs.withdrawal_root = uint256S("4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c");
+    public_inputs.consumed_queue_messages = 1;
+    public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 26, /* consumed_queue_messages= */ 1);
+    public_inputs.data_root = ComputeValiditySidechainDataRoot(data_chunks);
+    public_inputs.data_size = 5;
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 26, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_REQUIRE(state.AcceptBatch(/* sidechain_id= */ 26, /* accepted_height= */ 702, public_inputs, proof_bytes, data_chunks, &error));
+    BOOST_CHECK(error.empty());
+
+    sidechain = state.GetSidechain(26);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK(sidechain->current_state_root == public_inputs.new_state_root);
+    BOOST_CHECK(sidechain->current_withdrawal_root == public_inputs.withdrawal_root);
+    BOOST_CHECK(sidechain->current_data_root == public_inputs.data_root);
+    BOOST_CHECK_EQUAL(sidechain->latest_batch_number, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.head_index, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_message_count, 0U);
+    BOOST_REQUIRE(state.GetPendingDeposit(26, deposit.deposit_id) == nullptr);
+
+    const ValiditySidechainAcceptedBatch* batch = state.GetAcceptedBatch(26, 1);
+    BOOST_REQUIRE(batch != nullptr);
+    BOOST_CHECK(batch->new_state_root == public_inputs.new_state_root);
+    BOOST_CHECK(batch->withdrawal_root == public_inputs.withdrawal_root);
+    BOOST_CHECK(batch->data_root == public_inputs.data_root);
+    BOOST_CHECK_EQUAL(batch->consumed_queue_messages, 1U);
 }
 
 BOOST_AUTO_TEST_CASE(accept_batch_rejects_invalid_scaffold_proof_envelope)

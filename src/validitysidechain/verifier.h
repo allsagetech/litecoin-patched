@@ -15,6 +15,7 @@
 enum class ValiditySidechainBatchVerifierMode : uint8_t {
     DISABLED = 0,
     SCAFFOLD_QUEUE_PREFIX_ONLY = 1,
+    SCAFFOLD_TRANSITION_COMMITMENT = 2,
 };
 
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config);

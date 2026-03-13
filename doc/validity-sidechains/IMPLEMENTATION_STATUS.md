@@ -31,7 +31,7 @@ That RPC currently reports:
 - `trustless_enforced = false`
 - `activation_candidate = false`
 - `legacy_drivechain_withdrawal_path_active = true`
-- `batch_validation_mode = "scaffold_queue_prefix_commitment_v1"`
+- `batch_validation_mode = "scaffold_profiles_only"`
 - `verified_withdrawal_execution_mode = "merkle_inclusion_scaffold"`
 - `escape_exit_mode = "merkle_inclusion_scaffold"`
 
@@ -74,11 +74,15 @@ The current implementation is not yet the final trustless design.
 
 ### Batch verification
 
-`COMMIT_VALIDITY_BATCH` currently uses a scaffold verifier profile:
+`COMMIT_VALIDITY_BATCH` currently uses scaffold verifier profiles:
 
-- supported profile name: `scaffold_onchain_da_v1`
+- supported profile names:
+  - `scaffold_onchain_da_v1`
+  - `scaffold_transition_da_v1`
 - registry flag: `scaffolding_only = true`
-- verifier mode: `scaffold_queue_prefix_commitment_v1`
+- verifier modes:
+  - `scaffold_queue_prefix_commitment_v1`
+  - `scaffold_transition_commitment_v1`
 
 This means:
 
@@ -88,8 +92,10 @@ This means:
 - empty proof bytes, missing non-zero DA payloads, empty DA chunks, oversized
   payloads, and mismatched `data_root` commitments are rejected
 - queue-prefix consumption is enforced
-- state-root, withdrawal-root, and data-root updates are still restricted to
-  scaffold behavior
+- the prefix-only scaffold profile still requires no-op state-root,
+  withdrawal-root, and data-root updates with empty DA
+- the transition scaffold profile now allows deterministic root and DA updates,
+  but they are still not backed by a real zk proof
 
 There is not yet a real zk verifier backend in the repository.
 

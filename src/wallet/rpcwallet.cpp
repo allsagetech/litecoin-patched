@@ -2111,7 +2111,9 @@ static RPCHelpMan sendvaliditybatch()
             if (request.params.size() > 2 && !request.params[2].isNull()) {
                 proof_bytes = ParseHexV(request.params[2], "proof_bytes");
             } else {
-                if (GetValiditySidechainBatchVerifierMode(sidechain.config) != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY) {
+                const ValiditySidechainBatchVerifierMode verifier_mode = GetValiditySidechainBatchVerifierMode(sidechain.config);
+                if (verifier_mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY &&
+                    verifier_mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, "proof_bytes are required for non-scaffold profiles");
                 }
                 proof_bytes = BuildValiditySidechainScaffoldBatchProof(

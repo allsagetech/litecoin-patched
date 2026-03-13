@@ -132,6 +132,11 @@ ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const V
     if (supported == nullptr) {
         return ValiditySidechainBatchVerifierMode::DISABLED;
     }
+    if (supported->scaffolding_only &&
+        supported->profile_name != nullptr &&
+        std::string(supported->profile_name) == "scaffold_transition_da_v1") {
+        return ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT;
+    }
     if (supported->scaffolding_only) {
         return ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY;
     }
@@ -145,6 +150,8 @@ const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVer
             return "disabled";
         case ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY:
             return "scaffold_queue_prefix_commitment_v1";
+        case ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT:
+            return "scaffold_transition_commitment_v1";
     }
 
     return "unknown";
@@ -219,7 +226,8 @@ bool VerifyValiditySidechainBatch(
         return false;
     }
 
-    if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY) {
+    if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY &&
+        mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT) {
         return FailValidation(error, "proof verifier is not implemented for this profile");
     }
 
@@ -236,20 +244,23 @@ bool VerifyValiditySidechainBatch(
         envelope.current_l1_message_root != current_l1_message_root) {
         return FailValidation(error, "scaffold proof envelope does not match current chainstate roots");
     }
-    if (public_inputs.new_state_root != current_state_root) {
-        return FailValidation(error, "scaffold verifier only allows no-op state root updates");
-    }
-    if (public_inputs.withdrawal_root != current_withdrawal_root) {
-        return FailValidation(error, "scaffold verifier only allows no-op withdrawal roots");
-    }
-    if (public_inputs.data_root != current_data_root) {
-        return FailValidation(error, "scaffold verifier only allows no-op data roots");
-    }
     if (public_inputs.l1_message_root_before != current_l1_message_root) {
         return FailValidation(error, "batch queue root before does not match current queue root");
     }
-    if (public_inputs.data_size != 0 || !data_chunks.empty()) {
-        return FailValidation(error, "scaffold verifier requires empty DA payload");
+
+    if (mode == ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY) {
+        if (public_inputs.new_state_root != current_state_root) {
+            return FailValidation(error, "scaffold verifier only allows no-op state root updates");
+        }
+        if (public_inputs.withdrawal_root != current_withdrawal_root) {
+            return FailValidation(error, "scaffold verifier only allows no-op withdrawal roots");
+        }
+        if (public_inputs.data_root != current_data_root) {
+            return FailValidation(error, "scaffold verifier only allows no-op data roots");
+        }
+        if (public_inputs.data_size != 0 || !data_chunks.empty()) {
+            return FailValidation(error, "scaffold verifier requires empty DA payload");
+        }
     }
 
     return true;

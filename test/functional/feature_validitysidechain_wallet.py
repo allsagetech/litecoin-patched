@@ -41,6 +41,14 @@ def get_sidechain_info(node, sidechain_id):
     raise AssertionError(f"missing sidechain {sidechain_id} in getvaliditysidechaininfo")
 
 
+def get_supported_profile(node, profile_name):
+    info = node.getvaliditysidechaininfo()
+    for supported in info["supported_proof_configs"]:
+        if supported["profile_name"] == profile_name:
+            return supported
+    raise AssertionError(f"missing supported proof profile {profile_name}")
+
+
 def amount_to_sats(amount):
     return int(amount * Decimal("100000000"))
 
@@ -172,7 +180,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         mining_address = node.getnewaddress()
         node.generatetoaddress(101, mining_address)
 
-        supported = node.getvaliditysidechaininfo()["supported_proof_configs"][0]
+        supported = get_supported_profile(node, "scaffold_onchain_da_v1")
+        transition_supported = get_supported_profile(node, "scaffold_transition_da_v1")
 
         withdrawals = [
             {
@@ -471,6 +480,56 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(sidechain["queue_state"]["pending_message_count"], 2)
         assert_equal(sidechain["queue_state"]["pending_deposit_count"], 1)
         assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 1)
+
+        self.log.info("Registering a second sidechain on the transition-scaffold profile.")
+        transition_sidechain_id = 8
+        transition_config = build_register_config(
+            transition_supported,
+            initial_state_root="11" * 32,
+            initial_withdrawal_root="22" * 32,
+        )
+        node.sendvaliditysidechainregister(transition_sidechain_id, transition_config)
+        node.generate(1)
+
+        transition_sidechain = get_sidechain_info(node, transition_sidechain_id)
+        assert_equal(transition_sidechain["batch_verifier_mode"], "scaffold_transition_commitment_v1")
+        assert_equal(transition_sidechain["current_state_root"], transition_config["initial_state_root"])
+        assert_equal(transition_sidechain["current_withdrawal_root"], transition_config["initial_withdrawal_root"])
+
+        self.log.info("Submitting a scaffold transition batch with changed roots and real DA chunks.")
+        transition_chunks = [bytes.fromhex("dead"), bytes.fromhex("beef01")]
+        transition_public_inputs = {
+            "batch_number": 1,
+            "prior_state_root": transition_sidechain["current_state_root"],
+            "new_state_root": "33" * 32,
+            "l1_message_root_before": transition_sidechain["queue_state"]["root"],
+            "l1_message_root_after": transition_sidechain["queue_state"]["root"],
+            "consumed_queue_messages": 0,
+            "withdrawal_root": "44" * 32,
+            "data_root": compute_data_root(transition_chunks),
+            "data_size": sum(len(chunk) for chunk in transition_chunks),
+        }
+        transition_batch_res = node.sendvaliditybatch(
+            transition_sidechain_id,
+            transition_public_inputs,
+            None,
+            [chunk.hex() for chunk in transition_chunks],
+        )
+        assert_equal(transition_batch_res["auto_scaffold_proof"], True)
+        node.generate(1)
+
+        transition_sidechain = get_sidechain_info(node, transition_sidechain_id)
+        assert_equal(transition_sidechain["latest_batch_number"], 1)
+        assert_equal(transition_sidechain["current_state_root"], transition_public_inputs["new_state_root"])
+        assert_equal(transition_sidechain["current_withdrawal_root"], transition_public_inputs["withdrawal_root"])
+        assert_equal(transition_sidechain["current_data_root"], transition_public_inputs["data_root"])
+        assert_equal(transition_sidechain["accepted_batches"][0]["data_size"], transition_public_inputs["data_size"])
+        assert_equal(transition_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(transition_chunks))
+        assert_equal(transition_sidechain["accepted_batches"][0]["published_data_bytes"], transition_public_inputs["data_size"])
+        assert_equal(transition_sidechain["accepted_batches"][0]["published_in_txid"], transition_batch_res["txid"])
+        assert_equal(transition_sidechain["accepted_batches"][0]["new_state_root"], transition_public_inputs["new_state_root"])
+        assert_equal(transition_sidechain["accepted_batches"][0]["withdrawal_root"], transition_public_inputs["withdrawal_root"])
+        assert_equal(transition_sidechain["accepted_batches"][0]["data_root"], transition_public_inputs["data_root"])
 
 
 if __name__ == "__main__":

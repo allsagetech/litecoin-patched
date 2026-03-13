@@ -57,6 +57,28 @@ const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidecha
             /* min_escape_hatch_delay     = */ 288,
             /* max_escape_hatch_delay     = */ 56 * 144,
         },
+        {
+            /* profile_name               = */ "scaffold_transition_da_v1",
+            /* scaffolding_only           = */ true,
+            /* version                    = */ 1,
+            /* proof_system_id            = */ 1,
+            /* circuit_family_id          = */ 1,
+            /* verifier_id                = */ 2,
+            /* public_input_version       = */ 1,
+            /* state_root_format          = */ 1,
+            /* deposit_message_format     = */ 1,
+            /* withdrawal_leaf_format     = */ 1,
+            /* balance_leaf_format        = */ 1,
+            /* data_availability_mode     = */ 1,
+            /* max_batch_data_bytes_limit = */ 64 * 1024,
+            /* max_proof_bytes_limit      = */ 16 * 1024,
+            /* min_force_inclusion_delay  = */ 12,
+            /* max_force_inclusion_delay  = */ 7 * 144,
+            /* min_deposit_reclaim_delay  = */ 144,
+            /* max_deposit_reclaim_delay  = */ 28 * 144,
+            /* min_escape_hatch_delay     = */ 288,
+            /* max_escape_hatch_delay     = */ 56 * 144,
+        },
     };
 
     return supported_configs;
