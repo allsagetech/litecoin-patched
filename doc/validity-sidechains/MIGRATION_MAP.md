@@ -335,7 +335,8 @@ This means the `BMM_REQUEST` and `BMM_ACCEPT` code may either:
 - implement deposit queue insertion and queue-root tracking
 - implement `COMMIT_VALIDITY_BATCH`
 - start with a scaffold-only verifier mode that is explicit about not being
-  trustless
+  trustless, then add an experimental real-profile backend before the final
+  native verifier path
 - persist accepted batches and withdrawal roots
 
 ### Phase 3: Withdrawal Execution
@@ -377,8 +378,9 @@ If implementation starts from the current branch, the highest-signal sequence is
 
 Current branch status:
 
-- fixed scaffold-only proof-config registry exists in
-  `src/validitysidechain/registry.*`
+- fixed proof-config registry now exists in `src/validitysidechain/registry.*`,
+  including scaffold modes, an experimental real toy profile, and the planned
+  native Groth16 profile slot
 - registration config encoding exists in `src/validitysidechain/script.*`
 - deposit queue message encoding exists in `src/validitysidechain/script.*`
 - batch public-input encoding exists in `src/validitysidechain/script.*`

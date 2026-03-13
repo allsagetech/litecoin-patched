@@ -2053,7 +2053,7 @@ static RPCHelpMan sendvaliditybatch()
     return RPCHelpMan{
         "sendvaliditybatch",
         "Create, fund, sign and broadcast a validity-sidechain COMMIT_VALIDITY_BATCH transaction.\n"
-        "If proof_bytes is omitted and the sidechain uses the scaffold verifier profile, the wallet builds the deterministic scaffold proof envelope automatically.\n",
+        "If proof_bytes is omitted and the sidechain profile supports local auto proof generation, the wallet builds proof bytes automatically.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"public_inputs", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Batch public inputs",
@@ -2076,11 +2076,13 @@ static RPCHelpMan sendvaliditybatch()
             {"allow_unbroadcast", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "If true, skip preflight mempool rejection (default: false)"},
         },
         RPCResult{RPCResult::Type::OBJ, "", "",
-            {
-                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
-                {RPCResult::Type::STR_HEX, "batch_commitment_hash", "The batch commitment hash"},
-                {RPCResult::Type::BOOL, "auto_scaffold_proof", "True if the wallet auto-built the scaffold proof envelope"},
-            }},
+              {
+                  {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
+                  {RPCResult::Type::STR_HEX, "batch_commitment_hash", "The batch commitment hash"},
+                  {RPCResult::Type::BOOL, "auto_scaffold_proof", "True if the wallet auto-built the scaffold proof envelope"},
+                  {RPCResult::Type::BOOL, "auto_external_proof", "True if the wallet auto-built proof bytes through the configured external prover command"},
+                  {RPCResult::Type::STR, "auto_proof_backend", "Which auto-proof backend was used: none, scaffold, or external_command"},
+              }},
         RPCExamples{
             HelpExampleCli("sendvaliditybatch",
                 "7 '{\"batch_number\":1,\"prior_state_root\":\"11...11\",\"new_state_root\":\"11...11\","
@@ -2108,22 +2110,36 @@ static RPCHelpMan sendvaliditybatch()
 
             std::vector<unsigned char> proof_bytes;
             bool auto_scaffold_proof = false;
+            bool auto_external_proof = false;
+            std::string auto_proof_backend = "none";
             if (request.params.size() > 2 && !request.params[2].isNull()) {
                 proof_bytes = ParseHexV(request.params[2], "proof_bytes");
             } else {
                 const ValiditySidechainBatchVerifierMode verifier_mode = GetValiditySidechainBatchVerifierMode(sidechain.config);
-                if (verifier_mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY &&
-                    verifier_mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "proof_bytes are required for non-scaffold profiles");
+                if (verifier_mode == ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY ||
+                    verifier_mode == ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT) {
+                    proof_bytes = BuildValiditySidechainScaffoldBatchProof(
+                        sidechain_id,
+                        public_inputs,
+                        sidechain.current_state_root,
+                        sidechain.current_withdrawal_root,
+                        sidechain.current_data_root,
+                        sidechain.queue_state.root);
+                    auto_scaffold_proof = true;
+                    auto_proof_backend = "scaffold";
+                } else {
+                    std::string proof_error;
+                    if (!BuildValiditySidechainBatchProofWithExternalProver(
+                            sidechain.config,
+                            sidechain_id,
+                            public_inputs,
+                            proof_bytes,
+                            &proof_error)) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, proof_error);
+                    }
+                    auto_external_proof = true;
+                    auto_proof_backend = "external_command";
                 }
-                proof_bytes = BuildValiditySidechainScaffoldBatchProof(
-                    sidechain_id,
-                    public_inputs,
-                    sidechain.current_state_root,
-                    sidechain.current_withdrawal_root,
-                    sidechain.current_data_root,
-                    sidechain.queue_state.root);
-                auto_scaffold_proof = true;
             }
 
             bool allow_unbroadcast = false;
@@ -2147,6 +2163,8 @@ static RPCHelpMan sendvaliditybatch()
             result.pushKV("txid", txid);
             result.pushKV("batch_commitment_hash", ComputeValiditySidechainBatchCommitmentHash(sidechain_id, public_inputs).GetHex());
             result.pushKV("auto_scaffold_proof", auto_scaffold_proof);
+            result.pushKV("auto_external_proof", auto_external_proof);
+            result.pushKV("auto_proof_backend", auto_proof_backend);
             return result;
         },
     };

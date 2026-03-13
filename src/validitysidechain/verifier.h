@@ -17,18 +17,25 @@ enum class ValiditySidechainBatchVerifierMode : uint8_t {
     SCAFFOLD_QUEUE_PREFIX_ONLY = 1,
     SCAFFOLD_TRANSITION_COMMITMENT = 2,
     GROTH16_BLS12_381_POSEIDON_V1 = 3,
+    GNARK_GROTH16_TOY_BATCH_TRANSITION_V1 = 4,
 };
 
 struct ValiditySidechainVerifierAssetsStatus
 {
     bool requires_external_assets{false};
     bool assets_present{false};
+    bool prover_assets_present{false};
     bool backend_ready{false};
+    bool verifier_command_configured{false};
+    bool prover_command_configured{false};
     std::string artifact_name;
     std::string artifact_dir;
+    std::string backend_name;
     std::string profile_manifest_path;
     std::string verifying_key_path;
+    std::string proving_key_path;
     uint64_t verifying_key_bytes{0};
+    uint64_t proving_key_bytes{0};
     std::string status;
 };
 
@@ -45,6 +52,12 @@ std::vector<unsigned char> BuildValiditySidechainScaffoldBatchProof(
     const uint256& current_withdrawal_root,
     const uint256& current_data_root,
     const uint256& current_l1_message_root);
+bool BuildValiditySidechainBatchProofWithExternalProver(
+    const ValiditySidechainConfig& config,
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    std::vector<unsigned char>& out_proof_bytes,
+    std::string* error = nullptr);
 bool VerifyValiditySidechainBatch(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,

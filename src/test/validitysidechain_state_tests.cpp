@@ -228,7 +228,7 @@ BOOST_FIXTURE_TEST_SUITE(validitysidechain_state_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 {
     const auto& supported_configs = GetSupportedValiditySidechainConfigs();
-    BOOST_REQUIRE_EQUAL(supported_configs.size(), 3U);
+    BOOST_REQUIRE_EQUAL(supported_configs.size(), 4U);
     BOOST_CHECK_EQUAL(std::string(supported_configs.front().profile_name), "scaffold_onchain_da_v1");
     BOOST_CHECK(supported_configs.front().scaffolding_only);
     BOOST_CHECK_EQUAL(
@@ -239,11 +239,18 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK_EQUAL(
         GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 1)),
         ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT);
+    BOOST_CHECK_EQUAL(std::string(supported_configs.at(2).profile_name), "gnark_groth16_toy_batch_transition_v1");
+    BOOST_CHECK(!supported_configs.at(2).scaffolding_only);
+    BOOST_CHECK(supported_configs.at(2).requires_external_verifier_assets);
+    BOOST_CHECK(supported_configs.at(2).supports_external_prover);
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 2)),
+        ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1);
     BOOST_CHECK_EQUAL(std::string(supported_configs.back().profile_name), "groth16_bls12_381_poseidon_v1");
     BOOST_CHECK(!supported_configs.back().scaffolding_only);
     BOOST_CHECK(supported_configs.back().requires_external_verifier_assets);
     BOOST_CHECK_EQUAL(
-        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 2)),
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 3)),
         ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1);
 
     const ValiditySidechainConfig config = MakeSupportedConfig();
@@ -255,7 +262,7 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 
 BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
 {
-    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 2);
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 3);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
     BOOST_CHECK(status.requires_external_assets);
@@ -266,6 +273,20 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
         status.status == "missing profile manifest" ||
         status.status == "missing verifying key" ||
         status.status == "placeholder verifier artifacts only");
+}
+
+BOOST_AUTO_TEST_CASE(toy_profile_requires_external_command_or_assets)
+{
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 2);
+    ValiditySidechainVerifierAssetsStatus status;
+    BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
+    BOOST_CHECK(status.requires_external_assets);
+    BOOST_CHECK_EQUAL(status.artifact_name, "gnark_groth16_toy_batch_transition_v1");
+    BOOST_CHECK(
+        status.status == "missing profile manifest" ||
+        status.status == "missing verifying key" ||
+        status.status == "missing proving key" ||
+        status.status == "verifier command not configured");
 }
 
 BOOST_AUTO_TEST_CASE(validation_rejects_invalid_profiles_and_limits)
@@ -689,7 +710,7 @@ BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
 BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_without_verifier_assets)
 {
     ValiditySidechainState state;
-    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 2);
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 3);
     BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 27, /* registration_height= */ 710, config));
 
     const ValiditySidechain* sidechain = state.GetSidechain(27);

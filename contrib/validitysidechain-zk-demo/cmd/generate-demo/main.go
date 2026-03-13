@@ -67,6 +67,7 @@ type DemoProfile struct {
 	ConsensusSafe        bool     `json:"consensus_safe"`
 	Generator            string   `json:"generator"`
 	PublicInputs         []string `json:"public_inputs"`
+	ProvingKeyFile       string   `json:"proving_key_file"`
 	VerifyingKeyFile     string   `json:"verifying_key_file"`
 	ValidVectorFile      string   `json:"valid_vector_file"`
 	InvalidVectorFiles   []string `json:"invalid_vector_files"`
@@ -168,6 +169,7 @@ func main() {
 	}
 
 	vkBytes := serializeWriterTo(vk)
+	pkBytes := serializeWriterTo(pk)
 	proofBytes := serializeWriterTo(proof)
 
 	corruptProofBytes := append([]byte{}, proofBytes...)
@@ -229,6 +231,7 @@ func main() {
 			"withdrawal_root",
 			"data_root",
 		},
+		ProvingKeyFile:     "proving_key.bin",
 		VerifyingKeyFile:   "verifying_key.bin",
 		ValidVectorFile:    "valid/valid_proof.json",
 		InvalidVectorFiles: []string{"invalid/corrupt_proof.json", "invalid/public_input_mismatch.json"},
@@ -238,6 +241,7 @@ func main() {
 		OutputRoot: outputDirName,
 		Files: []OutputFile{
 			outputFile("profile.json", "utf8", mustJSON(profile)),
+			outputFile("proving_key.bin", "base64", pkBytes),
 			outputFile("verifying_key.bin", "base64", vkBytes),
 			outputFile("valid/valid_proof.bin", "base64", proofBytes),
 			outputFile("valid/valid_proof.json", "utf8", mustJSON(validVector)),

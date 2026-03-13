@@ -434,6 +434,15 @@ void SetupServerArgs(NodeContext& node)
 #if HAVE_SYSTEM
     argsman.AddArg("-startupnotify=<cmd>", "Execute command on startup.", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 #endif
+#ifdef HAVE_BOOST_PROCESS
+    argsman.AddArg("-validityartifactsdir=<dir>", "Specify the root directory containing validity-sidechain verifier artifacts. The node looks for profile bundles under <dir>/validitysidechain/.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-validityverifiercommand=<cmd>", "Execute an external verifier command for experimental validity-sidechain proof profiles. The command must read one JSON request from stdin and emit one JSON response on stdout.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-validityprovercommand=<cmd>", "Execute an external prover command for experimental validity-sidechain proof profiles. The command must read one JSON request from stdin and emit one JSON response on stdout.", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+#else
+    hidden_args.emplace_back("-validityartifactsdir=<dir>");
+    hidden_args.emplace_back("-validityverifiercommand=<cmd>");
+    hidden_args.emplace_back("-validityprovercommand=<cmd>");
+#endif
 #ifndef WIN32
     argsman.AddArg("-sysperms", "Create new files with system default permissions, instead of umask 077 (only effective with disabled wallet functionality)", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 #else

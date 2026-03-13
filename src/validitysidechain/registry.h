@@ -14,8 +14,10 @@ struct SupportedValiditySidechainConfig
 {
     const char* profile_name{nullptr};
     const char* verifier_artifact_name{nullptr};
+    const char* verifier_backend{nullptr};
     bool scaffolding_only{true};
     bool requires_external_verifier_assets{false};
+    bool supports_external_prover{false};
     uint8_t version{1};
     uint8_t proof_system_id{0};
     uint8_t circuit_family_id{0};

@@ -1685,12 +1685,18 @@ static UniValue ValiditySidechainVerifierAssetsToJSON(const ValiditySidechainVer
     UniValue result(UniValue::VOBJ);
     result.pushKV("required", status.requires_external_assets);
     result.pushKV("available", status.assets_present);
+    result.pushKV("prover_assets_present", status.prover_assets_present);
     result.pushKV("backend_ready", status.backend_ready);
+    result.pushKV("verifier_command_configured", status.verifier_command_configured);
+    result.pushKV("prover_command_configured", status.prover_command_configured);
     result.pushKV("artifact_name", status.artifact_name);
     result.pushKV("artifact_dir", status.artifact_dir);
+    result.pushKV("backend_name", status.backend_name);
     result.pushKV("profile_manifest_path", status.profile_manifest_path);
     result.pushKV("verifying_key_path", status.verifying_key_path);
+    result.pushKV("proving_key_path", status.proving_key_path);
     result.pushKV("verifying_key_bytes", static_cast<int64_t>(status.verifying_key_bytes));
+    result.pushKV("proving_key_bytes", static_cast<int64_t>(status.proving_key_bytes));
     result.pushKV("status", status.status);
     return result;
 }
@@ -1714,8 +1720,10 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     UniValue result(UniValue::VOBJ);
     result.pushKV("profile_name", supported.profile_name);
     result.pushKV("verifier_artifact_name", supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name);
+    result.pushKV("verifier_backend", supported.verifier_backend == nullptr ? "" : supported.verifier_backend);
     result.pushKV("scaffolding_only", supported.scaffolding_only);
     result.pushKV("requires_external_verifier_assets", supported.requires_external_verifier_assets);
+    result.pushKV("supports_external_prover", supported.supports_external_prover);
     result.pushKV("version", static_cast<int>(supported.version));
     result.pushKV("proof_system_id", static_cast<int>(supported.proof_system_id));
     result.pushKV("circuit_family_id", static_cast<int>(supported.circuit_family_id));

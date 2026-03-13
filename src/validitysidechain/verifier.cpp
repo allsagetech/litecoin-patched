@@ -6,6 +6,8 @@
 
 #include <fs.h>
 #include <hash.h>
+#include <univalue.h>
+#include <util/strencodings.h>
 #include <util/system.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
@@ -26,7 +28,10 @@ static constexpr char VERIFIER_ARTIFACTS_DIR[] = "artifacts";
 static constexpr char VERIFIER_NAMESPACE_DIR[] = "validitysidechain";
 static constexpr char VERIFIER_PROFILE_MANIFEST[] = "profile.json";
 static constexpr char VERIFIER_BATCH_VK[] = "batch_vk.bin";
+static constexpr char VERIFIER_BATCH_PK[] = "batch_pk.bin";
 static constexpr char PLACEHOLDER_SENTINEL[] = "PLACEHOLDER";
+static constexpr char TOY_PROFILE_NAME[] = "gnark_groth16_toy_batch_transition_v1";
+static constexpr char POSEIDON_PROFILE_NAME[] = "groth16_bls12_381_poseidon_v1";
 
 struct ValiditySidechainScaffoldProofEnvelope
 {
@@ -136,6 +141,17 @@ static bool ValidatePublishedBatchData(
 
 static fs::path ResolveVerifierArtifactDir(const SupportedValiditySidechainConfig& supported)
 {
+    if (gArgs.IsArgSet("-validityartifactsdir")) {
+        const fs::path explicit_root =
+            AbsPathForConfigVal(fs::path(gArgs.GetArg("-validityartifactsdir", "")), /* net_specific= */ false);
+        const fs::path explicit_candidate =
+            explicit_root / VERIFIER_NAMESPACE_DIR / supported.verifier_artifact_name;
+        if (fs::exists(explicit_candidate)) {
+            return explicit_candidate;
+        }
+        return explicit_candidate;
+    }
+
     const fs::path datadir_candidate =
         GetDataDir() / VERIFIER_ARTIFACTS_DIR / VERIFIER_NAMESPACE_DIR / supported.verifier_artifact_name;
     if (fs::exists(datadir_candidate)) {
@@ -186,9 +202,11 @@ static bool PopulateVerifierAssetsStatus(
 {
     out_status.requires_external_assets = supported.requires_external_verifier_assets;
     out_status.artifact_name = supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name;
+    out_status.backend_name = supported.verifier_backend == nullptr ? "" : supported.verifier_backend;
 
     if (!supported.requires_external_verifier_assets || supported.verifier_artifact_name == nullptr) {
         out_status.assets_present = true;
+        out_status.prover_assets_present = true;
         out_status.backend_ready = true;
         out_status.status = "embedded scaffold verifier";
         return true;
@@ -197,20 +215,27 @@ static bool PopulateVerifierAssetsStatus(
     const fs::path artifact_dir = ResolveVerifierArtifactDir(supported);
     const fs::path manifest_path = artifact_dir / VERIFIER_PROFILE_MANIFEST;
     const fs::path verifying_key_path = artifact_dir / VERIFIER_BATCH_VK;
+    const fs::path proving_key_path = artifact_dir / VERIFIER_BATCH_PK;
 
     out_status.artifact_dir = artifact_dir.string();
     out_status.profile_manifest_path = manifest_path.string();
     out_status.verifying_key_path = verifying_key_path.string();
+    out_status.proving_key_path = proving_key_path.string();
 
     try {
         const bool has_manifest = fs::exists(manifest_path) && fs::is_regular_file(manifest_path);
         const bool has_vk = fs::exists(verifying_key_path) && fs::is_regular_file(verifying_key_path);
+        const bool has_pk = fs::exists(proving_key_path) && fs::is_regular_file(proving_key_path);
 
         if (has_vk) {
             out_status.verifying_key_bytes = static_cast<uint64_t>(fs::file_size(verifying_key_path));
         }
+        if (has_pk) {
+            out_status.proving_key_bytes = static_cast<uint64_t>(fs::file_size(proving_key_path));
+        }
 
         out_status.assets_present = has_manifest && has_vk && out_status.verifying_key_bytes > 0;
+        out_status.prover_assets_present = has_pk && out_status.proving_key_bytes > 0;
         if (!has_manifest) {
             out_status.status = "missing profile manifest";
             return true;
@@ -225,16 +250,107 @@ static bool PopulateVerifierAssetsStatus(
             out_status.status = "placeholder verifier artifacts only";
             return true;
         }
+        if (supported.profile_name != nullptr &&
+            std::string(supported.profile_name) == TOY_PROFILE_NAME) {
+#ifdef HAVE_BOOST_PROCESS
+            out_status.verifier_command_configured = !gArgs.GetArg("-validityverifiercommand", "").empty();
+            out_status.prover_command_configured = !gArgs.GetArg("-validityprovercommand", "").empty();
+            if (!out_status.verifier_command_configured) {
+                out_status.status = "verifier command not configured";
+                return true;
+            }
+            out_status.backend_ready = true;
+            if (!out_status.prover_assets_present) {
+                out_status.status = "external gnark verifier command configured; proving key missing for auto-prover";
+                return true;
+            }
+            out_status.status = "external gnark verifier command configured";
+            return true;
+#else
+            out_status.status = "boost process support not built";
+            return true;
+#endif
+        }
 
         out_status.backend_ready = false;
         out_status.status = "assets found but Groth16 verifier backend is not implemented";
         return true;
     } catch (const fs::filesystem_error& e) {
         out_status.assets_present = false;
+        out_status.prover_assets_present = false;
         out_status.backend_ready = false;
         out_status.status = fsbridge::get_filesystem_error_message(e);
         return false;
     }
+}
+
+static UniValue BatchPublicInputsToJSON(const ValiditySidechainBatchPublicInputs& public_inputs)
+{
+    UniValue inputs(UniValue::VOBJ);
+    inputs.pushKV("batch_number", static_cast<int64_t>(public_inputs.batch_number));
+    inputs.pushKV("prior_state_root", public_inputs.prior_state_root.GetHex());
+    inputs.pushKV("new_state_root", public_inputs.new_state_root.GetHex());
+    inputs.pushKV("l1_message_root_before", public_inputs.l1_message_root_before.GetHex());
+    inputs.pushKV("l1_message_root_after", public_inputs.l1_message_root_after.GetHex());
+    inputs.pushKV("consumed_queue_messages", static_cast<int64_t>(public_inputs.consumed_queue_messages));
+    inputs.pushKV("withdrawal_root", public_inputs.withdrawal_root.GetHex());
+    inputs.pushKV("data_root", public_inputs.data_root.GetHex());
+    inputs.pushKV("data_size", static_cast<int64_t>(public_inputs.data_size));
+    return inputs;
+}
+
+static bool ExtractExternalCommandResult(
+    const UniValue& result,
+    const char* success_key,
+    std::string* error)
+{
+    const UniValue& ok = find_value(result, success_key);
+    if (!ok.isBool()) {
+        return FailValidation(error, "external verifier command returned malformed JSON");
+    }
+    if (ok.get_bool()) {
+        return true;
+    }
+
+    const UniValue& external_error = find_value(result, "error");
+    if (external_error.isStr()) {
+        return FailValidation(error, external_error.get_str().c_str());
+    }
+    return FailValidation(error, "external verifier command rejected proof");
+}
+
+static bool VerifyValiditySidechainBatchWithExternalCommand(
+    const SupportedValiditySidechainConfig& supported,
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<unsigned char>& proof_bytes,
+    std::string* error)
+{
+#ifndef HAVE_BOOST_PROCESS
+    return FailValidation(error, "external verifier command backend is unavailable in this build");
+#else
+    const std::string command = gArgs.GetArg("-validityverifiercommand", "");
+    if (command.empty()) {
+        return FailValidation(error, "external verifier command is not configured");
+    }
+
+    UniValue request(UniValue::VOBJ);
+    request.pushKV("profile_name", supported.profile_name == nullptr ? "" : supported.profile_name);
+    request.pushKV("artifact_dir", ResolveVerifierArtifactDir(supported).string());
+    request.pushKV("sidechain_id", static_cast<int64_t>(sidechain_id));
+    request.pushKV("public_inputs", BatchPublicInputsToJSON(public_inputs));
+    request.pushKV("proof_bytes_hex", HexStr(proof_bytes));
+
+    try {
+        const UniValue result = RunCommandParseJSON(command, request.write());
+        return ExtractExternalCommandResult(result, "ok", error);
+    } catch (const std::exception& e) {
+        if (error != nullptr) {
+            *error = e.what();
+        }
+        return false;
+    }
+#endif
 }
 
 } // namespace
@@ -252,7 +368,12 @@ ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const V
     }
     if (!supported->scaffolding_only &&
         supported->profile_name != nullptr &&
-        std::string(supported->profile_name) == "groth16_bls12_381_poseidon_v1") {
+        std::string(supported->profile_name) == TOY_PROFILE_NAME) {
+        return ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1;
+    }
+    if (!supported->scaffolding_only &&
+        supported->profile_name != nullptr &&
+        std::string(supported->profile_name) == POSEIDON_PROFILE_NAME) {
         return ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1;
     }
     if (supported->scaffolding_only) {
@@ -272,6 +393,8 @@ const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVer
             return "scaffold_transition_commitment_v1";
         case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1:
             return "groth16_bls12_381_poseidon_v1";
+        case ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1:
+            return "gnark_groth16_toy_batch_transition_v1";
     }
 
     return "unknown";
@@ -326,6 +449,67 @@ std::vector<unsigned char> BuildValiditySidechainScaffoldBatchProof(
     return EncodeValiditySidechainScaffoldProofEnvelope(envelope);
 }
 
+bool BuildValiditySidechainBatchProofWithExternalProver(
+    const ValiditySidechainConfig& config,
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    std::vector<unsigned char>& out_proof_bytes,
+    std::string* error)
+{
+    out_proof_bytes.clear();
+
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return FailValidation(error, "unsupported proof configuration tuple");
+    }
+    if (!supported->supports_external_prover) {
+        return FailValidation(error, "external prover is not supported for this profile");
+    }
+
+    ValiditySidechainVerifierAssetsStatus assets_status;
+    GetValiditySidechainVerifierAssetsStatus(config, assets_status);
+    if (!assets_status.prover_assets_present) {
+        return FailValidation(error, "proving key missing for supported profile");
+    }
+
+#ifndef HAVE_BOOST_PROCESS
+    return FailValidation(error, "external prover command backend is unavailable in this build");
+#else
+    const std::string command = gArgs.GetArg("-validityprovercommand", "");
+    if (command.empty()) {
+        return FailValidation(error, "external prover command is not configured");
+    }
+
+    UniValue request(UniValue::VOBJ);
+    request.pushKV("profile_name", supported->profile_name == nullptr ? "" : supported->profile_name);
+    request.pushKV("artifact_dir", ResolveVerifierArtifactDir(*supported).string());
+    request.pushKV("sidechain_id", static_cast<int64_t>(sidechain_id));
+    request.pushKV("public_inputs", BatchPublicInputsToJSON(public_inputs));
+
+    try {
+        const UniValue result = RunCommandParseJSON(command, request.write());
+        const UniValue& proof_hex = find_value(result, "proof_bytes_hex");
+        if (!proof_hex.isStr()) {
+            const UniValue& prover_error = find_value(result, "error");
+            if (prover_error.isStr()) {
+                return FailValidation(error, prover_error.get_str().c_str());
+            }
+            return FailValidation(error, "external prover command returned malformed JSON");
+        }
+        out_proof_bytes = ParseHex(proof_hex.get_str());
+        if (out_proof_bytes.empty()) {
+            return FailValidation(error, "external prover returned empty proof bytes");
+        }
+        return true;
+    } catch (const std::exception& e) {
+        if (error != nullptr) {
+            *error = e.what();
+        }
+        return false;
+    }
+#endif
+}
+
 bool VerifyValiditySidechainBatch(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,
@@ -361,8 +545,22 @@ bool VerifyValiditySidechainBatch(
 
     if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY &&
         mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT &&
+        mode != ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1 &&
         mode != ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1) {
         return FailValidation(error, "proof verifier is not implemented for this profile");
+    }
+
+    if (mode == ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1) {
+        const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+        if (supported == nullptr) {
+            return FailValidation(error, "unsupported proof configuration tuple");
+        }
+        return VerifyValiditySidechainBatchWithExternalCommand(
+            *supported,
+            sidechain_id,
+            public_inputs,
+            proof_bytes,
+            error);
     }
 
     if (mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1) {

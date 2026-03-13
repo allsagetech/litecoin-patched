@@ -9,7 +9,7 @@ This document is the branch-status companion to:
 
 Use this file first when starting a new chat about the validity-sidechain work.
 It describes what the current branch actually implements, what is still
-scaffold-only, and what should happen next.
+scaffolded or experimental, and what should happen next.
 
 ## 1. Current Branch State
 
@@ -75,23 +75,24 @@ The current implementation is not yet the final trustless design.
 
 ### Batch verification
 
-`COMMIT_VALIDITY_BATCH` currently uses two scaffold verifier profiles plus one
-proposed real profile slot:
+`COMMIT_VALIDITY_BATCH` currently uses two scaffold verifier profiles, one
+experimental real toy profile, and one proposed native real profile slot:
 
 - supported profile names:
   - `scaffold_onchain_da_v1`
   - `scaffold_transition_da_v1`
+  - `gnark_groth16_toy_batch_transition_v1`
   - `groth16_bls12_381_poseidon_v1`
 - verifier modes:
   - `scaffold_queue_prefix_commitment_v1`
   - `scaffold_transition_commitment_v1`
+  - `gnark_groth16_toy_batch_transition_v1`
   - `groth16_bls12_381_poseidon_v1`
 
 This means:
 
-- proof bytes are not a real zk proof yet
-- the branch requires a deterministic scaffold proof envelope
-- that envelope binds the batch commitment and current chainstate roots
+- the scaffold profiles still require a deterministic scaffold proof envelope
+  - that envelope binds the batch commitment and current chainstate roots
 - empty proof bytes, missing non-zero DA payloads, empty DA chunks, oversized
   payloads, and mismatched `data_root` commitments are rejected
 - queue-prefix consumption is enforced
@@ -99,13 +100,19 @@ This means:
   withdrawal-root, and data-root updates with empty DA
 - the transition scaffold profile now allows deterministic root and DA updates,
   but they are still not backed by a real zk proof
+- the experimental toy Groth16 profile now has a real proving key, verifying
+  key, proof vectors, and end-to-end external prover/verifier command path
+  through `contrib/validitysidechain-zk-demo`, but it proves only a toy
+  arithmetic relation and does not satisfy the intended trustless sidechain
+  semantics
 - the proposed Groth16 profile now has a fixed consensus tuple and expected
   verifier-asset layout, but batch validation still hard-fails until the
   verifying key assets exist and the real verifier backend is implemented
 - the repo now contains a placeholder artifact bundle under `artifacts/`, but
   it is explicitly marked non-real and does not satisfy the trustless gate
 
-There is not yet a real zk verifier backend in the repository.
+There is not yet a native in-process zk verifier backend in the repository for
+the intended sidechain circuit.
 
 ### Withdrawal execution
 

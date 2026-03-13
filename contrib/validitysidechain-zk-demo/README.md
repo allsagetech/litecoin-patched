@@ -12,6 +12,7 @@ What it is:
 - a standalone Go module
 - a toy Groth16 prover/verifier flow using `gnark`
 - a generator for demo artifacts and proof vectors
+- helper commands for external proving and verification
 
 What it is not:
 
@@ -28,3 +29,14 @@ To regenerate:
 cd contrib/validitysidechain-zk-demo
 go run ./cmd/generate-demo | python materialize_bundle.py
 ```
+
+Helper commands:
+
+```powershell
+go run ./cmd/prove-batch
+go run ./cmd/verify-batch
+```
+
+Both commands read a single JSON request from stdin and emit a single JSON
+response on stdout for the experimental external-profile integration in
+`src/validitysidechain/verifier.cpp`.

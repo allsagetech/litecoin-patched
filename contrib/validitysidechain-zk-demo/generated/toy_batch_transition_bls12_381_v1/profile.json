@@ -13,6 +13,7 @@
     "withdrawal_root",
     "data_root"
   ],
+  "proving_key_file": "proving_key.bin",
   "verifying_key_file": "verifying_key.bin",
   "valid_vector_file": "valid/valid_proof.json",
   "invalid_vector_files": [
