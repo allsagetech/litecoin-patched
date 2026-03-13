@@ -1,0 +1,22 @@
+{
+  "name": "toy_batch_transition_bls12_381_v1",
+  "curve": "bls12_381",
+  "backend": "gnark_groth16",
+  "consensus_safe": false,
+  "generator": "contrib/validitysidechain-zk-demo/cmd/generate-demo",
+  "public_inputs": [
+    "sidechain_id",
+    "batch_number",
+    "prior_state_root",
+    "new_state_root",
+    "consumed_queue_messages",
+    "withdrawal_root",
+    "data_root"
+  ],
+  "verifying_key_file": "verifying_key.bin",
+  "valid_vector_file": "valid/valid_proof.json",
+  "invalid_vector_files": [
+    "invalid/corrupt_proof.json",
+    "invalid/public_input_mismatch.json"
+  ]
+}

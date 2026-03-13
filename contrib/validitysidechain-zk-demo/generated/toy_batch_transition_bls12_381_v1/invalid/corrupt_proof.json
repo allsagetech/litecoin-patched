@@ -1,0 +1,19 @@
+{
+  "name": "corrupt_proof",
+  "circuit": "toy_batch_transition_v1",
+  "curve": "bls12_381",
+  "expected_result": "reject",
+  "public_inputs": {
+    "sidechain_id": "7",
+    "batch_number": "8",
+    "prior_state_root": "1000",
+    "new_state_root": "1003",
+    "consumed_queue_messages": "3",
+    "withdrawal_root": "1014",
+    "data_root": "1031"
+  },
+  "proof_bytes_hex": "a6e5ff80785e7bd32c9e694188b8c6b405ba7c2500b88d5ab7a0c87c5c5aadf986a84ee982ee8164cf1eb4dd7df015de85a97dc40616ac83927572a7c0b326c004673b74af2302bd88bbdbd5ae3e9c1a9e91d1320e14d83bd0253c3a00d996e10f013ff0084f1019c1e57605b9f815a3e747884e3b2677d2f1d2b7cec9168c1d3dfc8c84488e1b2db0f837b02534255c896763e295f9a3945e2eec456c25f2d7683db022cec683943c9c842cc3a12ef2f74faaf854b24d0f029a2a3645efa3b600000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001",
+  "notes": [
+    "derived from the valid proof by flipping one byte"
+  ]
+}
