@@ -5,6 +5,7 @@ This document is the branch-status companion to:
 - `doc/validity-sidechains/LIP-validity-sidechains.md`
 - `doc/validity-sidechains/MIGRATION_MAP.md`
 - `doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md`
+- `doc/validity-sidechains/PROPOSED_ZK_SYSTEM.md`
 
 Use this file first when starting a new chat about the validity-sidechain work.
 It describes what the current branch actually implements, what is still
