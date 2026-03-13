@@ -172,6 +172,68 @@ BOOST_AUTO_TEST_CASE(commit_script_roundtrip)
     BOOST_CHECK(info.payload == ComputeValiditySidechainBatchCommitmentHash(sidechain_id, public_inputs));
 }
 
+BOOST_AUTO_TEST_CASE(commit_script_rejects_out_of_order_data_chunks)
+{
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.batch_number = 13;
+    public_inputs.prior_state_root = uint256S("0101010101010101010101010101010101010101010101010101010101010101");
+    public_inputs.new_state_root = uint256S("0202020202020202020202020202020202020202020202020202020202020202");
+    public_inputs.l1_message_root_before = uint256S("0303030303030303030303030303030303030303030303030303030303030303");
+    public_inputs.l1_message_root_after = uint256S("0404040404040404040404040404040404040404040404040404040404040404");
+    public_inputs.withdrawal_root = uint256S("0505050505050505050505050505050505050505050505050505050505050505");
+    public_inputs.data_root = uint256S("0606060606060606060606060606060606060606060606060606060606060606");
+    public_inputs.data_size = 3;
+
+    const CScript script = BuildValiditySidechainCommitScript(
+        /* scid= */ 9,
+        public_inputs,
+        /* proof_bytes= */ {0x01},
+        /* data_chunks= */ {{0xaa}, {0xbb, 0xcc}});
+
+    ValiditySidechainScriptInfo info;
+    BOOST_REQUIRE(DecodeValiditySidechainScript(script, info));
+    BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), 4U);
+    std::swap(info.metadata_pushes[2], info.metadata_pushes[3]);
+
+    ValiditySidechainBatchPublicInputs decoded_public_inputs;
+    std::vector<unsigned char> decoded_proof_bytes;
+    std::vector<std::vector<unsigned char>> decoded_data_chunks;
+    BOOST_CHECK(!DecodeValiditySidechainCommitMetadata(info, decoded_public_inputs, decoded_proof_bytes, decoded_data_chunks));
+}
+
+BOOST_AUTO_TEST_CASE(commit_script_rejects_inconsistent_data_chunk_count)
+{
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.batch_number = 14;
+    public_inputs.prior_state_root = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
+    public_inputs.new_state_root = uint256S("1212121212121212121212121212121212121212121212121212121212121212");
+    public_inputs.l1_message_root_before = uint256S("1313131313131313131313131313131313131313131313131313131313131313");
+    public_inputs.l1_message_root_after = uint256S("1414141414141414141414141414141414141414141414141414141414141414");
+    public_inputs.withdrawal_root = uint256S("1515151515151515151515151515151515151515151515151515151515151515");
+    public_inputs.data_root = uint256S("1616161616161616161616161616161616161616161616161616161616161616");
+    public_inputs.data_size = 2;
+
+    const CScript script = BuildValiditySidechainCommitScript(
+        /* scid= */ 10,
+        public_inputs,
+        /* proof_bytes= */ {0x02},
+        /* data_chunks= */ {{0x10}, {0x20}});
+
+    ValiditySidechainScriptInfo info;
+    BOOST_REQUIRE(DecodeValiditySidechainScript(script, info));
+    BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), 4U);
+    BOOST_REQUIRE(info.metadata_pushes[2].size() >= 8U);
+    info.metadata_pushes[2][4] = 0x03;
+    info.metadata_pushes[2][5] = 0x00;
+    info.metadata_pushes[2][6] = 0x00;
+    info.metadata_pushes[2][7] = 0x00;
+
+    ValiditySidechainBatchPublicInputs decoded_public_inputs;
+    std::vector<unsigned char> decoded_proof_bytes;
+    std::vector<std::vector<unsigned char>> decoded_data_chunks;
+    BOOST_CHECK(!DecodeValiditySidechainCommitMetadata(info, decoded_public_inputs, decoded_proof_bytes, decoded_data_chunks));
+}
+
 BOOST_AUTO_TEST_CASE(force_exit_script_roundtrip)
 {
     ValiditySidechainForceExitData request;

@@ -29,6 +29,7 @@ static constexpr size_t UINT256_BYTES = sizeof(uint256);
 static constexpr size_t VALIDITY_SIDECHAIN_CONFIG_BYTES = 94;
 static constexpr size_t VALIDITY_SIDECHAIN_DEPOSIT_BYTES = 112;
 static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 204;
+static constexpr size_t VALIDITY_SIDECHAIN_BATCH_DATA_CHUNK_HEADER_BYTES = 8;
 static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES = 72;
 static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES = 80;
 static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_LEAF_BYTES = 72;
@@ -83,6 +84,41 @@ static bool ReadAmount64(Span<const unsigned char> bytes, size_t offset, CAmount
 
     out_amount = static_cast<CAmount>(raw_amount);
     return MoneyRange(out_amount);
+}
+
+// Commit metadata carries explicit chunk ordinals so malformed DA ordering can
+// be rejected before root recomputation.
+static std::vector<unsigned char> EncodeValiditySidechainBatchDataChunk(
+    uint32_t chunk_index,
+    uint32_t chunk_count,
+    Span<const unsigned char> chunk_bytes)
+{
+    std::vector<unsigned char> out;
+    out.reserve(VALIDITY_SIDECHAIN_BATCH_DATA_CHUNK_HEADER_BYTES + chunk_bytes.size());
+    AppendLE32(out, chunk_index);
+    AppendLE32(out, chunk_count);
+    out.insert(out.end(), chunk_bytes.begin(), chunk_bytes.end());
+    return out;
+}
+
+static bool DecodeValiditySidechainBatchDataChunk(
+    Span<const unsigned char> encoded_chunk,
+    uint32_t expected_chunk_index,
+    uint32_t expected_chunk_count,
+    std::vector<unsigned char>& out_chunk_bytes)
+{
+    if (encoded_chunk.size() < VALIDITY_SIDECHAIN_BATCH_DATA_CHUNK_HEADER_BYTES) {
+        return false;
+    }
+    if (ReadLE32(encoded_chunk.data()) != expected_chunk_index ||
+        ReadLE32(encoded_chunk.data() + 4) != expected_chunk_count) {
+        return false;
+    }
+
+    out_chunk_bytes.assign(
+        encoded_chunk.begin() + VALIDITY_SIDECHAIN_BATCH_DATA_CHUNK_HEADER_BYTES,
+        encoded_chunk.end());
+    return true;
 }
 
 static uint256 HashWithOptionalSidechainId(
@@ -286,9 +322,16 @@ CScript BuildValiditySidechainCommitScript(
     const std::vector<std::vector<unsigned char>>& data_chunks)
 {
     std::vector<std::vector<unsigned char>> metadata_pushes;
+    metadata_pushes.reserve(2 + data_chunks.size());
     metadata_pushes.push_back(EncodeValiditySidechainBatchPublicInputs(public_inputs));
     metadata_pushes.push_back(proof_bytes);
-    metadata_pushes.insert(metadata_pushes.end(), data_chunks.begin(), data_chunks.end());
+    const uint32_t chunk_count = static_cast<uint32_t>(data_chunks.size());
+    for (uint32_t i = 0; i < chunk_count; ++i) {
+        metadata_pushes.push_back(EncodeValiditySidechainBatchDataChunk(
+            i,
+            chunk_count,
+            data_chunks[i]));
+    }
 
     const uint256 payload = ComputeValiditySidechainBatchCommitmentHash(scid, public_inputs);
     return BuildValiditySidechainScript(
@@ -525,7 +568,25 @@ bool DecodeValiditySidechainCommitMetadata(
     }
 
     out_proof_bytes = info.metadata_pushes[1];
-    out_data_chunks.assign(info.metadata_pushes.begin() + 2, info.metadata_pushes.end());
+    out_data_chunks.clear();
+    const size_t encoded_chunk_count = info.metadata_pushes.size() - 2;
+    if (encoded_chunk_count > std::numeric_limits<uint32_t>::max()) {
+        return false;
+    }
+
+    const uint32_t chunk_count = static_cast<uint32_t>(encoded_chunk_count);
+    out_data_chunks.reserve(encoded_chunk_count);
+    for (uint32_t i = 0; i < chunk_count; ++i) {
+        std::vector<unsigned char> chunk_bytes;
+        if (!DecodeValiditySidechainBatchDataChunk(
+                info.metadata_pushes[i + 2],
+                i,
+                chunk_count,
+                chunk_bytes)) {
+            return false;
+        }
+        out_data_chunks.push_back(std::move(chunk_bytes));
+    }
     return true;
 }
 

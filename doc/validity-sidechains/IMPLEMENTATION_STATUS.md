@@ -149,6 +149,7 @@ The branch has unit coverage for the new parsing/state layers, including:
 - config registry
 - deposit queue and reclaim
 - batch scaffold acceptance
+- commit-script DA chunk framing and malformed chunk-order/count rejection
 - withdrawal proof execution
 - escape-exit proof execution
 
