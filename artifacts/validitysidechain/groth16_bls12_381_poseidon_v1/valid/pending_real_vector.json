@@ -1,0 +1,30 @@
+{
+  "placeholder": true,
+  "status": "pending real prover output",
+  "expected_result": "accept_once_real_vk_and_backend_exist",
+  "why_unusable_today": [
+    "proof_bytes are not present",
+    "the prover circuit output has not been generated",
+    "the repository does not yet contain a real Groth16 verifier backend"
+  ],
+  "schema": {
+    "sidechain_id": 9,
+    "public_inputs": {
+      "batch_number": 1,
+      "prior_state_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "new_state_root": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "l1_message_root_before": "0000000000000000000000000000000000000000000000000000000000000000",
+      "l1_message_root_after": "1111111111111111111111111111111111111111111111111111111111111111",
+      "consumed_queue_messages": 2,
+      "queue_prefix_commitment": "2222222222222222222222222222222222222222222222222222222222222222",
+      "withdrawal_root": "3333333333333333333333333333333333333333333333333333333333333333",
+      "data_root": "4444444444444444444444444444444444444444444444444444444444444444",
+      "data_size": 96
+    },
+    "proof_bytes_hex": "",
+    "data_chunks_hex": [
+      "deadbeef",
+      "c001d00d"
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "profile_name": "groth16_bls12_381_poseidon_v1",
+  "placeholder": true,
+  "status": "design-time placeholder only; not a real verifier artifact bundle",
+  "consensus_tuple": {
+    "version": 1,
+    "proof_system_id": 2,
+    "circuit_family_id": 1,
+    "verifier_id": 1,
+    "public_input_version": 2,
+    "state_root_format": 2,
+    "deposit_message_format": 1,
+    "withdrawal_leaf_format": 2,
+    "balance_leaf_format": 2,
+    "data_availability_mode": 1
+  },
+  "verifying_key_file": "batch_vk.bin",
+  "public_inputs": [
+    "sidechain_id",
+    "batch_number",
+    "prior_state_root",
+    "new_state_root",
+    "l1_message_root_before",
+    "l1_message_root_after",
+    "consumed_queue_messages",
+    "queue_prefix_commitment",
+    "withdrawal_root",
+    "data_root",
+    "data_size"
+  ],
+  "proof_vectors": {
+    "valid": [
+      "valid/pending_real_vector.json"
+    ],
+    "invalid": [
+      "invalid/corrupt_proof.json",
+      "invalid/public_input_mismatch.json"
+    ]
+  }
+}

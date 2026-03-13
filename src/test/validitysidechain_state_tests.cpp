@@ -262,7 +262,10 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
     BOOST_CHECK(!status.assets_present);
     BOOST_CHECK(!status.backend_ready);
     BOOST_CHECK_EQUAL(status.artifact_name, "groth16_bls12_381_poseidon_v1");
-    BOOST_CHECK(status.status == "missing profile manifest" || status.status == "missing verifying key");
+    BOOST_CHECK(
+        status.status == "missing profile manifest" ||
+        status.status == "missing verifying key" ||
+        status.status == "placeholder verifier artifacts only");
 }
 
 BOOST_AUTO_TEST_CASE(validation_rejects_invalid_profiles_and_limits)

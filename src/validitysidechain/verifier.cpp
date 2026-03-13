@@ -12,8 +12,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <ios>
 #include <iterator>
 #include <limits>
+#include <string>
 
 namespace {
 
@@ -24,6 +26,7 @@ static constexpr char VERIFIER_ARTIFACTS_DIR[] = "artifacts";
 static constexpr char VERIFIER_NAMESPACE_DIR[] = "validitysidechain";
 static constexpr char VERIFIER_PROFILE_MANIFEST[] = "profile.json";
 static constexpr char VERIFIER_BATCH_VK[] = "batch_vk.bin";
+static constexpr char PLACEHOLDER_SENTINEL[] = "PLACEHOLDER";
 
 struct ValiditySidechainScaffoldProofEnvelope
 {
@@ -131,6 +134,52 @@ static bool ValidatePublishedBatchData(
     return true;
 }
 
+static fs::path ResolveVerifierArtifactDir(const SupportedValiditySidechainConfig& supported)
+{
+    const fs::path datadir_candidate =
+        GetDataDir() / VERIFIER_ARTIFACTS_DIR / VERIFIER_NAMESPACE_DIR / supported.verifier_artifact_name;
+    if (fs::exists(datadir_candidate)) {
+        return datadir_candidate;
+    }
+
+    const fs::path repo_candidate =
+        fs::path(VERIFIER_ARTIFACTS_DIR) / VERIFIER_NAMESPACE_DIR / supported.verifier_artifact_name;
+    if (fs::exists(repo_candidate)) {
+        return repo_candidate;
+    }
+
+    return datadir_candidate;
+}
+
+static bool ReadFilePrefix(const fs::path& path, std::string& out, size_t max_bytes)
+{
+    fsbridge::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+
+    std::vector<char> buffer(max_bytes);
+    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const std::streamsize read_bytes = file.gcount();
+    if (read_bytes <= 0) {
+        out.clear();
+        return true;
+    }
+
+    out.assign(buffer.data(), static_cast<size_t>(read_bytes));
+    return true;
+}
+
+static bool FileContainsPlaceholderSentinel(const fs::path& path)
+{
+    std::string prefix;
+    if (!ReadFilePrefix(path, prefix, 256)) {
+        return false;
+    }
+    return prefix.find(PLACEHOLDER_SENTINEL) != std::string::npos ||
+           prefix.find("\"placeholder\": true") != std::string::npos;
+}
+
 static bool PopulateVerifierAssetsStatus(
     const SupportedValiditySidechainConfig& supported,
     ValiditySidechainVerifierAssetsStatus& out_status)
@@ -145,7 +194,7 @@ static bool PopulateVerifierAssetsStatus(
         return true;
     }
 
-    const fs::path artifact_dir = GetDataDir() / VERIFIER_ARTIFACTS_DIR / VERIFIER_NAMESPACE_DIR / supported.verifier_artifact_name;
+    const fs::path artifact_dir = ResolveVerifierArtifactDir(supported);
     const fs::path manifest_path = artifact_dir / VERIFIER_PROFILE_MANIFEST;
     const fs::path verifying_key_path = artifact_dir / VERIFIER_BATCH_VK;
 
@@ -168,6 +217,12 @@ static bool PopulateVerifierAssetsStatus(
         }
         if (!has_vk || out_status.verifying_key_bytes == 0) {
             out_status.status = "missing verifying key";
+            return true;
+        }
+        if (FileContainsPlaceholderSentinel(manifest_path) ||
+            FileContainsPlaceholderSentinel(verifying_key_path)) {
+            out_status.assets_present = false;
+            out_status.status = "placeholder verifier artifacts only";
             return true;
         }
 
