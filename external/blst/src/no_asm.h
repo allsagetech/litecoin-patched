@@ -6,6 +6,8 @@
 
 #if LIMB_T_BITS==32
 typedef unsigned long long llimb_t;
+#elif LIMB_T_BITS==64
+typedef unsigned __int128 llimb_t;
 #endif
 
 #if !defined(__STDC_VERSION__) || __STDC_VERSION__<199901 || defined(__STDC_NO_VLA__)
