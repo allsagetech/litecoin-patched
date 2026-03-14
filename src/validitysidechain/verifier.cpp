@@ -10,6 +10,7 @@
 #include <util/strencodings.h>
 #include <util/system.h>
 #include <validitysidechain/blst_backend.h>
+#include <validitysidechain/groth16.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
 
@@ -593,6 +594,18 @@ static bool PopulateVerifierAssetsStatus(
                     out_status.native_backend_status.empty() ? "native blst backend self-test failed" : out_status.native_backend_status;
                 return true;
             }
+            ValiditySidechainGroth16VerificationKey verifying_key;
+            std::string key_error;
+            if (!LoadValiditySidechainGroth16VerificationKey(
+                    verifying_key_path,
+                    static_cast<uint32_t>(expected_public_inputs.size()),
+                    verifying_key,
+                    &key_error)) {
+                out_status.assets_present = false;
+                out_status.prover_assets_present = false;
+                out_status.status = key_error;
+                return true;
+            }
         }
         if (supported.profile_name != nullptr &&
             std::string(supported.profile_name) == TOY_PROFILE_NAME) {
@@ -927,10 +940,18 @@ bool VerifyValiditySidechainBatch(
         if (!assets_status.assets_present) {
             return FailValidation(error, "verifier assets missing for supported profile");
         }
-        if (!assets_status.backend_ready) {
-            return FailValidation(error, "Groth16 verifier backend is not implemented for this profile");
+        if (!assets_status.native_backend_available || !assets_status.native_backend_self_test_passed) {
+            return FailValidation(
+                error,
+                assets_status.native_backend_status.empty() ?
+                    "Groth16 verifier backend is not implemented for this profile" :
+                    assets_status.native_backend_status.c_str());
         }
-        return FailValidation(error, "Groth16 verifier backend is not implemented for this profile");
+        ValiditySidechainGroth16Proof proof;
+        if (!ParseValiditySidechainGroth16Proof(proof_bytes, proof, error)) {
+            return false;
+        }
+        return FailValidation(error, "Groth16 verifier equation is not implemented for this profile");
     }
 
     ValiditySidechainScaffoldProofEnvelope envelope;

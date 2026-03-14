@@ -29,6 +29,8 @@ the pairing/curve backend, not the full circuit-specific Groth16 integration.
 - exposes a validity-sidechain backend smoke test that checks generator
   validation, serialization, pairing context sizing, and a non-trivial pairing
   result
+- adds a native parser layer for the proposed Groth16 proof blob and verifying
+  key blob formats, with `blst`-validated G1/G2 compressed point checks
 
 ## What This Does Not Solve
 

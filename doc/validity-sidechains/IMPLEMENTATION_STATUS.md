@@ -111,6 +111,9 @@ This means:
 - the repo now vendors `blst` under `external/blst/` as the selected native
   BLS12-381 pairing backend, and the node now compiles a portable in-process
   `blst` library plus a backend self-test wrapper for the proposed real profile
+- the proposed real profile now also has a native binary parser layer for
+  Groth16 proof bytes and verifying-key blobs, including `blst`-validated
+  compressed-point checks and supported public-input-count enforcement
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient

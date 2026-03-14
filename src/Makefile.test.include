@@ -246,6 +246,7 @@ BITCOIN_TESTS =\
   test/key_io_tests.cpp \
   test/key_tests.cpp \
   test/logging_tests.cpp \
+  test/validitysidechain_groth16_tests.cpp \
   test/validitysidechain_state_tests.cpp \
   test/validitysidechain_script_tests.cpp \
   test/dbwrapper_tests.cpp \
@@ -357,7 +358,7 @@ BITCOIN_TESTS += \
   libmw/test/tests/wallet/Test_Keychain.cpp
 
 test_test_litecoin_SOURCES = $(BITCOIN_TEST_SUITE) $(BITCOIN_TESTS) $(JSON_TEST_FILES) $(RAW_TEST_FILES)
-test_test_litecoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(TESTDEFS) $(EVENT_CFLAGS) $(LIBMW_CPPFLAGS) -Ilibmw/test/framework/include
+test_test_litecoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BLST_CPPFLAGS) $(TESTDEFS) $(EVENT_CFLAGS) $(LIBMW_CPPFLAGS) -Ilibmw/test/framework/include
 test_test_litecoin_LDADD = $(LIBTEST_UTIL)
 if ENABLE_WALLET
 test_test_litecoin_LDADD += $(LIBBITCOIN_WALLET)

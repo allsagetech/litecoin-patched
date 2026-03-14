@@ -217,6 +217,7 @@ BITCOIN_CORE_H = \
   drivechain/script.h \
   drivechain/state.h \
   validitysidechain/blst_backend.h \
+  validitysidechain/groth16.h \
   validitysidechain/registry.h \
   validitysidechain/script.h \
   validitysidechain/state.h \
@@ -408,6 +409,7 @@ libbitcoin_server_a_SOURCES = \
   validation.cpp \
   drivechain/state.cpp \
   validitysidechain/blst_backend.cpp \
+  validitysidechain/groth16.cpp \
   validitysidechain/registry.cpp \
   validitysidechain/state.cpp \
   validitysidechain/verifier.cpp \
