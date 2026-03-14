@@ -54,7 +54,9 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
         self.repo_root = Path(__file__).resolve().parents[2]
         self.source_artifact_root = self.repo_root / "artifacts"
         self.toy_source_dir = self.source_artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"
+        self.native_toy_source_dir = self.source_artifact_root / "validitysidechain" / "native_blst_groth16_toy_batch_transition_v1"
         self.valid_vector_path = self.toy_source_dir / "valid" / "valid_proof.json"
+        self.native_valid_vector_path = self.native_toy_source_dir / "valid" / "valid_proof.json"
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -62,9 +64,13 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
             self.skipTest("toy artifact directory is missing")
         if not self.valid_vector_path.exists():
             self.skipTest("toy valid proof vector is missing")
+        if not self.native_toy_source_dir.exists():
+            self.skipTest("native toy artifact directory is missing")
+        if not self.native_valid_vector_path.exists():
+            self.skipTest("native toy valid proof vector is missing")
 
-    def rewrite_manifest(self, artifact_root, mutate_fn):
-        manifest_path = artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1" / "profile.json"
+    def rewrite_manifest(self, artifact_root, profile_name, mutate_fn):
+        manifest_path = artifact_root / "validitysidechain" / profile_name / "profile.json"
         manifest = load_json(manifest_path)
         mutate_fn(manifest)
         with manifest_path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -84,16 +90,16 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
             f"-validityartifactsdir={artifact_root}",
         ])
 
-    def assert_broken_profile_rejects_batches(self, node, sidechain_id, expected_status, broken_field):
-        toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
-        assert_equal(toy_supported["verifier_assets"]["required"], True)
-        assert_equal(toy_supported["verifier_assets"]["available"], False)
-        assert_equal(toy_supported["verifier_assets"]["backend_ready"], False)
-        assert_equal(toy_supported["verifier_assets"]["status"], expected_status)
-        assert_equal(toy_supported["verifier_assets"][broken_field], False)
+    def assert_broken_profile_rejects_batches(self, node, profile_name, vector_path, sidechain_id, expected_status, broken_field):
+        supported = get_supported_profile(node, profile_name)
+        assert_equal(supported["verifier_assets"]["required"], True)
+        assert_equal(supported["verifier_assets"]["available"], False)
+        assert_equal(supported["verifier_assets"]["backend_ready"], False)
+        assert_equal(supported["verifier_assets"]["status"], expected_status)
+        assert_equal(supported["verifier_assets"][broken_field], False)
 
         config = build_register_config(
-            toy_supported,
+            supported,
             initial_state_root="10" * 32,
             initial_withdrawal_root="10" * 32,
         )
@@ -111,7 +117,7 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
             "data_root": "12" * 32,
             "data_size": 0,
         }
-        valid_vector = load_json(self.valid_vector_path)
+        valid_vector = load_json(vector_path)
         assert_raises_rpc_error(
             -26,
             expected_status,
@@ -129,11 +135,14 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
         tuple_root = self.prepare_artifact_root("bad_artifacts_tuple")
         self.rewrite_manifest(
             tuple_root,
+            "gnark_groth16_toy_batch_transition_v1",
             lambda manifest: manifest["consensus_tuple"].__setitem__("public_input_version", 99),
         )
         self.restart_with_artifacts(tuple_root)
         self.assert_broken_profile_rejects_batches(
             self.nodes[0],
+            "gnark_groth16_toy_batch_transition_v1",
+            self.valid_vector_path,
             31,
             "profile manifest consensus tuple does not match supported profile",
             "profile_manifest_tuple_matches",
@@ -156,7 +165,44 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
         self.restart_with_artifacts(public_inputs_root)
         self.assert_broken_profile_rejects_batches(
             self.nodes[0],
+            "gnark_groth16_toy_batch_transition_v1",
+            self.valid_vector_path,
             32,
+            "profile manifest public inputs do not match supported profile",
+            "profile_manifest_public_inputs_match",
+        )
+
+        self.log.info("Restarting against a native toy artifact bundle with a mismatched consensus tuple.")
+        native_tuple_root = self.prepare_artifact_root("bad_artifacts_native_tuple")
+        self.rewrite_manifest(
+            native_tuple_root,
+            "native_blst_groth16_toy_batch_transition_v1",
+            lambda manifest: manifest["consensus_tuple"].__setitem__("public_input_version", 99),
+        )
+        self.restart_with_artifacts(native_tuple_root)
+        self.assert_broken_profile_rejects_batches(
+            self.nodes[0],
+            "native_blst_groth16_toy_batch_transition_v1",
+            self.native_valid_vector_path,
+            33,
+            "profile manifest consensus tuple does not match supported profile",
+            "profile_manifest_tuple_matches",
+        )
+
+        self.log.info("Restarting against a native toy artifact bundle with a mismatched public-input layout.")
+        native_public_inputs_root = self.prepare_artifact_root("bad_artifacts_native_public_inputs")
+
+        self.rewrite_manifest(
+            native_public_inputs_root,
+            "native_blst_groth16_toy_batch_transition_v1",
+            mutate_public_inputs,
+        )
+        self.restart_with_artifacts(native_public_inputs_root)
+        self.assert_broken_profile_rejects_batches(
+            self.nodes[0],
+            "native_blst_groth16_toy_batch_transition_v1",
+            self.native_valid_vector_path,
+            34,
             "profile manifest public inputs do not match supported profile",
             "profile_manifest_public_inputs_match",
         )

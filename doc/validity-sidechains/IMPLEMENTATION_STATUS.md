@@ -140,10 +140,10 @@ This means:
   it is explicitly marked non-real and does not satisfy the trustless gate
 - the remaining trustless blocker is no longer the generic pairing equation;
   it is the absence of the real circuit assets and final sidechain proof
-  semantics
+  semantics for the intended profile
 
-There is not yet a native in-process zk verifier equation in the repository for
-the intended sidechain circuit.
+There is now a native in-process Groth16 verifier core in the repository, but
+the intended sidechain circuit and its real assets are still missing.
 
 ### Withdrawal execution
 
