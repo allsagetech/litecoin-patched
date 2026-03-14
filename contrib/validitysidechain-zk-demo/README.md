@@ -40,3 +40,14 @@ go run ./cmd/verify-batch
 Both commands read a single JSON request from stdin and emit a single JSON
 response on stdout for the experimental external-profile integration in
 `src/validitysidechain/verifier.cpp`.
+
+For the functional test harness, use the wrapper script:
+
+```powershell
+python run_tool.py prove
+python run_tool.py verify
+```
+
+The wrapper fixes the working directory and forwards stdin/stdout so the node
+can invoke the helper commands through `-validityprovercommand` and
+`-validityverifiercommand`.

@@ -249,6 +249,7 @@ BASE_SCRIPTS = [
     'feature_drivechain_bmm.py',
     'feature_drivechain_reorg_cache_metrics.py',
     'feature_validitysidechain_wallet.py',
+    'feature_validitysidechain_toy_proof_profile.py',
     'validitysidechain_force_exit_recovery.py',
     'validitysidechain_force_exit_reorg.py',
     'validitysidechain_reclaim_reorg.py',
