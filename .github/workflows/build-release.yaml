@@ -500,7 +500,159 @@ jobs:
           run_one drivechain_bmm_stale_request_replacement.py
 
   # ------------------------------------------------------------
-  # 4) Build Linux binaries
+  # 4) Validity sidechain functional tests
+  # ------------------------------------------------------------
+  validity-functional-tests:
+    name: Validity sidechain functional tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    needs: [drivechain-production-gates, segwit-functional-tests, signet-functional-tests]
+
+    steps:
+      - name: Checkout repository
+        id: checkout_primary
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fallback checkout with retries
+        if: steps.checkout_primary.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .git
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+
+          attempts=10
+          for i in $(seq 1 "${attempts}"); do
+            echo "Fallback fetch attempt ${i}/${attempts} for ${GITHUB_SHA}"
+            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
+              git checkout --force FETCH_HEAD
+              git reset --hard FETCH_HEAD
+              exit 0
+            fi
+            sleep $((i * 10))
+          done
+
+          echo "Fallback checkout failed after ${attempts} attempts"
+          exit 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up Go from zk demo module
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: contrib/validitysidechain-zk-demo/go.mod
+          cache-dependency-path: |
+            contrib/validitysidechain-zk-demo/go.sum
+
+      - name: install Linux deps (tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libtool \
+            autotools-dev \
+            automake \
+            pkg-config \
+            bsdmainutils \
+            curl \
+            python3 \
+            python3-pip \
+            libevent-dev \
+            libfmt-dev \
+            libboost-program-options-dev \
+            libboost-system-dev \
+            libboost-filesystem-dev \
+            libboost-thread-dev \
+            libboost-chrono-dev \
+            libboost-test-dev \
+            libdb++-dev
+
+      - name: Install Python deps for functional tests
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install blake3
+          python3 -m pip install pycryptodome
+
+          if [ -d "test/functional/litecoin_scrypt" ] || [ -f "test/functional/litecoin_scrypt/setup.py" ] || [ -f "test/functional/litecoin_scrypt/pyproject.toml" ]; then
+            python3 -m pip install ./test/functional/litecoin_scrypt
+          elif [ -d "test/functional/test_framework/litecoin_scrypt" ] || [ -f "test/functional/test_framework/litecoin_scrypt/setup.py" ] || [ -f "test/functional/test_framework/litecoin_scrypt/pyproject.toml" ]; then
+            python3 -m pip install ./test/functional/test_framework/litecoin_scrypt
+          else
+            python3 -m pip install litecoin_scrypt
+          fi
+
+      - name: autogen
+        run: ./autogen.sh
+
+      - name: configure (wallet enabled; allow non-4.8 BDB on CI)
+        env:
+          CXXFLAGS: "-pthread"
+          LDFLAGS: "-pthread"
+          LIBS: "-pthread"
+        run: |
+          ./configure \
+            --without-gui \
+            --disable-bench \
+            --with-incompatible-bdb
+
+      - name: build
+        run: make -j4
+
+      - name: Run validity sidechain functional tests
+        env:
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+
+          run_one () {
+            local t="$1"
+            echo "=== Running ${t} ==="
+            python3 "test/functional/${t}" --loglevel=debug --nocleanup || {
+              echo ""
+              echo "=== ${t} FAILED: dumping logs ==="
+              TD="$(ls -dt /tmp/litecoin_func_test_* 2>/dev/null | head -n1 || true)"
+              echo "Temp dir: ${TD:-<none>}"
+
+              if [ -n "${TD:-}" ] && [ -f "test/functional/combine_logs.py" ]; then
+                python3 test/functional/combine_logs.py "${TD}" || true
+              fi
+
+              if [ -n "${TD:-}" ]; then
+                echo ""
+                echo "--- test_framework.log ---"
+                sed -n '1,200p' "${TD}/test_framework.log" 2>/dev/null || true
+                echo ""
+                echo "--- node0 debug.log (tail) ---"
+                tail -n 200 "${TD}/node0/regtest/debug.log" 2>/dev/null || true
+                echo ""
+                echo "--- node1 debug.log (tail) ---"
+                tail -n 200 "${TD}/node1/regtest/debug.log" 2>/dev/null || true
+              fi
+
+              exit 1
+            }
+          }
+
+          run_one feature_validitysidechain_wallet.py
+          run_one feature_validitysidechain_bad_artifacts.py
+          run_one feature_validitysidechain_toy_proof_profile.py
+          run_one validitysidechain_force_exit_recovery.py
+          run_one validitysidechain_force_exit_reorg.py
+          run_one validitysidechain_reclaim_reorg.py
+          run_one validitysidechain_registration_reorg.py
+          run_one validitysidechain_restart_reorg.py
+          run_one validitysidechain_reorg_state_rollback.py
+
+  # ------------------------------------------------------------
+  # 5) Build Linux binaries
   #    Release only when pushed to master
   # ------------------------------------------------------------
   build-linux:
@@ -508,7 +660,7 @@ jobs:
     if: github.event_name == 'push' && (github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-    needs: [drivechain-production-gates, drivechain-functional-tests]
+    needs: [drivechain-production-gates, drivechain-functional-tests, validity-functional-tests]
 
     permissions:
       contents: write
