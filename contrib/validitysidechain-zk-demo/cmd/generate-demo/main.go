@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
+	bls12381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/rs/zerolog"
 )
@@ -146,10 +148,10 @@ func main() {
 		NewStateRoot:          0x1003,
 		ConsumedQueueMessages: 3,
 		WithdrawalRoot:        0x100e,
-		DataRoot:              0x101f,
+		DataRoot:              0,
 		StateDelta:            3,
 		WithdrawalDelta:       11,
-		DataDelta:             17,
+		DataDelta:             new(big.Int).Sub(bls12381fr.Modulus(), big.NewInt(0x100e)),
 	}
 
 	witness, err := frontend.NewWitness(&validAssignment, ecc.BLS12_381.ScalarField())

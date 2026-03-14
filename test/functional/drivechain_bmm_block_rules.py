@@ -27,7 +27,7 @@ def create_funded_signed_tx_hex(node, script: CScript) -> str:
     tx.vin = []
     tx.vout = [CTxOut(0, script)]
     raw_hex = tx.serialize().hex()
-    funded = node.fundrawtransaction(raw_hex)["hex"]
+    funded = node.fundrawtransaction(raw_hex, {"lockUnspents": True})["hex"]
     return node.signrawtransactionwithwallet(funded)["hex"]
 
 
@@ -94,7 +94,8 @@ class DrivechainBmmBlockRulesTest(BitcoinTestFramework):
 
         # At most one request per sidechain per block.
         req_b = create_funded_signed_tx_hex(n, make_bmm_request_script(scid, side_hash_b, prev_main))
-        res = submit_block(n, tx_hexes=[req_a, req_b])
+        dup_acc_out = CTxOut(0, make_bmm_accept_script(scid, side_hash_a))
+        res = submit_block(n, extra_coinbase_vouts=[dup_acc_out], tx_hexes=[req_a, req_b])
         assert res is not None
         assert "dc-bmm-request-duplicate-sidechain" in str(res)
 

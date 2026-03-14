@@ -154,9 +154,6 @@ func BuildFullAssignment(request CommandRequest) (ToyBatchTransitionCircuit, err
 	if withdrawalRoot.Cmp(newStateRoot) < 0 {
 		return ToyBatchTransitionCircuit{}, fmt.Errorf("withdrawal_root must be >= new_state_root for toy circuit")
 	}
-	if dataRoot.Cmp(withdrawalRoot) < 0 {
-		return ToyBatchTransitionCircuit{}, fmt.Errorf("data_root must be >= withdrawal_root for toy circuit")
-	}
 
 	stateDelta := new(big.Int).Sub(newStateRoot, priorStateRoot)
 	if stateDelta.Cmp(consumedQueueMessages) != 0 {
@@ -165,8 +162,16 @@ func BuildFullAssignment(request CommandRequest) (ToyBatchTransitionCircuit, err
 
 	assignment.StateDelta = stateDelta
 	assignment.WithdrawalDelta = new(big.Int).Sub(withdrawalRoot, newStateRoot)
-	assignment.DataDelta = new(big.Int).Sub(dataRoot, withdrawalRoot)
+	assignment.DataDelta = subField(dataRoot, withdrawalRoot)
 	return assignment, nil
+}
+
+func subField(lhs, rhs *big.Int) *big.Int {
+	result := new(big.Int).Sub(lhs, rhs)
+	if result.Sign() < 0 {
+		result.Add(result, bls12381fr.Modulus())
+	}
+	return result
 }
 
 func parseFieldHex(raw string, fieldName string) (*big.Int, error) {

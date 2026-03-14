@@ -118,7 +118,7 @@ func main() {
 			L1MessageRootAfter:    "0",
 			ConsumedQueueMessages: 3,
 			WithdrawalRoot:        "100e",
-			DataRoot:              "101f",
+			DataRoot:              "0",
 			DataSize:              0,
 		},
 	}
