@@ -98,7 +98,9 @@ This means:
   - that envelope binds the batch commitment and current chainstate roots
 - empty proof bytes, missing non-zero DA payloads, empty DA chunks, oversized
   payloads, and mismatched `data_root` commitments are rejected
-- queue-prefix consumption is enforced
+- queue-prefix consumption is enforced, and batch metadata now carries a
+  deterministic `queue_prefix_commitment` checked against the exact consumed
+  pending prefix
 - the prefix-only scaffold profile still requires no-op state-root,
   withdrawal-root, and data-root updates with empty DA
 - the transition scaffold profile now allows deterministic root and DA updates,

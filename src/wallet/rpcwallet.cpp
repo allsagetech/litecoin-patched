@@ -1273,6 +1273,10 @@ static ValiditySidechainBatchPublicInputs ParseValiditySidechainBatchPublicInput
     public_inputs.consumed_queue_messages = ParseUint32Value(
         find_value(obj, "consumed_queue_messages"),
         "public_inputs.consumed_queue_messages");
+    const UniValue& queue_prefix_commitment = find_value(obj, "queue_prefix_commitment");
+    public_inputs.queue_prefix_commitment = queue_prefix_commitment.isNull()
+        ? uint256()
+        : ParseHashO(obj, "queue_prefix_commitment");
     public_inputs.withdrawal_root = ParseHashO(obj, "withdrawal_root");
     public_inputs.data_root = ParseHashO(obj, "data_root");
     public_inputs.data_size = ParseUint32Value(find_value(obj, "data_size"), "public_inputs.data_size");
@@ -2064,6 +2068,7 @@ static RPCHelpMan sendvaliditybatch()
                     {"l1_message_root_before", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root before batch consumption"},
                     {"l1_message_root_after", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root after batch consumption"},
                     {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages"},
+                    {"queue_prefix_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional commitment to the exact consumed queue prefix. If omitted, the wallet computes it from the active chainstate."},
                     {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Withdrawal root"},
                     {"data_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Data-availability root"},
                     {"data_size", RPCArg::Type::NUM, RPCArg::Optional::NO, "Published data size in bytes"},
@@ -2101,8 +2106,20 @@ static RPCHelpMan sendvaliditybatch()
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
             }
 
-            const ValiditySidechainBatchPublicInputs public_inputs =
-                ParseValiditySidechainBatchPublicInputsObject(request.params[1]);
+            const UniValue& public_inputs_obj = request.params[1].get_obj();
+            ValiditySidechainBatchPublicInputs public_inputs =
+                ParseValiditySidechainBatchPublicInputsObject(public_inputs_obj);
+            if (find_value(public_inputs_obj, "queue_prefix_commitment").isNull()) {
+                std::string queue_error;
+                if (!ComputeValiditySidechainQueuePrefixCommitment(
+                        sidechain,
+                        sidechain_id,
+                        public_inputs.consumed_queue_messages,
+                        public_inputs.queue_prefix_commitment,
+                        &queue_error)) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, queue_error);
+                }
+            }
             const std::vector<std::vector<unsigned char>> data_chunks =
                 (request.params.size() > 3 && !request.params[3].isNull())
                     ? ParseHexArray(request.params[3], "data_chunks")

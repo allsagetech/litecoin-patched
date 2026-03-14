@@ -318,6 +318,7 @@ via a dedicated witness encoding:
 - `l1_message_root_before`
 - `l1_message_root_after`
 - `consumed_queue_messages`
+- `queue_prefix_commitment`
 - `withdrawal_root`
 - `data_root`
 - `data_size`
@@ -335,13 +336,15 @@ Consensus rules:
 - `proof_bytes` must not exceed `max_proof_bytes`
 - the `(prior_state_root, new_state_root, withdrawal_root, data_root,
   l1_message_root_before, l1_message_root_after, consumed_queue_messages,
-  batch_number, sidechain_id)` tuple must be bound into the proof's public
-  inputs
+  queue_prefix_commitment, batch_number, sidechain_id)` tuple must be bound
+  into the proof's public inputs
 - the proof must verify under the registered verifier configuration
 - `l1_message_root_before` must equal the current Litecoin-maintained queue root
 - the batch must consume exactly `consumed_queue_messages` messages from the
   current contiguous pending queue prefix and produce
   `l1_message_root_after`
+- `queue_prefix_commitment` must equal Litecoin's deterministic commitment to
+  that exact consumed queue prefix
 - all matured L1 force-exit requests must be included in the consumed prefix
 - any pending deposit request left unconsumed past `deposit_reclaim_delay`
   becomes reclaimable on Litecoin and must not remain permanently stuck

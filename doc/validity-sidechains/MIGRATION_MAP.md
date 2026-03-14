@@ -402,6 +402,9 @@ Current branch status:
 - accepted-batch state tracking, batch-number monotonicity, queue-prefix
   transition plumbing, and mempool duplicate tracking now exist for
   `COMMIT_VALIDITY_BATCH`
+- batch public-input encoding now also carries `queue_prefix_commitment`, so
+  accepted batches commit to the exact consumed pending L1 prefix instead of
+  only the before/after queue roots
 - the current branch exposes two scaffold verifier modes plus one proposed real
   Groth16 profile slot:
   `scaffold_queue_prefix_commitment_v1` for no-op-root batches,

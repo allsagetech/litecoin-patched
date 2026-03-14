@@ -142,6 +142,7 @@ BOOST_AUTO_TEST_CASE(commit_script_roundtrip)
     public_inputs.l1_message_root_before = uint256S("8888888888888888888888888888888888888888888888888888888888888888");
     public_inputs.l1_message_root_after = uint256S("9999999999999999999999999999999999999999999999999999999999999999");
     public_inputs.consumed_queue_messages = 3;
+    public_inputs.queue_prefix_commitment = uint256S("9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a9a");
     public_inputs.withdrawal_root = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     public_inputs.data_root = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     public_inputs.data_size = 2048;
@@ -165,6 +166,7 @@ BOOST_AUTO_TEST_CASE(commit_script_roundtrip)
     BOOST_CHECK(decoded_public_inputs.prior_state_root == public_inputs.prior_state_root);
     BOOST_CHECK(decoded_public_inputs.new_state_root == public_inputs.new_state_root);
     BOOST_CHECK_EQUAL(decoded_public_inputs.consumed_queue_messages, public_inputs.consumed_queue_messages);
+    BOOST_CHECK(decoded_public_inputs.queue_prefix_commitment == public_inputs.queue_prefix_commitment);
     BOOST_CHECK(decoded_public_inputs.withdrawal_root == public_inputs.withdrawal_root);
     BOOST_CHECK_EQUAL(decoded_public_inputs.data_size, public_inputs.data_size);
     BOOST_CHECK(decoded_proof_bytes == proof_placeholder);
@@ -180,6 +182,7 @@ BOOST_AUTO_TEST_CASE(commit_script_rejects_out_of_order_data_chunks)
     public_inputs.new_state_root = uint256S("0202020202020202020202020202020202020202020202020202020202020202");
     public_inputs.l1_message_root_before = uint256S("0303030303030303030303030303030303030303030303030303030303030303");
     public_inputs.l1_message_root_after = uint256S("0404040404040404040404040404040404040404040404040404040404040404");
+    public_inputs.queue_prefix_commitment = uint256S("0454545454545454545454545454545454545454545454545454545454545454");
     public_inputs.withdrawal_root = uint256S("0505050505050505050505050505050505050505050505050505050505050505");
     public_inputs.data_root = uint256S("0606060606060606060606060606060606060606060606060606060606060606");
     public_inputs.data_size = 3;
@@ -209,6 +212,7 @@ BOOST_AUTO_TEST_CASE(commit_script_rejects_inconsistent_data_chunk_count)
     public_inputs.new_state_root = uint256S("1212121212121212121212121212121212121212121212121212121212121212");
     public_inputs.l1_message_root_before = uint256S("1313131313131313131313131313131313131313131313131313131313131313");
     public_inputs.l1_message_root_after = uint256S("1414141414141414141414141414141414141414141414141414141414141414");
+    public_inputs.queue_prefix_commitment = uint256S("1454545454545454545454545454545454545454545454545454545454545454");
     public_inputs.withdrawal_root = uint256S("1515151515151515151515151515151515151515151515151515151515151515");
     public_inputs.data_root = uint256S("1616161616161616161616161616161616161616161616161616161616161616");
     public_inputs.data_size = 2;

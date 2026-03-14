@@ -28,7 +28,7 @@ static constexpr size_t UINT256_BYTES = sizeof(uint256);
 
 static constexpr size_t VALIDITY_SIDECHAIN_CONFIG_BYTES = 94;
 static constexpr size_t VALIDITY_SIDECHAIN_DEPOSIT_BYTES = 112;
-static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 204;
+static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 236;
 static constexpr size_t VALIDITY_SIDECHAIN_BATCH_DATA_CHUNK_HEADER_BYTES = 8;
 static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES = 72;
 static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES = 80;
@@ -521,6 +521,7 @@ std::vector<unsigned char> EncodeValiditySidechainBatchPublicInputs(const Validi
     AppendUint256(out, public_inputs.l1_message_root_before);
     AppendUint256(out, public_inputs.l1_message_root_after);
     AppendLE32(out, public_inputs.consumed_queue_messages);
+    AppendUint256(out, public_inputs.queue_prefix_commitment);
     AppendUint256(out, public_inputs.withdrawal_root);
     AppendUint256(out, public_inputs.data_root);
     AppendLE32(out, public_inputs.data_size);
@@ -542,13 +543,14 @@ bool DecodeValiditySidechainBatchPublicInputs(
         !ReadUint256At(public_input_bytes, 36, public_inputs.new_state_root) ||
         !ReadUint256At(public_input_bytes, 68, public_inputs.l1_message_root_before) ||
         !ReadUint256At(public_input_bytes, 100, public_inputs.l1_message_root_after) ||
-        !ReadUint256At(public_input_bytes, 136, public_inputs.withdrawal_root) ||
-        !ReadUint256At(public_input_bytes, 168, public_inputs.data_root)) {
+        !ReadUint256At(public_input_bytes, 136, public_inputs.queue_prefix_commitment) ||
+        !ReadUint256At(public_input_bytes, 168, public_inputs.withdrawal_root) ||
+        !ReadUint256At(public_input_bytes, 200, public_inputs.data_root)) {
         return false;
     }
 
     public_inputs.consumed_queue_messages = ReadLE32(public_input_bytes.data() + 132);
-    public_inputs.data_size = ReadLE32(public_input_bytes.data() + 200);
+    public_inputs.data_size = ReadLE32(public_input_bytes.data() + 232);
     out_public_inputs = public_inputs;
     return true;
 }

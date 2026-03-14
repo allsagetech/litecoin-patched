@@ -655,6 +655,7 @@ static UniValue BatchPublicInputsToJSON(const ValiditySidechainBatchPublicInputs
     inputs.pushKV("l1_message_root_before", public_inputs.l1_message_root_before.GetHex());
     inputs.pushKV("l1_message_root_after", public_inputs.l1_message_root_after.GetHex());
     inputs.pushKV("consumed_queue_messages", static_cast<int64_t>(public_inputs.consumed_queue_messages));
+    inputs.pushKV("queue_prefix_commitment", public_inputs.queue_prefix_commitment.GetHex());
     inputs.pushKV("withdrawal_root", public_inputs.withdrawal_root.GetHex());
     inputs.pushKV("data_root", public_inputs.data_root.GetHex());
     inputs.pushKV("data_size", static_cast<int64_t>(public_inputs.data_size));

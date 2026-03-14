@@ -74,6 +74,7 @@ ValiditySidechainBatchPublicInputs MakeNoopBatchPublicInputs(const ValiditySidec
     public_inputs.l1_message_root_before = sidechain.queue_state.root;
     public_inputs.l1_message_root_after = sidechain.queue_state.root;
     public_inputs.consumed_queue_messages = 0;
+    public_inputs.queue_prefix_commitment.SetNull();
     public_inputs.withdrawal_root = sidechain.current_withdrawal_root;
     public_inputs.data_root = sidechain.current_data_root;
     public_inputs.data_size = 0;
@@ -196,6 +197,25 @@ uint256 ComputeConsumedQueueRootForTest(
     return root;
 }
 
+uint256 ComputeQueuePrefixCommitmentForTest(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages)
+{
+    uint256 commitment;
+    std::string error;
+    if (!ComputeValiditySidechainQueuePrefixCommitment(
+            sidechain,
+            sidechain_id,
+            consumed_queue_messages,
+            commitment,
+            &error)) {
+        BOOST_FAIL("failed to compute test queue prefix commitment: " + error);
+        return uint256();
+    }
+    return commitment;
+}
+
 void InstallAcceptedWithdrawalBatch(
     ValiditySidechainState& state,
     uint8_t sidechain_id,
@@ -216,6 +236,7 @@ void InstallAcceptedWithdrawalBatch(
     batch.l1_message_root_before = sidechain->queue_state.root;
     batch.l1_message_root_after = sidechain->queue_state.root;
     batch.consumed_queue_messages = 0;
+    batch.queue_prefix_commitment.SetNull();
     batch.withdrawal_root = withdrawal_root;
     batch.data_root = sidechain->current_data_root;
     batch.accepted_height = accepted_height;
@@ -619,6 +640,7 @@ BOOST_AUTO_TEST_CASE(accept_batch_records_noop_scaffold_batch)
     BOOST_CHECK_EQUAL(batch->consumed_queue_messages, 0U);
     BOOST_CHECK(batch->l1_message_root_before == public_inputs.l1_message_root_before);
     BOOST_CHECK(batch->l1_message_root_after == public_inputs.l1_message_root_after);
+    BOOST_CHECK(batch->queue_prefix_commitment == public_inputs.queue_prefix_commitment);
 }
 
 BOOST_AUTO_TEST_CASE(connect_block_handles_noop_batch_commit)
@@ -723,6 +745,7 @@ BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
     public_inputs.withdrawal_root = uint256S("4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c");
     public_inputs.consumed_queue_messages = 1;
     public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 26, /* consumed_queue_messages= */ 1);
+    public_inputs.queue_prefix_commitment = ComputeQueuePrefixCommitmentForTest(*sidechain, /* sidechain_id= */ 26, /* consumed_queue_messages= */ 1);
     public_inputs.data_root = ComputeValiditySidechainDataRoot(data_chunks);
     public_inputs.data_size = 5;
     const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 26, *sidechain, public_inputs);
@@ -747,6 +770,7 @@ BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
     BOOST_CHECK(batch->withdrawal_root == public_inputs.withdrawal_root);
     BOOST_CHECK(batch->data_root == public_inputs.data_root);
     BOOST_CHECK_EQUAL(batch->consumed_queue_messages, 1U);
+    BOOST_CHECK(batch->queue_prefix_commitment == public_inputs.queue_prefix_commitment);
 }
 
 BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_without_verifier_assets)
@@ -927,6 +951,7 @@ BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_recor
     ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
     public_inputs.consumed_queue_messages = 2;
     public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 14, /* consumed_queue_messages= */ 2);
+    public_inputs.queue_prefix_commitment = ComputeQueuePrefixCommitmentForTest(*sidechain, /* sidechain_id= */ 14, /* consumed_queue_messages= */ 2);
     const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 14, *sidechain, public_inputs);
 
     std::string error;
@@ -993,6 +1018,7 @@ BOOST_AUTO_TEST_CASE(accept_batch_requires_matured_force_exit_consumption)
         ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
         public_inputs.consumed_queue_messages = 2;
         public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 15, /* consumed_queue_messages= */ 2);
+        public_inputs.queue_prefix_commitment = ComputeQueuePrefixCommitmentForTest(*sidechain, /* sidechain_id= */ 15, /* consumed_queue_messages= */ 2);
         const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 15, *sidechain, public_inputs);
 
         std::string error;

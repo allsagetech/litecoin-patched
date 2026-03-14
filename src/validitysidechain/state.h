@@ -87,6 +87,7 @@ struct ValiditySidechainBatchPublicInputs
     uint256 l1_message_root_before;
     uint256 l1_message_root_after;
     uint32_t consumed_queue_messages{0};
+    uint256 queue_prefix_commitment;
     uint256 withdrawal_root;
     uint256 data_root;
     uint32_t data_size{0};
@@ -99,6 +100,7 @@ struct ValiditySidechainBatchPublicInputs
                   obj.l1_message_root_before,
                   obj.l1_message_root_after,
                   obj.consumed_queue_messages,
+                  obj.queue_prefix_commitment,
                   obj.withdrawal_root,
                   obj.data_root,
                   obj.data_size);
@@ -175,6 +177,7 @@ struct ValiditySidechainAcceptedBatch
     uint256 l1_message_root_before;
     uint256 l1_message_root_after;
     uint32_t consumed_queue_messages{0};
+    uint256 queue_prefix_commitment;
     uint256 withdrawal_root;
     uint256 data_root;
     int accepted_height{-1};
@@ -187,6 +190,7 @@ struct ValiditySidechainAcceptedBatch
                   obj.l1_message_root_before,
                   obj.l1_message_root_after,
                   obj.consumed_queue_messages,
+                  obj.queue_prefix_commitment,
                   obj.withdrawal_root,
                   obj.data_root,
                   obj.accepted_height);
@@ -366,5 +370,12 @@ public:
         std::string* error = nullptr);
     void Reset();
 };
+
+bool ComputeValiditySidechainQueuePrefixCommitment(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages,
+    uint256& out_commitment,
+    std::string* error = nullptr);
 
 #endif // BITCOIN_VALIDITYSIDECHAIN_STATE_H

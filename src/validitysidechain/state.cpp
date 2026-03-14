@@ -18,6 +18,7 @@ namespace {
 
 static constexpr unsigned char QUEUE_APPEND_MAGIC[] = {'V', 'S', 'C', 'Q', 'A', 0x01};
 static constexpr unsigned char QUEUE_CONSUME_MAGIC[] = {'V', 'S', 'C', 'Q', 'C', 0x01};
+static constexpr unsigned char QUEUE_PREFIX_COMMITMENT_MAGIC[] = {'V', 'S', 'C', 'Q', 'P', 0x01};
 static constexpr unsigned char QUEUE_TOMBSTONE_MAGIC[] = {'V', 'S', 'C', 'Q', 'T', 0x01};
 
 static bool DepositsEqual(const ValiditySidechainDepositData& lhs, const ValiditySidechainDepositData& rhs)
@@ -78,6 +79,22 @@ static uint256 ComputeQueueConsumeRoot(
     hw.write((const char*)QUEUE_CONSUME_MAGIC, sizeof(QUEUE_CONSUME_MAGIC));
     hw << sidechain_id;
     hw << prior_root;
+    hw << entry.queue_index;
+    hw << entry.message_kind;
+    hw << entry.message_id;
+    hw << entry.message_hash;
+    return hw.GetHash();
+}
+
+static uint256 ComputeQueuePrefixCommitmentStep(
+    uint8_t sidechain_id,
+    const uint256& prior_commitment,
+    const ValiditySidechainQueueEntry& entry)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)QUEUE_PREFIX_COMMITMENT_MAGIC, sizeof(QUEUE_PREFIX_COMMITMENT_MAGIC));
+    hw << sidechain_id;
+    hw << prior_commitment;
     hw << entry.queue_index;
     hw << entry.message_kind;
     hw << entry.message_id;
@@ -297,6 +314,38 @@ static bool ComputeConsumedQueueRoot(
     return true;
 }
 
+static bool ComputeQueuePrefixCommitment(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages,
+    uint256& out_commitment,
+    std::string* error)
+{
+    out_commitment.SetNull();
+    uint64_t next_queue_index = sidechain.queue_state.head_index;
+
+    for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
+        const auto queue_it = sidechain.queue_entries.find(next_queue_index);
+        if (queue_it == sidechain.queue_entries.end()) {
+            if (error != nullptr) {
+                *error = "batch references missing queue entry";
+            }
+            return false;
+        }
+        if (queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
+            if (error != nullptr) {
+                *error = "batch queue consumption is not a contiguous pending prefix";
+            }
+            return false;
+        }
+
+        out_commitment = ComputeQueuePrefixCommitmentStep(sidechain_id, out_commitment, queue_it->second);
+        ++next_queue_index;
+    }
+
+    return true;
+}
+
 static bool ConsumeQueuePrefix(
     ValiditySidechain& sidechain,
     uint8_t sidechain_id,
@@ -475,6 +524,21 @@ static bool ComputeRequiredConsumedQueueMessages(
 }
 
 } // namespace
+
+bool ComputeValiditySidechainQueuePrefixCommitment(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages,
+    uint256& out_commitment,
+    std::string* error)
+{
+    return ComputeQueuePrefixCommitment(
+        sidechain,
+        sidechain_id,
+        consumed_queue_messages,
+        out_commitment,
+        error);
+}
 
 const ValiditySidechain* ValiditySidechainState::GetSidechain(uint8_t id) const
 {
@@ -871,6 +935,7 @@ bool ValiditySidechainState::AcceptBatch(
     (void)verifier_mode;
 
     uint256 expected_l1_message_root_after;
+    uint256 expected_queue_prefix_commitment;
     std::string queue_error;
     uint32_t required_consumed_queue_messages = 0;
     if (!ComputeRequiredConsumedQueueMessages(*sidechain, accepted_height, required_consumed_queue_messages, &queue_error)) {
@@ -892,9 +957,21 @@ bool ValiditySidechainState::AcceptBatch(
         }
         return false;
     }
+    if (!ComputeQueuePrefixCommitment(*sidechain, sidechain_id, public_inputs.consumed_queue_messages, expected_queue_prefix_commitment, &queue_error)) {
+        if (error != nullptr) {
+            *error = queue_error;
+        }
+        return false;
+    }
     if (expected_l1_message_root_after != public_inputs.l1_message_root_after) {
         if (error != nullptr) {
             *error = "batch queue root after does not match consumed prefix";
+        }
+        return false;
+    }
+    if (expected_queue_prefix_commitment != public_inputs.queue_prefix_commitment) {
+        if (error != nullptr) {
+            *error = "batch queue prefix commitment does not match consumed prefix";
         }
         return false;
     }
@@ -918,6 +995,7 @@ bool ValiditySidechainState::AcceptBatch(
     batch.l1_message_root_before = public_inputs.l1_message_root_before;
     batch.l1_message_root_after = public_inputs.l1_message_root_after;
     batch.consumed_queue_messages = public_inputs.consumed_queue_messages;
+    batch.queue_prefix_commitment = public_inputs.queue_prefix_commitment;
     batch.withdrawal_root = public_inputs.withdrawal_root;
     batch.data_root = public_inputs.data_root;
     batch.accepted_height = accepted_height;

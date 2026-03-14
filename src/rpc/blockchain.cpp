@@ -1813,6 +1813,7 @@ static bool MatchesAcceptedBatchMetadata(
            public_inputs.l1_message_root_before == batch.l1_message_root_before &&
            public_inputs.l1_message_root_after == batch.l1_message_root_after &&
            public_inputs.consumed_queue_messages == batch.consumed_queue_messages &&
+           public_inputs.queue_prefix_commitment == batch.queue_prefix_commitment &&
            public_inputs.withdrawal_root == batch.withdrawal_root &&
            public_inputs.data_root == batch.data_root;
 }
@@ -1903,6 +1904,7 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
         batch_obj.pushKV("l1_message_root_before", batch.l1_message_root_before.GetHex());
         batch_obj.pushKV("l1_message_root_after", batch.l1_message_root_after.GetHex());
         batch_obj.pushKV("consumed_queue_messages", static_cast<int64_t>(batch.consumed_queue_messages));
+        batch_obj.pushKV("queue_prefix_commitment", batch.queue_prefix_commitment.GetHex());
         batch_obj.pushKV("withdrawal_root", batch.withdrawal_root.GetHex());
         batch_obj.pushKV("data_root", batch.data_root.GetHex());
         batch_obj.pushKV("accepted_height", batch.accepted_height);

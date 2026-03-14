@@ -126,6 +126,7 @@ def encode_batch_public_inputs(public_inputs):
         ser_uint256(int(public_inputs["l1_message_root_before"], 16)) +
         ser_uint256(int(public_inputs["l1_message_root_after"], 16)) +
         struct.pack("<I", public_inputs["consumed_queue_messages"]) +
+        ser_uint256(int(public_inputs.get("queue_prefix_commitment", "00" * 32), 16)) +
         ser_uint256(int(public_inputs["withdrawal_root"], 16)) +
         ser_uint256(int(public_inputs["data_root"], 16)) +
         struct.pack("<I", public_inputs["data_size"])
