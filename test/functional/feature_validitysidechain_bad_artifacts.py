@@ -49,18 +49,19 @@ def pad_field_hex(raw_value):
     return raw_value.lower().rjust(64, "0")
 
 
-def vector_public_inputs(vector):
+def build_probe_public_inputs(batch_number, current_state_root, current_withdrawal_root):
+    zero_root = "00" * 32
     return {
-        "batch_number": int(vector["public_inputs"]["batch_number"]),
-        "prior_state_root": pad_field_hex(vector["public_inputs"]["prior_state_root"]),
-        "new_state_root": pad_field_hex(vector["public_inputs"]["new_state_root"]),
-        "l1_message_root_before": pad_field_hex(vector["public_inputs"].get("l1_message_root_before", "0")),
-        "l1_message_root_after": pad_field_hex(vector["public_inputs"].get("l1_message_root_after", "0")),
-        "consumed_queue_messages": int(vector["public_inputs"]["consumed_queue_messages"]),
-        "queue_prefix_commitment": pad_field_hex(vector["public_inputs"].get("queue_prefix_commitment", "0")),
-        "withdrawal_root": pad_field_hex(vector["public_inputs"]["withdrawal_root"]),
-        "data_root": pad_field_hex(vector["public_inputs"]["data_root"]),
-        "data_size": int(vector["public_inputs"].get("data_size", "0")),
+        "batch_number": batch_number,
+        "prior_state_root": current_state_root,
+        "new_state_root": current_state_root,
+        "l1_message_root_before": zero_root,
+        "l1_message_root_after": zero_root,
+        "consumed_queue_messages": 0,
+        "queue_prefix_commitment": zero_root,
+        "withdrawal_root": current_withdrawal_root,
+        "data_root": zero_root,
+        "data_size": 0,
     }
 
 
@@ -129,6 +130,11 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
             initial_state_root=pad_field_hex(valid_vector["public_inputs"]["prior_state_root"]),
             initial_withdrawal_root="10" * 32,
         )
+        probe_public_inputs = build_probe_public_inputs(
+            int(valid_vector["public_inputs"]["batch_number"]),
+            config["initial_state_root"],
+            config["initial_withdrawal_root"],
+        )
         node.sendvaliditysidechainregister(sidechain_id, config)
         node.generate(1)
         assert_raises_rpc_error(
@@ -136,7 +142,7 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
             expected_status,
             node.sendvaliditybatch,
             sidechain_id,
-            vector_public_inputs(valid_vector),
+            probe_public_inputs,
             valid_vector["proof_bytes_hex"],
         )
 
