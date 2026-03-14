@@ -302,9 +302,9 @@ bool LoadValiditySidechainGroth16VerificationKey(
         return FailValidation(error, "unable to read Groth16 verifying key");
     }
 
-    const std::vector<unsigned char> key_bytes(
+    const std::vector<unsigned char> key_bytes{
         std::istreambuf_iterator<char>(file),
-        std::istreambuf_iterator<char>());
+        std::istreambuf_iterator<char>()};
     return ParseValiditySidechainGroth16VerificationKey(
         key_bytes,
         expected_public_input_count,
