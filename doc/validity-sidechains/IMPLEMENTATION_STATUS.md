@@ -185,6 +185,7 @@ It also now has functional wallet/RPC coverage for:
 - scaffold batch submission with auto-built scaffold proof bytes
 - committed valid/invalid toy proof-vector replay through the experimental
   external verifier path
+- malformed external verifier manifests for tuple/public-input mismatches
 - malformed batch DA rejection for missing chunks, malformed chunk ordering,
   oversized payloads, oversized proof bytes, and bad `data_root`
 - forced-inclusion recovery by requiring matured force-exit requests to be
