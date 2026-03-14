@@ -11,6 +11,9 @@ Use this file first when starting a new chat about the validity-sidechain work.
 It describes what the current branch actually implements, what is still
 scaffolded or experimental, and what should happen next.
 
+The selected native pairing backend for the intended real verifier path is
+documented in `doc/validity-sidechains/NATIVE_VERIFIER_BACKEND.md`.
+
 ## 1. Current Branch State
 
 As of the current `litecoin-validity-sidechains` branch tip:
@@ -105,6 +108,8 @@ This means:
   through `contrib/validitysidechain-zk-demo`, but it proves only a toy
   arithmetic relation and does not satisfy the intended trustless sidechain
   semantics
+- the repo now vendors `blst` under `external/blst/` as the selected native
+  BLS12-381 pairing backend for the eventual in-process verifier
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
