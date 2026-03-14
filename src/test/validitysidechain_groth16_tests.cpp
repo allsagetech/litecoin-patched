@@ -129,6 +129,22 @@ ValiditySidechainGroth16Proof MakeSyntheticValidProof()
     return proof;
 }
 
+ValiditySidechainGroth16VerificationKey MakeSyntheticZeroInputVerificationKey()
+{
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    verifying_key.public_input_count = 2;
+    verifying_key.alpha_g1 = CompressedG1Multiple(1);
+    verifying_key.beta_g2 = CompressedG2Multiple(1);
+    verifying_key.gamma_g2 = CompressedG2Multiple(1);
+    verifying_key.delta_g2 = CompressedG2Multiple(1);
+    verifying_key.gamma_abc_g1 = {
+        CompressedG1Multiple(70),
+        CompressedG1Multiple(0),
+        CompressedG1Multiple(0),
+    };
+    return verifying_key;
+}
+
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(validitysidechain_groth16_tests, BasicTestingSetup)
@@ -238,6 +254,20 @@ BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_rejects_scalar_outside_field)
     std::string error;
     BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
     BOOST_CHECK_EQUAL(error, "Groth16 public input does not fit BLS12-381 scalar field");
+}
+
+BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_accepts_zero_public_inputs)
+{
+    const ValiditySidechainGroth16VerificationKey verifying_key = MakeSyntheticZeroInputVerificationKey();
+    const ValiditySidechainGroth16Proof proof = MakeSyntheticValidProof();
+    const std::vector<std::array<unsigned char, 32>> public_inputs{
+        ScalarLE(0),
+        ScalarLE(0),
+    };
+
+    std::string error;
+    BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+    BOOST_CHECK(error.empty());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
