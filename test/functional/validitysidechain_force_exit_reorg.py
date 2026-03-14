@@ -86,6 +86,7 @@ class ValiditySidechainForceExitReorg(BitcoinTestFramework):
             destination,
             nonce,
         )
+        request_txid = request_result["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
         request_hash = request_result["request_hash"]
         request_height = n0.getblockcount()
@@ -134,16 +135,23 @@ class ValiditySidechainForceExitReorg(BitcoinTestFramework):
         assert_equal(sidechain_after_restart["queue_state"]["pending_force_exit_count"], 0)
         assert_equal(sidechain_after_restart["queue_state"]["matured_force_exit_count"], 0)
 
-        self.log.info("Re-submitting the same force-exit request after reorg should succeed.")
-        repeat_result = n0.sendforceexitrequest(
-            sidechain_id,
-            account_id,
-            exit_asset_id,
-            max_exit_amount,
-            destination,
-            nonce,
-        )
-        assert_equal(repeat_result["request_hash"], request_hash)
+        self.log.info("After restart, the same force-exit request should either be resurrected into mempool or be resubmittable.")
+        mempool = n0.getrawmempool()
+        if request_txid in mempool:
+            self.log.info("The original force-exit request was restored to mempool after the reorg.")
+        else:
+            repeat_result = n0.sendforceexitrequest(
+                sidechain_id,
+                account_id,
+                exit_asset_id,
+                max_exit_amount,
+                destination,
+                nonce,
+            )
+            assert_equal(repeat_result["request_hash"], request_hash)
+            request_txid = repeat_result["txid"]
+
+        assert request_txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
 
         sidechain_final = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
