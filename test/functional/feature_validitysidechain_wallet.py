@@ -145,7 +145,8 @@ def encode_batch_public_inputs(public_inputs):
 
 
 def compute_batch_commitment_hash(sidechain_id, public_inputs):
-    return f"{hash256_uint256(b'VSCB\x01' + bytes([sidechain_id]) + encode_batch_public_inputs(public_inputs)):064x}"
+    payload = b"VSCB\x01" + bytes([sidechain_id]) + encode_batch_public_inputs(public_inputs)
+    return f"{hash256_uint256(payload):064x}"
 
 
 def encode_batch_data_chunk(index, chunk_count, chunk_bytes):
