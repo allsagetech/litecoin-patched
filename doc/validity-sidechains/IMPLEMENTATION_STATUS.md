@@ -109,7 +109,8 @@ This means:
   arithmetic relation and does not satisfy the intended trustless sidechain
   semantics
 - the repo now vendors `blst` under `external/blst/` as the selected native
-  BLS12-381 pairing backend for the eventual in-process verifier
+  BLS12-381 pairing backend, and the node now compiles a portable in-process
+  `blst` library plus a backend self-test wrapper for the proposed real profile
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
@@ -118,8 +119,10 @@ This means:
   verifying key assets exist and the real verifier backend is implemented
 - the repo now contains a placeholder artifact bundle under `artifacts/`, but
   it is explicitly marked non-real and does not satisfy the trustless gate
+- the native `blst` pairing backend still does not implement the Groth16
+  verification equation or final sidechain proof semantics
 
-There is not yet a native in-process zk verifier backend in the repository for
+There is not yet a native in-process zk verifier equation in the repository for
 the intended sidechain circuit.
 
 ### Withdrawal execution

@@ -116,7 +116,7 @@ const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidecha
         {
             /* profile_name               = */ "groth16_bls12_381_poseidon_v1",
             /* verifier_artifact_name     = */ "groth16_bls12_381_poseidon_v1",
-            /* verifier_backend           = */ "planned_native_groth16",
+            /* verifier_backend           = */ "native_blst_groth16",
             /* scaffolding_only           = */ false,
             /* requires_external_verifier_assets = */ true,
             /* supports_external_prover   = */ false,

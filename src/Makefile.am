@@ -21,6 +21,8 @@ LIBUNIVALUE = $(UNIVALUE_LIBS)
 endif
 
 BITCOIN_INCLUDES=-I$(builddir) -I$(srcdir)/secp256k1-zkp/include $(BDB_CPPFLAGS) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS)
+BLST_CPPFLAGS = -I$(top_srcdir)/external/blst/bindings
+BLST_CFLAGS = $(PIE_FLAGS) -D__BLST_PORTABLE__ -D__BLST_NO_ASM__ -fno-builtin
 
 BITCOIN_INCLUDES += -I$(srcdir)/libmw/include
 BITCOIN_INCLUDES += -I$(srcdir)/libmw/deps/caches/include
@@ -34,6 +36,7 @@ LIBBITCOIN_CONSENSUS=libbitcoin_consensus.a
 LIBBITCOIN_CLI=libbitcoin_cli.a
 LIBBITCOIN_UTIL=libbitcoin_util.a
 LIBBITCOIN_CRYPTO_BASE=crypto/libbitcoin_crypto_base.a
+LIBVALIDITYSIDECHAIN_BLST=libvaliditysidechain_blst.a
 LIBBITCOINQT=qt/libbitcoinqt.a
 LIBSECP256K1=secp256k1-zkp/libsecp256k1.la
 LIBMW=libmw.a
@@ -69,6 +72,7 @@ $(LIBSECP256K1): $(wildcard secp256k1-zkp/src/*.h) $(wildcard secp256k1-zkp/src/
 # Make is not made aware of per-object dependencies to avoid limiting building parallelization
 # But to build the less dependent modules first, we manually select their order here:
 EXTRA_LIBRARIES += \
+  $(LIBVALIDITYSIDECHAIN_BLST) \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBBITCOIN_UTIL) \
   $(LIBBITCOIN_COMMON) \
@@ -212,6 +216,7 @@ BITCOIN_CORE_H = \
   mweb/mweb_wallet.h \
   drivechain/script.h \
   drivechain/state.h \
+  validitysidechain/blst_backend.h \
   validitysidechain/registry.h \
   validitysidechain/script.h \
   validitysidechain/state.h \
@@ -344,7 +349,12 @@ libbitcoin_util_a-clientversion.$(OBJEXT): obj/build.h
 # Contains code accessing mempool and chain state that is meant to be separated
 # from wallet and gui code (see node/README.md). Shared code should go in
 # libbitcoin_common or libbitcoin_util libraries, instead.
-libbitcoin_server_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(MINIUPNPC_CPPFLAGS) $(EVENT_CFLAGS) $(EVENT_PTHREADS_CFLAGS) $(LIBMW_CPPFLAGS)
+libvaliditysidechain_blst_a_CPPFLAGS = $(AM_CPPFLAGS) $(BLST_CPPFLAGS)
+libvaliditysidechain_blst_a_CFLAGS = $(BLST_CFLAGS)
+libvaliditysidechain_blst_a_SOURCES = \
+  ../external/blst/src/server.c
+
+libbitcoin_server_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BLST_CPPFLAGS) $(MINIUPNPC_CPPFLAGS) $(EVENT_CFLAGS) $(EVENT_PTHREADS_CFLAGS) $(LIBMW_CPPFLAGS)
 libbitcoin_server_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libbitcoin_server_a_SOURCES = \
   addrdb.cpp \
@@ -397,6 +407,7 @@ libbitcoin_server_a_SOURCES = \
   txmempool.cpp \
   validation.cpp \
   drivechain/state.cpp \
+  validitysidechain/blst_backend.cpp \
   validitysidechain/registry.cpp \
   validitysidechain/state.cpp \
   validitysidechain/verifier.cpp \
@@ -687,13 +698,13 @@ litecoind_SOURCES = $(litecoin_daemon_sources)
 litecoind_CPPFLAGS = $(litecoin_bin_cppflags)
 litecoind_CXXFLAGS = $(litecoin_bin_cxxflags)
 litecoind_LDFLAGS = $(litecoin_bin_ldflags)
-litecoind_LDADD = $(LIBBITCOIN_SERVER) $(litecoin_bin_ldadd)
+litecoind_LDADD = $(LIBBITCOIN_SERVER) $(litecoin_bin_ldadd) $(LIBVALIDITYSIDECHAIN_BLST)
 
 litecoin_node_SOURCES = $(litecoin_daemon_sources)
 litecoin_node_CPPFLAGS = $(litecoin_bin_cppflags)
 litecoin_node_CXXFLAGS = $(litecoin_bin_cxxflags)
 litecoin_node_LDFLAGS = $(litecoin_bin_ldflags)
-litecoin_node_LDADD = $(LIBBITCOIN_SERVER) $(litecoin_bin_ldadd)
+litecoin_node_LDADD = $(LIBBITCOIN_SERVER) $(litecoin_bin_ldadd) $(LIBVALIDITYSIDECHAIN_BLST)
 
 # bitcoin-cli binary #
 litecoin_cli_SOURCES = bitcoin-cli.cpp
@@ -740,7 +751,7 @@ litecoin_wallet_SOURCES = bitcoin-wallet.cpp
 litecoin_wallet_CPPFLAGS = $(litecoin_bin_cppflags)
 litecoin_wallet_CXXFLAGS = $(litecoin_bin_cxxflags)
 litecoin_wallet_LDFLAGS = $(litecoin_bin_ldflags)
-litecoin_wallet_LDADD = $(LIBBITCOIN_WALLET_TOOL) $(litecoin_bin_ldadd) $(LIBBITCOIN_SERVER)
+litecoin_wallet_LDADD = $(LIBBITCOIN_WALLET_TOOL) $(litecoin_bin_ldadd) $(LIBBITCOIN_SERVER) $(LIBVALIDITYSIDECHAIN_BLST)
 
 if TARGET_WINDOWS
 litecoin_wallet_SOURCES += bitcoin-wallet-res.rc

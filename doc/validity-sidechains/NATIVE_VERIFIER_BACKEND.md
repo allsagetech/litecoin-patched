@@ -22,6 +22,14 @@ trustless validity-sidechain verifier path.
 It does not provide a ready-made validity-sidechain verifier on its own. It is
 the pairing/curve backend, not the full circuit-specific Groth16 integration.
 
+## What This Does Now
+
+- vendors `blst` directly in-tree under `external/blst/`
+- compiles a portable native `blst` static library into the node build
+- exposes a validity-sidechain backend smoke test that checks generator
+  validation, serialization, pairing context sizing, and a non-trivial pairing
+  result
+
 ## What This Does Not Solve
 
 Vendoring `blst` does not by itself complete trustlessness. The following still
@@ -38,14 +46,14 @@ remain:
 
 ## Intended Next Steps
 
-1. Add a thin internal `blst` wrapper layer under `src/validitysidechain/`
-   for BLS12-381 point, scalar, and pairing operations actually needed by
-   Groth16 verification.
+1. Expand the current thin internal `blst` wrapper layer under
+   `src/validitysidechain/` from smoke-tested pairing primitives to the exact
+   point, scalar, field, and pairing operations needed by Groth16 verification.
 2. Define the on-disk verifying-key format for
    `groth16_bls12_381_poseidon_v1/batch_vk.bin`.
 3. Implement native proof and verifying-key decoding.
 4. Implement the fixed Groth16 verification equation over `blst`.
-5. Replace the current `planned_native_groth16` hard-fail path with the real
-   in-process verifier.
+5. Replace the current `native_blst_groth16` hard-fail path with the real
+   in-process verifier equation.
 
 Until those steps land with real assets, the branch remains non-trustless.

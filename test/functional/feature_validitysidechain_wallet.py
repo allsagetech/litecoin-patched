@@ -8,7 +8,7 @@ import struct
 from test_framework.messages import CTransaction, CTxOut, hash256, ser_uint256, uint256_from_str
 from test_framework.script import CScript
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.util import assert_equal, assert_greater_than, assert_raises_rpc_error
 
 
 def build_register_config(supported, initial_state_root, initial_withdrawal_root):
@@ -203,13 +203,18 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             assert_equal(toy_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_supported["scaffolding_only"], False)
         assert_equal(real_supported["requires_external_verifier_assets"], True)
+        assert_equal(real_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], False)
         assert_equal(real_supported["verifier_assets"]["backend_ready"], False)
+        assert_equal(real_supported["verifier_assets"]["native_backend_available"], True)
+        assert_equal(real_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_greater_than(real_supported["verifier_assets"]["native_backend_pairing_context_bytes"], 0)
         if real_supported["verifier_assets"]["profile_manifest_parsed"]:
             assert_equal(real_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+            assert_equal(real_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
             assert_equal(real_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
             assert_equal(real_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
             assert_equal(real_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
@@ -579,8 +584,12 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
         assert_equal(real_sidechain["verifier_assets"]["available"], False)
         assert_equal(real_sidechain["verifier_assets"]["backend_ready"], False)
+        assert_equal(real_sidechain["verifier_assets"]["native_backend_available"], True)
+        assert_equal(real_sidechain["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_greater_than(real_sidechain["verifier_assets"]["native_backend_pairing_context_bytes"], 0)
         if real_sidechain["verifier_assets"]["profile_manifest_parsed"]:
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_name_matches"], True)
+            assert_equal(real_sidechain["verifier_assets"]["profile_manifest_backend_matches"], True)
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_key_layout_matches"], True)
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_tuple_matches"], True)
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_public_inputs_match"], True)

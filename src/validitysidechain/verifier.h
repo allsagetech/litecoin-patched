@@ -26,6 +26,8 @@ struct ValiditySidechainVerifierAssetsStatus
     bool assets_present{false};
     bool prover_assets_present{false};
     bool backend_ready{false};
+    bool native_backend_available{false};
+    bool native_backend_self_test_passed{false};
     bool verifier_command_configured{false};
     bool prover_command_configured{false};
     bool profile_manifest_parsed{false};
@@ -46,12 +48,14 @@ struct ValiditySidechainVerifierAssetsStatus
     std::string proving_key_path;
     uint64_t verifying_key_bytes{0};
     uint64_t proving_key_bytes{0};
+    uint64_t native_backend_pairing_context_bytes{0};
     uint64_t valid_proof_vector_count{0};
     uint64_t invalid_proof_vector_count{0};
     uint64_t profile_manifest_public_input_count{0};
     std::vector<std::string> valid_proof_vector_paths;
     std::vector<std::string> invalid_proof_vector_paths;
     std::vector<std::string> profile_manifest_public_inputs;
+    std::string native_backend_status;
     std::string status;
 };
 

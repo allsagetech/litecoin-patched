@@ -1,5 +1,6 @@
 {
   "profile_name": "groth16_bls12_381_poseidon_v1",
+  "backend": "native_blst_groth16",
   "placeholder": true,
   "status": "design-time placeholder only; not a real verifier artifact bundle",
   "consensus_tuple": {

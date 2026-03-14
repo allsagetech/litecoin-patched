@@ -10,6 +10,7 @@
 #include <script/script.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
+#include <validitysidechain/blst_backend.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
 #include <validitysidechain/state.h>
@@ -268,9 +269,14 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
     BOOST_CHECK(status.requires_external_assets);
     BOOST_CHECK(!status.assets_present);
     BOOST_CHECK(!status.backend_ready);
+    BOOST_CHECK(status.native_backend_available);
+    BOOST_CHECK(status.native_backend_self_test_passed);
+    BOOST_CHECK_GT(status.native_backend_pairing_context_bytes, 0U);
+    BOOST_CHECK_EQUAL(status.native_backend_status, "native blst backend available");
     BOOST_CHECK_EQUAL(status.artifact_name, "groth16_bls12_381_poseidon_v1");
     if (status.profile_manifest_parsed) {
         BOOST_CHECK(status.profile_manifest_name_matches);
+        BOOST_CHECK(status.profile_manifest_backend_matches);
         BOOST_CHECK(status.profile_manifest_key_layout_matches);
         BOOST_CHECK(status.profile_manifest_tuple_matches);
         BOOST_CHECK(status.profile_manifest_public_inputs_match);
@@ -283,6 +289,16 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
         status.status == "missing profile manifest" ||
         status.status == "missing verifying key" ||
         status.status == "placeholder verifier artifacts only");
+}
+
+BOOST_AUTO_TEST_CASE(native_blst_backend_self_test_passes)
+{
+    ValiditySidechainNativeBlstBackendStatus status;
+    BOOST_CHECK(GetValiditySidechainNativeBlstBackendStatus(status));
+    BOOST_CHECK(status.available);
+    BOOST_CHECK(status.self_test_passed);
+    BOOST_CHECK_GT(status.pairing_context_bytes, 0U);
+    BOOST_CHECK_EQUAL(status.status, "native blst backend available");
 }
 
 BOOST_AUTO_TEST_CASE(toy_profile_requires_external_command_or_assets)

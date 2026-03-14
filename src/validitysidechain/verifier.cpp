@@ -9,6 +9,7 @@
 #include <univalue.h>
 #include <util/strencodings.h>
 #include <util/system.h>
+#include <validitysidechain/blst_backend.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
 
@@ -396,6 +397,15 @@ static bool PopulateVerifierAssetsStatus(
     out_status.requires_external_assets = supported.requires_external_verifier_assets;
     out_status.artifact_name = supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name;
     out_status.backend_name = supported.verifier_backend == nullptr ? "" : supported.verifier_backend;
+    if (supported.verifier_backend != nullptr &&
+        std::string(supported.verifier_backend) == "native_blst_groth16") {
+        ValiditySidechainNativeBlstBackendStatus native_backend_status;
+        GetValiditySidechainNativeBlstBackendStatus(native_backend_status);
+        out_status.native_backend_available = native_backend_status.available;
+        out_status.native_backend_self_test_passed = native_backend_status.self_test_passed;
+        out_status.native_backend_pairing_context_bytes = native_backend_status.pairing_context_bytes;
+        out_status.native_backend_status = native_backend_status.status;
+    }
 
     if (!supported.requires_external_verifier_assets || supported.verifier_artifact_name == nullptr) {
         out_status.assets_present = true;
@@ -571,6 +581,19 @@ static bool PopulateVerifierAssetsStatus(
             out_status.status = "placeholder verifier artifacts only";
             return true;
         }
+        if (supported.verifier_backend != nullptr &&
+            std::string(supported.verifier_backend) == "native_blst_groth16") {
+            if (!out_status.native_backend_available) {
+                out_status.status =
+                    out_status.native_backend_status.empty() ? "native blst backend unavailable" : out_status.native_backend_status;
+                return true;
+            }
+            if (!out_status.native_backend_self_test_passed) {
+                out_status.status =
+                    out_status.native_backend_status.empty() ? "native blst backend self-test failed" : out_status.native_backend_status;
+                return true;
+            }
+        }
         if (supported.profile_name != nullptr &&
             std::string(supported.profile_name) == TOY_PROFILE_NAME) {
 #ifdef HAVE_BOOST_PROCESS
@@ -594,6 +617,11 @@ static bool PopulateVerifierAssetsStatus(
         }
 
         out_status.backend_ready = false;
+        if (supported.verifier_backend != nullptr &&
+            std::string(supported.verifier_backend) == "native_blst_groth16") {
+            out_status.status = "native blst backend available; Groth16 verifier equation is not implemented";
+            return true;
+        }
         out_status.status = "assets found but Groth16 verifier backend is not implemented";
         return true;
     } catch (const fs::filesystem_error& e) {

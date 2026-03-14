@@ -1699,6 +1699,8 @@ static UniValue ValiditySidechainVerifierAssetsToJSON(const ValiditySidechainVer
     result.pushKV("available", status.assets_present);
     result.pushKV("prover_assets_present", status.prover_assets_present);
     result.pushKV("backend_ready", status.backend_ready);
+    result.pushKV("native_backend_available", status.native_backend_available);
+    result.pushKV("native_backend_self_test_passed", status.native_backend_self_test_passed);
     result.pushKV("verifier_command_configured", status.verifier_command_configured);
     result.pushKV("prover_command_configured", status.prover_command_configured);
     result.pushKV("profile_manifest_parsed", status.profile_manifest_parsed);
@@ -1719,12 +1721,14 @@ static UniValue ValiditySidechainVerifierAssetsToJSON(const ValiditySidechainVer
     result.pushKV("proving_key_path", status.proving_key_path);
     result.pushKV("verifying_key_bytes", static_cast<int64_t>(status.verifying_key_bytes));
     result.pushKV("proving_key_bytes", static_cast<int64_t>(status.proving_key_bytes));
+    result.pushKV("native_backend_pairing_context_bytes", static_cast<int64_t>(status.native_backend_pairing_context_bytes));
     result.pushKV("valid_proof_vector_count", static_cast<int64_t>(status.valid_proof_vector_count));
     result.pushKV("invalid_proof_vector_count", static_cast<int64_t>(status.invalid_proof_vector_count));
     result.pushKV("profile_manifest_public_input_count", static_cast<int64_t>(status.profile_manifest_public_input_count));
     result.pushKV("profile_manifest_public_inputs", manifest_public_inputs);
     result.pushKV("valid_proof_vector_paths", valid_vectors);
     result.pushKV("invalid_proof_vector_paths", invalid_vectors);
+    result.pushKV("native_backend_status", status.native_backend_status);
     result.pushKV("status", status.status);
     return result;
 }
