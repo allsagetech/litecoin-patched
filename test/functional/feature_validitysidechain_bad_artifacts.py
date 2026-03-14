@@ -54,13 +54,13 @@ def vector_public_inputs(vector):
         "batch_number": int(vector["public_inputs"]["batch_number"]),
         "prior_state_root": pad_field_hex(vector["public_inputs"]["prior_state_root"]),
         "new_state_root": pad_field_hex(vector["public_inputs"]["new_state_root"]),
-        "l1_message_root_before": pad_field_hex(vector["public_inputs"]["l1_message_root_before"]),
-        "l1_message_root_after": pad_field_hex(vector["public_inputs"]["l1_message_root_after"]),
+        "l1_message_root_before": pad_field_hex(vector["public_inputs"].get("l1_message_root_before", "0")),
+        "l1_message_root_after": pad_field_hex(vector["public_inputs"].get("l1_message_root_after", "0")),
         "consumed_queue_messages": int(vector["public_inputs"]["consumed_queue_messages"]),
         "queue_prefix_commitment": pad_field_hex(vector["public_inputs"].get("queue_prefix_commitment", "0")),
         "withdrawal_root": pad_field_hex(vector["public_inputs"]["withdrawal_root"]),
         "data_root": pad_field_hex(vector["public_inputs"]["data_root"]),
-        "data_size": int(vector["public_inputs"]["data_size"]),
+        "data_size": int(vector["public_inputs"].get("data_size", "0")),
     }
 
 
