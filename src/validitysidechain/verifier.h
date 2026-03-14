@@ -77,6 +77,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,
     const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,
     std::string* error = nullptr);
 bool VerifyValiditySidechainBatch(

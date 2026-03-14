@@ -2150,6 +2150,7 @@ static RPCHelpMan sendvaliditybatch()
                             sidechain.config,
                             sidechain_id,
                             public_inputs,
+                            data_chunks,
                             proof_bytes,
                             &proof_error)) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, proof_error);

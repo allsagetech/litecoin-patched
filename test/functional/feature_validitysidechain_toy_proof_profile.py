@@ -558,6 +558,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             "data_root": pad_field_hex(real_valid_vector["public_inputs"]["data_root"]),
             "data_size": int(real_valid_vector["public_inputs"]["data_size"]),
         }
+        real_data_chunks = list(real_valid_vector.get("data_chunks_hex", []))
         real_mismatch_public_inputs = dict(real_public_inputs)
         real_mismatch_public_inputs["new_state_root"] = pad_field_hex(real_mismatch_vector["public_inputs"]["new_state_root"])
 
@@ -568,6 +569,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_sidechain_id,
             real_mismatch_public_inputs,
             real_mismatch_vector["proof_bytes_hex"],
+            real_data_chunks,
         )
         assert_raises_rpc_error(
             -26,
@@ -576,6 +578,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_sidechain_id,
             real_public_inputs,
             real_corrupt_vector["proof_bytes_hex"],
+            real_data_chunks,
         )
 
         if toy_external_backend_ready:
@@ -583,6 +586,8 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_batch_res = node.sendvaliditybatch(
                 real_sidechain_id,
                 real_public_inputs,
+                None,
+                real_data_chunks,
             )
             assert_equal(real_batch_res["auto_scaffold_proof"], False)
             assert_equal(real_batch_res["auto_external_proof"], True)
@@ -598,6 +603,8 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_sidechain["queue_state"]["head_index"], 0)
             assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
             assert real_sidechain["accepted_batches"][0]["proof_size"] > 0
+            assert_equal(real_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_data_chunks))
+            assert_equal(real_sidechain["accepted_batches"][0]["published_data_bytes"], real_public_inputs["data_size"])
         else:
             self.log.info("Skipping native real auto-prover coverage because boost::process support is not built.")
 

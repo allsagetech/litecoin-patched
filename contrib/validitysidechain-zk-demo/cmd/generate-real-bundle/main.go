@@ -70,6 +70,7 @@ type vectorFile struct {
 	Curve          string            `json:"curve"`
 	ExpectedResult string            `json:"expected_result"`
 	PublicInputs   map[string]string `json:"public_inputs"`
+	DataChunksHex  []string          `json:"data_chunks_hex,omitempty"`
 	ProofBytesHex  string            `json:"proof_bytes_hex"`
 	Notes          []string          `json:"notes,omitempty"`
 }
@@ -96,6 +97,10 @@ func main() {
 			WithdrawalRoot:        "0",
 			DataRoot:              "0",
 			DataSize:              0,
+		},
+		DataChunksHex: []string{
+			hex.EncodeToString([]byte("real-batch")),
+			hex.EncodeToString([]byte("-da")),
 		},
 	}
 	derivedRequest, err := realbatch.DeriveRequest(request)
@@ -159,9 +164,11 @@ func main() {
 		Curve:          "bls12_381",
 		ExpectedResult: "accept_in_native_verifier",
 		PublicInputs:   publicInputsMap(derivedRequest),
+		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"real Groth16 proof for the experimental poseidon batch transition circuit",
+			"binds a non-empty published DA payload through data_root and data_size",
 			"verified in-process by the node native blst Groth16 path",
 		},
 	}
@@ -173,6 +180,7 @@ func main() {
 		Curve:          "bls12_381",
 		ExpectedResult: "reject",
 		PublicInputs:   publicInputsMap(mismatchRequest),
+		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"reuses the valid proof against mismatched public inputs",
@@ -184,6 +192,7 @@ func main() {
 		Curve:          "bls12_381",
 		ExpectedResult: "reject",
 		PublicInputs:   publicInputsMap(derivedRequest),
+		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(corruptProofBytes),
 		Notes: []string{
 			"derived from the valid native proof by flipping one byte",
@@ -195,7 +204,7 @@ func main() {
 		Curve:         "bls12_381",
 		Backend:       "native_blst_groth16",
 		ConsensusSafe: false,
-		Status:        "experimental real Groth16 profile with deterministic Poseidon2 public-input transition semantics",
+		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and non-empty DA-binding test vectors",
 		ConsensusTuple: consensusTuple{
 			Version:              1,
 			ProofSystemID:        2,

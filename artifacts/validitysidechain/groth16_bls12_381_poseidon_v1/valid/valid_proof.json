@@ -6,19 +6,24 @@
   "public_inputs": {
     "batch_number": "1",
     "consumed_queue_messages": "0",
-    "data_root": "0",
-    "data_size": "0",
+    "data_root": "445b4cc30c0617c1b52654d33647a908c9e6aadc414dbbf2039b12878e978038",
+    "data_size": "13",
     "l1_message_root_after": "0",
     "l1_message_root_before": "0",
-    "new_state_root": "17ea78d127d90161ac47d3f8fed301358e85583ec333051cba7e594fabc4c3be",
+    "new_state_root": "4c077cab8e653b961ca7350ce428c99c3389ef7ab226b713116f49b072b2bca0",
     "prior_state_root": "1",
     "queue_prefix_commitment": "0",
     "sidechain_id": "9",
-    "withdrawal_root": "67f22b73eb7b1c59aa6577335732f6a1cdabd5f5acdc06b150c03d0d3e14b185"
+    "withdrawal_root": "6efe7d7cfdf185037d793fe2c8a2299733f0a5daf0f49df8240e0c029493332"
   },
-  "proof_bytes_hex": "5653475001b89c708869e791aa5313ee4380308c812e496e5da4077b68128640f12c51de4a8a61a66114f6886db3612e28a6e201dba7677ada007bf8264208201e278cd3c798082f94a4f66f704b0eccca37b5de8d9dbdd37ee5849a06510fbe249158bcec04437fc32669af9f243c109ac9a2fe3456fa4d5c01b34af3694a2ce454457d65c945864918ea76215b819c24b4c95da8b2866e6b136f1283254255b162af800de5830e4db36bfe05f1c5f77c02b6cfbc1a4463f424a9e060e5822d351c832435",
+  "data_chunks_hex": [
+    "7265616c2d6261746368",
+    "2d6461"
+  ],
+  "proof_bytes_hex": "5653475001a61e75cd9d0158040572d254453797f01c674af367558f692d928c101c3b7fad91301885ab21c86a5394cdd392fb7877b54f0e0e9a0b0e1d8265271849994ff92519d1ca1652d039ba503d29f05ce8a2a02a2d790584718fee50c84c7fbf76060faeb3e4d65f397e87b23b2a0e50a4d16f9f0b48154c77cace0de2bcb5c8ad3a73f78816bfb42d2cabda074673ba43f0a7ca47565da26ebbc4d1f633e72ea45d1a1985209749830862d248944be3a28efc3e10a1533c51b0e833fdf8a1cbe02f",
   "notes": [
     "real Groth16 proof for the experimental poseidon batch transition circuit",
+    "binds a non-empty published DA payload through data_root and data_size",
     "verified in-process by the node native blst Groth16 path"
   ]
 }

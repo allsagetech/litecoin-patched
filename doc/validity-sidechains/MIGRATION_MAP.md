@@ -412,7 +412,8 @@ Current branch status:
   `native_blst_groth16_toy_batch_transition_v1` for committed in-process toy
   proof-vector replay through the native `blst` verifier,
   and `groth16_bls12_381_poseidon_v1` as a fixed non-scaffold tuple with
-  committed experimental assets, external auto-prover support, and native
+  committed experimental assets, non-empty DA proof vectors, external
+  auto-prover support that now carries `data_chunks_hex`, and native
   in-process verification that still stops short of final trustless semantics
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay

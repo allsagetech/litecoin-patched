@@ -33,6 +33,7 @@ type CommandRequest struct {
 	ArtifactDir  string            `json:"artifact_dir"`
 	SidechainID  uint64            `json:"sidechain_id"`
 	PublicInputs BatchPublicInputs `json:"public_inputs"`
+	DataChunksHex []string         `json:"data_chunks_hex,omitempty"`
 	ProofBytesHex string           `json:"proof_bytes_hex,omitempty"`
 }
 

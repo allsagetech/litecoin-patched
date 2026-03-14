@@ -130,6 +130,10 @@ This means:
   bundle with a real proving key, native verifying key, valid/invalid proof
   vectors, and an external auto-prover path that emits native `VSGP` proof
   bytes consumed by the in-process verifier
+- the committed real-profile vectors now bind a non-empty published DA payload,
+  and the external auto-prover request path now carries `data_chunks_hex` so
+  the prover validates `data_root` and `data_size` against the same chunk list
+  the wallet publishes onchain
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient

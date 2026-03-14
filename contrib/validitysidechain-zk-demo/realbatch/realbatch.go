@@ -1,6 +1,9 @@
 package realbatch
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 
@@ -64,6 +67,10 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 }
 
 func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
+	if err := validatePublishedDataWitness(request); err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+
 	sidechainID, err := parseUintAsField(request.SidechainID, "sidechain_id")
 	if err != nil {
 		return PoseidonBatchTransitionCircuit{}, err
@@ -125,7 +132,16 @@ func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCi
 }
 
 func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, error) {
-	assignment, err := BuildAssignment(ensureDerivedTargetsCleared(request))
+	cleared := ensureDerivedTargetsCleared(request)
+	if len(request.DataChunksHex) != 0 {
+		chunks, err := decodeDataChunks(request.DataChunksHex)
+		if err != nil {
+			return toybatch.CommandRequest{}, err
+		}
+		cleared.PublicInputs.DataRoot = computePublishedDataRoot(chunks)
+		cleared.PublicInputs.DataSize = uint32(computePublishedDataSize(chunks))
+	}
+	assignment, err := BuildAssignment(cleared)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
 	}
@@ -147,6 +163,14 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 	}
 
 	derived := request
+	if len(request.DataChunksHex) != 0 {
+		chunks, err := decodeDataChunks(request.DataChunksHex)
+		if err != nil {
+			return toybatch.CommandRequest{}, err
+		}
+		derived.PublicInputs.DataRoot = computePublishedDataRoot(chunks)
+		derived.PublicInputs.DataSize = uint32(computePublishedDataSize(chunks))
+	}
 	derived.PublicInputs.NewStateRoot = formatFieldHex(newStateRoot)
 	derived.PublicInputs.WithdrawalRoot = formatFieldHex(withdrawalRoot)
 	return derived, nil
@@ -157,11 +181,34 @@ func ValidateDerivedRequest(request toybatch.CommandRequest) error {
 	if err != nil {
 		return err
 	}
+	if err := validatePublishedDataWitness(request); err != nil {
+		return err
+	}
 	if normalizeHex(request.PublicInputs.NewStateRoot) != normalizeHex(derived.PublicInputs.NewStateRoot) {
 		return fmt.Errorf("new_state_root does not match derived Poseidon transition")
 	}
 	if normalizeHex(request.PublicInputs.WithdrawalRoot) != normalizeHex(derived.PublicInputs.WithdrawalRoot) {
 		return fmt.Errorf("withdrawal_root does not match derived Poseidon transition")
+	}
+	return nil
+}
+
+func validatePublishedDataWitness(request toybatch.CommandRequest) error {
+	if len(request.DataChunksHex) == 0 {
+		return nil
+	}
+
+	chunks, err := decodeDataChunks(request.DataChunksHex)
+	if err != nil {
+		return err
+	}
+	expectedSize := computePublishedDataSize(chunks)
+	if uint32(expectedSize) != request.PublicInputs.DataSize {
+		return fmt.Errorf("data_size does not match provided data_chunks_hex")
+	}
+	expectedRoot := computePublishedDataRoot(chunks)
+	if normalizeHex(request.PublicInputs.DataRoot) != normalizeHex(expectedRoot) {
+		return fmt.Errorf("data_root does not match provided data_chunks_hex")
 	}
 	return nil
 }
@@ -252,4 +299,48 @@ func normalizeHex(value string) string {
 		return "0"
 	}
 	return normalized
+}
+
+func decodeDataChunks(chunksHex []string) ([][]byte, error) {
+	chunks := make([][]byte, 0, len(chunksHex))
+	for i, chunkHex := range chunksHex {
+		chunk, err := hex.DecodeString(chunkHex)
+		if err != nil {
+			return nil, fmt.Errorf("data_chunks_hex[%d] is not valid hex", i)
+		}
+		if len(chunk) == 0 {
+			return nil, fmt.Errorf("data_chunks_hex[%d] decoded to an empty chunk", i)
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks, nil
+}
+
+func computePublishedDataSize(chunks [][]byte) uint64 {
+	var total uint64
+	for _, chunk := range chunks {
+		total += uint64(len(chunk))
+	}
+	return total
+}
+
+func computePublishedDataRoot(chunks [][]byte) string {
+	payload := make([]byte, 0, 6+4+(len(chunks)*4))
+	payload = append(payload, []byte{'V', 'S', 'C', 'R', 0x01}...)
+	var count [4]byte
+	binary.LittleEndian.PutUint32(count[:], uint32(len(chunks)))
+	payload = append(payload, count[:]...)
+	for _, chunk := range chunks {
+		var chunkLen [4]byte
+		binary.LittleEndian.PutUint32(chunkLen[:], uint32(len(chunk)))
+		payload = append(payload, chunkLen[:]...)
+		payload = append(payload, chunk...)
+	}
+	first := sha256.Sum256(payload)
+	second := sha256.Sum256(first[:])
+	reversed := make([]byte, len(second))
+	for i := range second {
+		reversed[i] = second[len(second)-1-i]
+	}
+	return hex.EncodeToString(reversed)
 }

@@ -653,6 +653,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             "data_root": pad_field_hex(real_valid_vector["public_inputs"]["data_root"]),
             "data_size": int(real_valid_vector["public_inputs"]["data_size"]),
         }
+        real_data_chunks = list(real_valid_vector.get("data_chunks_hex", []))
 
         assert_raises_rpc_error(
             -26,
@@ -664,6 +665,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
                 "new_state_root": pad_field_hex(real_mismatch_vector["public_inputs"]["new_state_root"]),
             },
             real_mismatch_vector["proof_bytes_hex"],
+            real_data_chunks,
         )
         assert_raises_rpc_error(
             -26,
@@ -672,12 +674,14 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             real_sidechain_id,
             real_public_inputs,
             real_corrupt_vector["proof_bytes_hex"],
+            real_data_chunks,
         )
 
         real_batch_res = node.sendvaliditybatch(
             real_sidechain_id,
             real_public_inputs,
             real_valid_vector["proof_bytes_hex"],
+            real_data_chunks,
         )
         assert_equal(real_batch_res["auto_scaffold_proof"], False)
         assert_equal(real_batch_res["auto_external_proof"], False)
@@ -689,6 +693,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["current_withdrawal_root"], real_public_inputs["withdrawal_root"])
         assert_equal(real_sidechain["current_data_root"], real_public_inputs["data_root"])
         assert_equal(real_sidechain["accepted_batches"][0]["proof_size"], len(bytes.fromhex(real_valid_vector["proof_bytes_hex"])))
+        assert_equal(real_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_data_chunks))
+        assert_equal(real_sidechain["accepted_batches"][0]["published_data_bytes"], real_public_inputs["data_size"])
 
 
 if __name__ == "__main__":

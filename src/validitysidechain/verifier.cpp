@@ -728,6 +728,15 @@ static bool VerifyValiditySidechainBatchWithExternalCommand(
 #endif
 }
 
+static UniValue DataChunksToJSON(const std::vector<std::vector<unsigned char>>& data_chunks)
+{
+    UniValue chunks(UniValue::VARR);
+    for (const auto& chunk : data_chunks) {
+        chunks.push_back(HexStr(chunk));
+    }
+    return chunks;
+}
+
 static std::array<unsigned char, 32> EncodeGroth16ScalarLE(uint32_t value)
 {
     std::array<unsigned char, 32> encoded{};
@@ -888,6 +897,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,
     const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,
     std::string* error)
 {
@@ -922,6 +932,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     request.pushKV("artifact_dir", ResolveVerifierArtifactDir(*supported).string());
     request.pushKV("sidechain_id", static_cast<int64_t>(sidechain_id));
     request.pushKV("public_inputs", BatchPublicInputsToJSON(public_inputs));
+    request.pushKV("data_chunks_hex", DataChunksToJSON(data_chunks));
 
     try {
         const UniValue result = RunCommandParseJSON(command, request.write());
