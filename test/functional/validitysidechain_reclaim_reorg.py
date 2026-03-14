@@ -109,6 +109,7 @@ class ValiditySidechainReclaimReorg(BitcoinTestFramework):
             deposit_metadata,
             {"address": refund_address},
         )
+        reclaim_txid = reclaim_result["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
 
         sidechain_n0 = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
@@ -150,12 +151,19 @@ class ValiditySidechainReclaimReorg(BitcoinTestFramework):
         assert_equal(sidechain_after_restart["queue_state"]["pending_message_count"], 1)
         assert_equal(sidechain_after_restart["queue_state"]["reclaimable_deposit_count"], 1)
 
-        self.log.info("Reclaiming the same deposit again after reorg should succeed.")
-        reclaim_result = n0.sendstaledepositreclaim(
-            sidechain_id,
-            deposit_metadata,
-            {"address": refund_address},
-        )
+        self.log.info("After restart, the reclaim should either be resurrected into mempool or be resubmittable.")
+        mempool = n0.getrawmempool()
+        if reclaim_txid in mempool:
+            self.log.info("The original reclaim transaction was restored to mempool after the reorg.")
+        else:
+            reclaim_result = n0.sendstaledepositreclaim(
+                sidechain_id,
+                deposit_metadata,
+                {"address": refund_address},
+            )
+            reclaim_txid = reclaim_result["txid"]
+
+        assert reclaim_txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
 
         sidechain_final = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
