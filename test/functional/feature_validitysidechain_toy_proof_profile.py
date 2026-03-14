@@ -272,6 +272,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_valid_vector["expected_result"], "accept_in_native_verifier")
         assert_equal(real_mismatch_vector["expected_result"], "reject")
         assert_equal(real_corrupt_vector["expected_result"], "reject")
+        refund_address = node.getnewaddress()
 
         if toy_external_backend_ready:
             vector_sidechain_id = int(valid_vector["public_inputs"]["sidechain_id"])
@@ -284,7 +285,6 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             node.sendvaliditysidechainregister(vector_sidechain_id, vector_config)
             node.generate(1)
 
-            refund_address = node.getnewaddress()
             queued_entries = []
             for index in range(3):
                 deposit_res = node.sendvaliditydeposit(
