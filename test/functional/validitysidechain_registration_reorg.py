@@ -66,7 +66,8 @@ class ValiditySidechainRegistrationReorg(BitcoinTestFramework):
         self.log.info("Split the network and create sidechain state only on node0.")
         self.disconnect_nodes(0, 1)
 
-        n0.sendvaliditysidechainregister(sidechain_id, config)
+        register_result = n0.sendvaliditysidechainregister(sidechain_id, config)
+        register_txid = register_result["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
         deposit_result = n0.sendvaliditydeposit(
             sidechain_id,
@@ -76,6 +77,7 @@ class ValiditySidechainRegistrationReorg(BitcoinTestFramework):
             7,
             deposit_id,
         )
+        deposit_txid = deposit_result["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
 
         sidechain_n0 = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
@@ -98,24 +100,41 @@ class ValiditySidechainRegistrationReorg(BitcoinTestFramework):
         n0 = self.nodes[0]
         assert_equal(n0.getvaliditysidechaininfo()["sidechains"], [])
 
-        self.log.info("Re-registering the same sidechain id and deposit after reorg should succeed.")
-        n0.sendvaliditysidechainregister(sidechain_id, config)
+        self.log.info("After restart, the registration should either be resurrected into mempool or be resubmittable.")
+        mempool = n0.getrawmempool()
+        if register_txid in mempool:
+            self.log.info("The original registration transaction was restored to mempool after the reorg.")
+        else:
+            register_result = n0.sendvaliditysidechainregister(sidechain_id, config)
+            register_txid = register_result["txid"]
+
+        assert register_txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
-        repeat_deposit_result = n0.sendvaliditydeposit(
-            sidechain_id,
-            destination_commitment,
-            {"address": refund_address},
-            Decimal("1.0"),
-            7,
-            deposit_id,
-        )
+
+        self.log.info("After the registration re-confirms, the original deposit should either be restored to mempool or be resubmittable.")
+        mempool = n0.getrawmempool()
+        if deposit_txid in mempool:
+            self.log.info("The original deposit transaction was restored to mempool after the reorg.")
+        else:
+            repeat_deposit_result = n0.sendvaliditydeposit(
+                sidechain_id,
+                destination_commitment,
+                {"address": refund_address},
+                Decimal("1.0"),
+                7,
+                deposit_id,
+            )
+            assert_equal(repeat_deposit_result["deposit_id"], deposit_result["deposit_id"])
+            deposit_txid = repeat_deposit_result["txid"]
+
+        assert deposit_txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
 
         sidechain_after = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
         assert sidechain_after is not None
         assert_equal(sidechain_after["escrow_balance"], 100000000)
         assert_equal(sidechain_after["queue_state"]["pending_message_count"], 1)
-        assert_equal(repeat_deposit_result["deposit_id"], deposit_result["deposit_id"])
+        assert_equal(deposit_result["deposit_id"], deposit_id)
 
 
 if __name__ == "__main__":
