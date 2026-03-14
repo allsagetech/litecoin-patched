@@ -49,6 +49,18 @@ struct ParsedVerifierManifest
     std::string backend_name;
     std::string verifying_key_file;
     std::string proving_key_file;
+    bool has_consensus_tuple{false};
+    uint8_t version{0};
+    uint8_t proof_system_id{0};
+    uint8_t circuit_family_id{0};
+    uint8_t verifier_id{0};
+    uint8_t public_input_version{0};
+    uint8_t state_root_format{0};
+    uint8_t deposit_message_format{0};
+    uint8_t withdrawal_leaf_format{0};
+    uint8_t balance_leaf_format{0};
+    uint8_t data_availability_mode{0};
+    std::vector<std::string> public_inputs;
     std::vector<std::string> valid_vector_files;
     std::vector<std::string> invalid_vector_files;
 };
@@ -239,6 +251,56 @@ static bool ParseStringArray(
     return true;
 }
 
+static bool ParseManifestUint8(
+    const UniValue& value,
+    const char* field_name,
+    uint8_t& out_value,
+    std::string* error)
+{
+    if (!value.isNum()) {
+        return FailValidation(error, field_name);
+    }
+    const int64_t parsed = value.get_int64();
+    if (parsed < 0 || parsed > std::numeric_limits<uint8_t>::max()) {
+        return FailValidation(error, field_name);
+    }
+    out_value = static_cast<uint8_t>(parsed);
+    return true;
+}
+
+static std::vector<std::string> ExpectedManifestPublicInputs(const SupportedValiditySidechainConfig& supported)
+{
+    if (supported.profile_name != nullptr &&
+        std::string(supported.profile_name) == TOY_PROFILE_NAME) {
+        return {
+            "sidechain_id",
+            "batch_number",
+            "prior_state_root",
+            "new_state_root",
+            "consumed_queue_messages",
+            "withdrawal_root",
+            "data_root",
+        };
+    }
+    if (supported.profile_name != nullptr &&
+        std::string(supported.profile_name) == POSEIDON_PROFILE_NAME) {
+        return {
+            "sidechain_id",
+            "batch_number",
+            "prior_state_root",
+            "new_state_root",
+            "l1_message_root_before",
+            "l1_message_root_after",
+            "consumed_queue_messages",
+            "queue_prefix_commitment",
+            "withdrawal_root",
+            "data_root",
+            "data_size",
+        };
+    }
+    return {};
+}
+
 static bool ParseVerifierManifest(
     const fs::path& manifest_path,
     ParsedVerifierManifest& out_manifest,
@@ -284,6 +346,29 @@ static bool ParseVerifierManifest(
     const UniValue& proving_key_file = find_value(root, "proving_key_file");
     if (proving_key_file.isStr()) {
         out_manifest.proving_key_file = proving_key_file.get_str();
+    }
+
+    const UniValue& consensus_tuple = find_value(root, "consensus_tuple");
+    if (consensus_tuple.isObject()) {
+        if (!ParseManifestUint8(find_value(consensus_tuple, "version"), "profile manifest consensus_tuple.version is invalid", out_manifest.version, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "proof_system_id"), "profile manifest consensus_tuple.proof_system_id is invalid", out_manifest.proof_system_id, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "circuit_family_id"), "profile manifest consensus_tuple.circuit_family_id is invalid", out_manifest.circuit_family_id, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "verifier_id"), "profile manifest consensus_tuple.verifier_id is invalid", out_manifest.verifier_id, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "public_input_version"), "profile manifest consensus_tuple.public_input_version is invalid", out_manifest.public_input_version, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "state_root_format"), "profile manifest consensus_tuple.state_root_format is invalid", out_manifest.state_root_format, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "deposit_message_format"), "profile manifest consensus_tuple.deposit_message_format is invalid", out_manifest.deposit_message_format, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "withdrawal_leaf_format"), "profile manifest consensus_tuple.withdrawal_leaf_format is invalid", out_manifest.withdrawal_leaf_format, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "balance_leaf_format"), "profile manifest consensus_tuple.balance_leaf_format is invalid", out_manifest.balance_leaf_format, error) ||
+            !ParseManifestUint8(find_value(consensus_tuple, "data_availability_mode"), "profile manifest consensus_tuple.data_availability_mode is invalid", out_manifest.data_availability_mode, error)) {
+            return false;
+        }
+        out_manifest.has_consensus_tuple = true;
+    }
+
+    const UniValue& public_inputs = find_value(root, "public_inputs");
+    if (!public_inputs.isNull() &&
+        !ParseStringArray(public_inputs, out_manifest.public_inputs)) {
+        return FailValidation(error, "profile manifest public_inputs must be a string array");
     }
 
     const UniValue& proof_vectors = find_value(root, "proof_vectors");
@@ -364,6 +449,8 @@ static bool PopulateVerifierAssetsStatus(
         out_status.profile_manifest_backend = manifest.backend_name;
         out_status.valid_proof_vector_count = static_cast<uint64_t>(manifest.valid_vector_files.size());
         out_status.invalid_proof_vector_count = static_cast<uint64_t>(manifest.invalid_vector_files.size());
+        out_status.profile_manifest_public_input_count = static_cast<uint64_t>(manifest.public_inputs.size());
+        out_status.profile_manifest_public_inputs = manifest.public_inputs;
 
         for (const auto& relpath : manifest.valid_vector_files) {
             out_status.valid_proof_vector_paths.push_back((artifact_dir / relpath).string());
@@ -393,6 +480,38 @@ static bool PopulateVerifierAssetsStatus(
             out_status.prover_assets_present = false;
             out_status.backend_ready = false;
             out_status.status = "profile manifest backend does not match supported profile";
+            return true;
+        }
+
+        out_status.profile_manifest_tuple_matches =
+            manifest.has_consensus_tuple &&
+            manifest.version == supported.version &&
+            manifest.proof_system_id == supported.proof_system_id &&
+            manifest.circuit_family_id == supported.circuit_family_id &&
+            manifest.verifier_id == supported.verifier_id &&
+            manifest.public_input_version == supported.public_input_version &&
+            manifest.state_root_format == supported.state_root_format &&
+            manifest.deposit_message_format == supported.deposit_message_format &&
+            manifest.withdrawal_leaf_format == supported.withdrawal_leaf_format &&
+            manifest.balance_leaf_format == supported.balance_leaf_format &&
+            manifest.data_availability_mode == supported.data_availability_mode;
+        if (!out_status.profile_manifest_tuple_matches) {
+            out_status.assets_present = false;
+            out_status.prover_assets_present = false;
+            out_status.backend_ready = false;
+            out_status.status = "profile manifest consensus tuple does not match supported profile";
+            return true;
+        }
+
+        const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(supported);
+        out_status.profile_manifest_public_inputs_match =
+            !expected_public_inputs.empty() &&
+            manifest.public_inputs == expected_public_inputs;
+        if (!expected_public_inputs.empty() && !out_status.profile_manifest_public_inputs_match) {
+            out_status.assets_present = false;
+            out_status.prover_assets_present = false;
+            out_status.backend_ready = false;
+            out_status.status = "profile manifest public inputs do not match supported profile";
             return true;
         }
 

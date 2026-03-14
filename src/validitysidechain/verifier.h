@@ -32,6 +32,8 @@ struct ValiditySidechainVerifierAssetsStatus
     bool profile_manifest_name_matches{false};
     bool profile_manifest_backend_matches{false};
     bool profile_manifest_key_layout_matches{false};
+    bool profile_manifest_tuple_matches{false};
+    bool profile_manifest_public_inputs_match{false};
     bool valid_proof_vectors_present{false};
     bool invalid_proof_vectors_present{false};
     std::string artifact_name;
@@ -46,8 +48,10 @@ struct ValiditySidechainVerifierAssetsStatus
     uint64_t proving_key_bytes{0};
     uint64_t valid_proof_vector_count{0};
     uint64_t invalid_proof_vector_count{0};
+    uint64_t profile_manifest_public_input_count{0};
     std::vector<std::string> valid_proof_vector_paths;
     std::vector<std::string> invalid_proof_vector_paths;
+    std::vector<std::string> profile_manifest_public_inputs;
     std::string status;
 };
 

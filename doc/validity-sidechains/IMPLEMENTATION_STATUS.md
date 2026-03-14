@@ -105,9 +105,9 @@ This means:
   through `contrib/validitysidechain-zk-demo`, but it proves only a toy
   arithmetic relation and does not satisfy the intended trustless sidechain
   semantics
-- external-profile asset status now validates manifest name/backend/key layout
-  and listed valid/invalid proof-vector files instead of treating file presence
-  alone as sufficient
+- external-profile asset status now validates manifest name, consensus tuple,
+  declared public-input layout, backend/key layout, and listed valid/invalid
+  proof-vector files instead of treating file presence alone as sufficient
 - the proposed Groth16 profile now has a fixed consensus tuple and expected
   verifier-asset layout, but batch validation still hard-fails until the
   verifying key assets exist and the real verifier backend is implemented

@@ -197,6 +197,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             assert_equal(toy_supported["verifier_assets"]["profile_manifest_name_matches"], True)
             assert_equal(toy_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
             assert_equal(toy_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+            assert_equal(toy_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+            assert_equal(toy_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
             assert_equal(toy_supported["verifier_assets"]["valid_proof_vectors_present"], True)
             assert_equal(toy_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_supported["scaffolding_only"], False)
@@ -209,6 +211,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         if real_supported["verifier_assets"]["profile_manifest_parsed"]:
             assert_equal(real_supported["verifier_assets"]["profile_manifest_name_matches"], True)
             assert_equal(real_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+            assert_equal(real_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+            assert_equal(real_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
             assert_equal(real_supported["verifier_assets"]["valid_proof_vectors_present"], True)
             assert_equal(real_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
 
@@ -578,6 +582,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         if real_sidechain["verifier_assets"]["profile_manifest_parsed"]:
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_name_matches"], True)
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+            assert_equal(real_sidechain["verifier_assets"]["profile_manifest_tuple_matches"], True)
+            assert_equal(real_sidechain["verifier_assets"]["profile_manifest_public_inputs_match"], True)
 
         real_public_inputs = {
             "batch_number": 1,

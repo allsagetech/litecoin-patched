@@ -272,9 +272,12 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
     if (status.profile_manifest_parsed) {
         BOOST_CHECK(status.profile_manifest_name_matches);
         BOOST_CHECK(status.profile_manifest_key_layout_matches);
+        BOOST_CHECK(status.profile_manifest_tuple_matches);
+        BOOST_CHECK(status.profile_manifest_public_inputs_match);
         BOOST_CHECK_EQUAL(status.profile_manifest_name, "groth16_bls12_381_poseidon_v1");
         BOOST_CHECK_GE(status.valid_proof_vector_count, 1U);
         BOOST_CHECK_GE(status.invalid_proof_vector_count, 1U);
+        BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 11U);
     }
     BOOST_CHECK(
         status.status == "missing profile manifest" ||
@@ -293,12 +296,15 @@ BOOST_AUTO_TEST_CASE(toy_profile_requires_external_command_or_assets)
         BOOST_CHECK(status.profile_manifest_name_matches);
         BOOST_CHECK(status.profile_manifest_backend_matches);
         BOOST_CHECK(status.profile_manifest_key_layout_matches);
+        BOOST_CHECK(status.profile_manifest_tuple_matches);
+        BOOST_CHECK(status.profile_manifest_public_inputs_match);
         BOOST_CHECK(status.valid_proof_vectors_present);
         BOOST_CHECK(status.invalid_proof_vectors_present);
         BOOST_CHECK_EQUAL(status.profile_manifest_name, "gnark_groth16_toy_batch_transition_v1");
         BOOST_CHECK_EQUAL(status.profile_manifest_backend, "external_gnark_command");
         BOOST_CHECK_EQUAL(status.valid_proof_vector_count, 1U);
         BOOST_CHECK_EQUAL(status.invalid_proof_vector_count, 2U);
+        BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 7U);
     }
     BOOST_CHECK(
         status.status == "missing profile manifest" ||
