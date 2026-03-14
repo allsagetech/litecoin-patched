@@ -45,6 +45,25 @@ def load_json(path):
         return json.load(handle)
 
 
+def pad_field_hex(raw_value):
+    return raw_value.lower().rjust(64, "0")
+
+
+def vector_public_inputs(vector):
+    return {
+        "batch_number": int(vector["public_inputs"]["batch_number"]),
+        "prior_state_root": pad_field_hex(vector["public_inputs"]["prior_state_root"]),
+        "new_state_root": pad_field_hex(vector["public_inputs"]["new_state_root"]),
+        "l1_message_root_before": pad_field_hex(vector["public_inputs"]["l1_message_root_before"]),
+        "l1_message_root_after": pad_field_hex(vector["public_inputs"]["l1_message_root_after"]),
+        "consumed_queue_messages": int(vector["public_inputs"]["consumed_queue_messages"]),
+        "queue_prefix_commitment": pad_field_hex(vector["public_inputs"].get("queue_prefix_commitment", "0")),
+        "withdrawal_root": pad_field_hex(vector["public_inputs"]["withdrawal_root"]),
+        "data_root": pad_field_hex(vector["public_inputs"]["data_root"]),
+        "data_size": int(vector["public_inputs"]["data_size"]),
+    }
+
+
 class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
@@ -55,8 +74,10 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
         self.source_artifact_root = self.repo_root / "artifacts"
         self.toy_source_dir = self.source_artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"
         self.native_toy_source_dir = self.source_artifact_root / "validitysidechain" / "native_blst_groth16_toy_batch_transition_v1"
+        self.real_source_dir = self.source_artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
         self.valid_vector_path = self.toy_source_dir / "valid" / "valid_proof.json"
         self.native_valid_vector_path = self.native_toy_source_dir / "valid" / "valid_proof.json"
+        self.real_valid_vector_path = self.real_source_dir / "valid" / "valid_proof.json"
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -68,6 +89,10 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
             self.skipTest("native toy artifact directory is missing")
         if not self.native_valid_vector_path.exists():
             self.skipTest("native toy valid proof vector is missing")
+        if not self.real_source_dir.exists():
+            self.skipTest("real artifact directory is missing")
+        if not self.real_valid_vector_path.exists():
+            self.skipTest("real valid proof vector is missing")
 
     def rewrite_manifest(self, artifact_root, profile_name, mutate_fn):
         manifest_path = artifact_root / "validitysidechain" / profile_name / "profile.json"
@@ -98,32 +123,20 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
         assert_equal(supported["verifier_assets"]["status"], expected_status)
         assert_equal(supported["verifier_assets"][broken_field], False)
 
+        valid_vector = load_json(vector_path)
         config = build_register_config(
             supported,
-            initial_state_root="10" * 32,
+            initial_state_root=pad_field_hex(valid_vector["public_inputs"]["prior_state_root"]),
             initial_withdrawal_root="10" * 32,
         )
         node.sendvaliditysidechainregister(sidechain_id, config)
         node.generate(1)
-
-        public_inputs = {
-            "batch_number": sidechain_id + 1,
-            "prior_state_root": "10" * 32,
-            "new_state_root": "10" * 32,
-            "l1_message_root_before": "00" * 32,
-            "l1_message_root_after": "00" * 32,
-            "consumed_queue_messages": 0,
-            "withdrawal_root": "11" * 32,
-            "data_root": "12" * 32,
-            "data_size": 0,
-        }
-        valid_vector = load_json(vector_path)
         assert_raises_rpc_error(
             -26,
             expected_status,
             node.sendvaliditybatch,
             sidechain_id,
-            public_inputs,
+            vector_public_inputs(valid_vector),
             valid_vector["proof_bytes_hex"],
         )
 
@@ -161,7 +174,11 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
                 "data_root",
             ]
 
-        self.rewrite_manifest(public_inputs_root, mutate_public_inputs)
+        self.rewrite_manifest(
+            public_inputs_root,
+            "gnark_groth16_toy_batch_transition_v1",
+            mutate_public_inputs,
+        )
         self.restart_with_artifacts(public_inputs_root)
         self.assert_broken_profile_rejects_batches(
             self.nodes[0],
@@ -203,6 +220,40 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
             "native_blst_groth16_toy_batch_transition_v1",
             self.native_valid_vector_path,
             34,
+            "profile manifest public inputs do not match supported profile",
+            "profile_manifest_public_inputs_match",
+        )
+
+        self.log.info("Restarting against a real artifact bundle with a mismatched consensus tuple.")
+        real_tuple_root = self.prepare_artifact_root("bad_artifacts_real_tuple")
+        self.rewrite_manifest(
+            real_tuple_root,
+            "groth16_bls12_381_poseidon_v1",
+            lambda manifest: manifest["consensus_tuple"].__setitem__("public_input_version", 99),
+        )
+        self.restart_with_artifacts(real_tuple_root)
+        self.assert_broken_profile_rejects_batches(
+            self.nodes[0],
+            "groth16_bls12_381_poseidon_v1",
+            self.real_valid_vector_path,
+            35,
+            "profile manifest consensus tuple does not match supported profile",
+            "profile_manifest_tuple_matches",
+        )
+
+        self.log.info("Restarting against a real artifact bundle with a mismatched public-input layout.")
+        real_public_inputs_root = self.prepare_artifact_root("bad_artifacts_real_public_inputs")
+        self.rewrite_manifest(
+            real_public_inputs_root,
+            "groth16_bls12_381_poseidon_v1",
+            mutate_public_inputs,
+        )
+        self.restart_with_artifacts(real_public_inputs_root)
+        self.assert_broken_profile_rejects_batches(
+            self.nodes[0],
+            "groth16_bls12_381_poseidon_v1",
+            self.real_valid_vector_path,
+            36,
             "profile manifest public inputs do not match supported profile",
             "profile_manifest_public_inputs_match",
         )

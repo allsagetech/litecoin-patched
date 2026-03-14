@@ -110,12 +110,16 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.artifact_root = self.repo_root / "artifacts"
         self.toy_artifact_dir = self.artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"
         self.native_toy_artifact_dir = self.artifact_root / "validitysidechain" / "native_blst_groth16_toy_batch_transition_v1"
+        self.real_artifact_dir = self.artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
         self.valid_vector_path = self.toy_artifact_dir / "valid" / "valid_proof.json"
         self.invalid_mismatch_vector_path = self.toy_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.invalid_corrupt_vector_path = self.toy_artifact_dir / "invalid" / "corrupt_proof.json"
         self.native_valid_vector_path = self.native_toy_artifact_dir / "valid" / "valid_proof.json"
         self.native_invalid_mismatch_vector_path = self.native_toy_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.native_invalid_corrupt_vector_path = self.native_toy_artifact_dir / "invalid" / "corrupt_proof.json"
+        self.real_valid_vector_path = self.real_artifact_dir / "valid" / "valid_proof.json"
+        self.real_invalid_mismatch_vector_path = self.real_artifact_dir / "invalid" / "public_input_mismatch.json"
+        self.real_invalid_corrupt_vector_path = self.real_artifact_dir / "invalid" / "corrupt_proof.json"
         self.have_go = shutil.which("go") is not None
 
         base_args = ["-acceptnonstdtxn=1"]
@@ -140,6 +144,9 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             self.native_valid_vector_path,
             self.native_invalid_mismatch_vector_path,
             self.native_invalid_corrupt_vector_path,
+            self.real_valid_vector_path,
+            self.real_invalid_mismatch_vector_path,
+            self.real_invalid_corrupt_vector_path,
         ):
             if not required_path.exists():
                 raise SkipTest(f"toy proof vector is missing: {required_path}")
@@ -176,6 +183,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
 
         toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
         native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
+        real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_backend"], "external_gnark_command")
         assert_equal(toy_supported["supports_external_prover"], True)
@@ -219,6 +227,28 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(native_toy_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(native_toy_supported["verifier_assets"]["valid_proof_vector_count"], 1)
         assert_equal(native_toy_supported["verifier_assets"]["invalid_proof_vector_count"], 2)
+        assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_supported["verifier_backend"], "native_blst_groth16")
+        assert_equal(real_supported["supports_external_prover"], True)
+        assert_equal(real_supported["verifier_assets"]["required"], True)
+        assert_equal(real_supported["verifier_assets"]["available"], True)
+        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], True)
+        assert_equal(real_supported["verifier_assets"]["backend_ready"], True)
+        assert_equal(real_supported["verifier_assets"]["native_backend_available"], True)
+        assert_equal(real_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_parsed"], True)
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_name"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_backend"], "native_blst_groth16")
+        assert_equal(real_supported["verifier_assets"]["profile_manifest_public_input_count"], 11)
+        assert_equal(real_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+        assert_equal(real_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
+        assert_equal(real_supported["verifier_assets"]["valid_proof_vector_count"], 1)
+        assert_equal(real_supported["verifier_assets"]["invalid_proof_vector_count"], 2)
 
         self.log.info("Replaying committed proof vectors through consensus.")
         valid_vector = load_json(self.valid_vector_path)
@@ -227,12 +257,18 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         native_valid_vector = load_json(self.native_valid_vector_path)
         native_mismatch_vector = load_json(self.native_invalid_mismatch_vector_path)
         native_corrupt_vector = load_json(self.native_invalid_corrupt_vector_path)
+        real_valid_vector = load_json(self.real_valid_vector_path)
+        real_mismatch_vector = load_json(self.real_invalid_mismatch_vector_path)
+        real_corrupt_vector = load_json(self.real_invalid_corrupt_vector_path)
         assert_equal(valid_vector["expected_result"], "accept_in_demo_verifier")
         assert_equal(mismatch_vector["expected_result"], "reject")
         assert_equal(corrupt_vector["expected_result"], "reject")
         assert_equal(native_valid_vector["expected_result"], "accept_in_native_verifier")
         assert_equal(native_mismatch_vector["expected_result"], "reject")
         assert_equal(native_corrupt_vector["expected_result"], "reject")
+        assert_equal(real_valid_vector["expected_result"], "accept_in_native_verifier")
+        assert_equal(real_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_corrupt_vector["expected_result"], "reject")
 
         vector_sidechain_id = int(valid_vector["public_inputs"]["sidechain_id"])
         vector_prior_state_root = pad_field_hex(valid_vector["public_inputs"]["prior_state_root"])
@@ -485,6 +521,68 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             invalid_public_inputs,
             corrupted_proof_hex,
         )
+
+        self.log.info("Replaying committed real proof vectors and auto-building a native-verified real-profile proof.")
+        real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
+        real_prior_state_root = pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"])
+        real_config = build_register_config(
+            real_supported,
+            initial_state_root=real_prior_state_root,
+            initial_withdrawal_root="00" * 32,
+        )
+        node.sendvaliditysidechainregister(real_sidechain_id, real_config)
+        node.generate(1)
+
+        real_public_inputs = {
+            "batch_number": int(real_valid_vector["public_inputs"]["batch_number"]),
+            "prior_state_root": real_prior_state_root,
+            "new_state_root": pad_field_hex(real_valid_vector["public_inputs"]["new_state_root"]),
+            "l1_message_root_before": pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_before"]),
+            "l1_message_root_after": pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_after"]),
+            "consumed_queue_messages": int(real_valid_vector["public_inputs"]["consumed_queue_messages"]),
+            "queue_prefix_commitment": pad_field_hex(real_valid_vector["public_inputs"]["queue_prefix_commitment"]),
+            "withdrawal_root": pad_field_hex(real_valid_vector["public_inputs"]["withdrawal_root"]),
+            "data_root": pad_field_hex(real_valid_vector["public_inputs"]["data_root"]),
+            "data_size": int(real_valid_vector["public_inputs"]["data_size"]),
+        }
+        real_mismatch_public_inputs = dict(real_public_inputs)
+        real_mismatch_public_inputs["new_state_root"] = pad_field_hex(real_mismatch_vector["public_inputs"]["new_state_root"])
+
+        assert_raises_rpc_error(
+            -26,
+            "Groth16 pairing doesn't match",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_mismatch_public_inputs,
+            real_mismatch_vector["proof_bytes_hex"],
+        )
+        assert_raises_rpc_error(
+            -26,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_public_inputs,
+            real_corrupt_vector["proof_bytes_hex"],
+        )
+
+        real_batch_res = node.sendvaliditybatch(
+            real_sidechain_id,
+            real_public_inputs,
+        )
+        assert_equal(real_batch_res["auto_scaffold_proof"], False)
+        assert_equal(real_batch_res["auto_external_proof"], True)
+        assert_equal(real_batch_res["auto_proof_backend"], "external_command")
+        node.generate(1)
+
+        real_sidechain = get_sidechain_info(node, real_sidechain_id)
+        assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_sidechain["latest_batch_number"], real_public_inputs["batch_number"])
+        assert_equal(real_sidechain["current_state_root"], real_public_inputs["new_state_root"])
+        assert_equal(real_sidechain["current_withdrawal_root"], real_public_inputs["withdrawal_root"])
+        assert_equal(real_sidechain["current_data_root"], real_public_inputs["data_root"])
+        assert_equal(real_sidechain["queue_state"]["head_index"], 0)
+        assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
+        assert real_sidechain["accepted_batches"][0]["proof_size"] > 0
 
 
 if __name__ == "__main__":

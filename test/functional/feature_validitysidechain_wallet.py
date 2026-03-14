@@ -3,6 +3,8 @@
 # Distributed under the MIT software license, see COPYING.
 
 from decimal import Decimal
+import json
+from pathlib import Path
 import struct
 
 from test_framework.messages import CTransaction, CTxOut, hash256, ser_uint256, uint256_from_str
@@ -49,6 +51,11 @@ def get_supported_profile(node, profile_name):
     raise AssertionError(f"missing supported proof profile {profile_name}")
 
 
+def load_json(path):
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def amount_to_sats(amount):
     return int(amount * Decimal("100000000"))
 
@@ -59,6 +66,10 @@ def hash256_uint256(payload):
 
 def compute_script_commitment(script_hex):
     return f"{hash256_uint256(bytes.fromhex(script_hex)):064x}"
+
+
+def pad_field_hex(raw_value):
+    return raw_value.lower().rjust(64, "0")
 
 
 def compute_merkle_root(encoded_leaves, leaf_magic, node_magic, root_magic):
@@ -178,6 +189,11 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
     def run_test(self):
         node = self.nodes[0]
+        repo_root = Path(__file__).resolve().parents[2]
+        real_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
+        real_valid_vector = load_json(real_artifact_dir / "valid" / "valid_proof.json")
+        real_mismatch_vector = load_json(real_artifact_dir / "invalid" / "public_input_mismatch.json")
+        real_corrupt_vector = load_json(real_artifact_dir / "invalid" / "corrupt_proof.json")
         mining_address = node.getnewaddress()
         node.generatetoaddress(101, mining_address)
 
@@ -225,12 +241,14 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             assert_equal(native_toy_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_supported["scaffolding_only"], False)
         assert_equal(real_supported["requires_external_verifier_assets"], True)
+        assert_equal(real_supported["supports_external_prover"], True)
         assert_equal(real_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["required"], True)
-        assert_equal(real_supported["verifier_assets"]["available"], False)
-        assert_equal(real_supported["verifier_assets"]["backend_ready"], False)
+        assert_equal(real_supported["verifier_assets"]["available"], True)
+        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], True)
+        assert_equal(real_supported["verifier_assets"]["backend_ready"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_self_test_passed"], True)
         assert_greater_than(real_supported["verifier_assets"]["native_backend_pairing_context_bytes"], 0)
@@ -591,12 +609,12 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(transition_sidechain["accepted_batches"][0]["withdrawal_root"], transition_public_inputs["withdrawal_root"])
         assert_equal(transition_sidechain["accepted_batches"][0]["data_root"], transition_public_inputs["data_root"])
 
-        self.log.info("Registering the proposed Groth16 profile and confirming it hard-fails without verifier assets.")
-        real_sidechain_id = 9
+        self.log.info("Registering the proposed Groth16 profile and replaying committed native proof vectors.")
+        real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
         real_config = build_register_config(
             real_supported,
-            initial_state_root="55" * 32,
-            initial_withdrawal_root="66" * 32,
+            initial_state_root=pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"]),
+            initial_withdrawal_root="00" * 32,
         )
         node.sendvaliditysidechainregister(real_sidechain_id, real_config)
         node.generate(1)
@@ -604,8 +622,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_sidechain = get_sidechain_info(node, real_sidechain_id)
         assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
-        assert_equal(real_sidechain["verifier_assets"]["available"], False)
-        assert_equal(real_sidechain["verifier_assets"]["backend_ready"], False)
+        assert_equal(real_sidechain["verifier_assets"]["available"], True)
+        assert_equal(real_sidechain["verifier_assets"]["prover_assets_present"], True)
+        assert_equal(real_sidechain["verifier_assets"]["backend_ready"], True)
         assert_equal(real_sidechain["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_sidechain["verifier_assets"]["native_backend_self_test_passed"], True)
         assert_greater_than(real_sidechain["verifier_assets"]["native_backend_pairing_context_bytes"], 0)
@@ -617,24 +636,53 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_public_inputs_match"], True)
 
         real_public_inputs = {
-            "batch_number": 1,
-            "prior_state_root": real_sidechain["current_state_root"],
-            "new_state_root": "77" * 32,
-            "l1_message_root_before": real_sidechain["queue_state"]["root"],
-            "l1_message_root_after": real_sidechain["queue_state"]["root"],
-            "consumed_queue_messages": 0,
-            "withdrawal_root": "88" * 32,
-            "data_root": "00" * 32,
-            "data_size": 0,
+            "batch_number": int(real_valid_vector["public_inputs"]["batch_number"]),
+            "prior_state_root": pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"]),
+            "new_state_root": pad_field_hex(real_valid_vector["public_inputs"]["new_state_root"]),
+            "l1_message_root_before": pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_before"]),
+            "l1_message_root_after": pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_after"]),
+            "consumed_queue_messages": int(real_valid_vector["public_inputs"]["consumed_queue_messages"]),
+            "queue_prefix_commitment": pad_field_hex(real_valid_vector["public_inputs"]["queue_prefix_commitment"]),
+            "withdrawal_root": pad_field_hex(real_valid_vector["public_inputs"]["withdrawal_root"]),
+            "data_root": pad_field_hex(real_valid_vector["public_inputs"]["data_root"]),
+            "data_size": int(real_valid_vector["public_inputs"]["data_size"]),
         }
+
         assert_raises_rpc_error(
             -26,
-            "verifier assets missing for supported profile",
+            "Groth16 pairing doesn't match",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            {
+                **real_public_inputs,
+                "new_state_root": pad_field_hex(real_mismatch_vector["public_inputs"]["new_state_root"]),
+            },
+            real_mismatch_vector["proof_bytes_hex"],
+        )
+        assert_raises_rpc_error(
+            -26,
+            "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
             real_public_inputs,
-            "01",
+            real_corrupt_vector["proof_bytes_hex"],
         )
+
+        real_batch_res = node.sendvaliditybatch(
+            real_sidechain_id,
+            real_public_inputs,
+            real_valid_vector["proof_bytes_hex"],
+        )
+        assert_equal(real_batch_res["auto_scaffold_proof"], False)
+        assert_equal(real_batch_res["auto_external_proof"], False)
+        node.generate(1)
+
+        real_sidechain = get_sidechain_info(node, real_sidechain_id)
+        assert_equal(real_sidechain["latest_batch_number"], real_public_inputs["batch_number"])
+        assert_equal(real_sidechain["current_state_root"], real_public_inputs["new_state_root"])
+        assert_equal(real_sidechain["current_withdrawal_root"], real_public_inputs["withdrawal_root"])
+        assert_equal(real_sidechain["current_data_root"], real_public_inputs["data_root"])
+        assert_equal(real_sidechain["accepted_batches"][0]["proof_size"], len(bytes.fromhex(real_valid_vector["proof_bytes_hex"])))
 
 
 if __name__ == "__main__":

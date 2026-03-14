@@ -1,24 +1,23 @@
 {
-  "placeholder": true,
   "name": "corrupt_proof",
+  "circuit": "poseidon_batch_transition_v1",
+  "curve": "bls12_381",
   "expected_result": "reject",
-  "expected_error": "proof verifier is not implemented or proof bytes fail verification once backend exists",
-  "sidechain_id": 9,
   "public_inputs": {
-    "batch_number": 1,
-    "prior_state_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "new_state_root": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "l1_message_root_before": "0000000000000000000000000000000000000000000000000000000000000000",
-    "l1_message_root_after": "1111111111111111111111111111111111111111111111111111111111111111",
-    "consumed_queue_messages": 2,
-    "queue_prefix_commitment": "2222222222222222222222222222222222222222222222222222222222222222",
-    "withdrawal_root": "3333333333333333333333333333333333333333333333333333333333333333",
-    "data_root": "4444444444444444444444444444444444444444444444444444444444444444",
-    "data_size": 96
+    "batch_number": "1",
+    "consumed_queue_messages": "0",
+    "data_root": "0",
+    "data_size": "0",
+    "l1_message_root_after": "0",
+    "l1_message_root_before": "0",
+    "new_state_root": "17ea78d127d90161ac47d3f8fed301358e85583ec333051cba7e594fabc4c3be",
+    "prior_state_root": "1",
+    "queue_prefix_commitment": "0",
+    "sidechain_id": "9",
+    "withdrawal_root": "67f22b73eb7b1c59aa6577335732f6a1cdabd5f5acdc06b150c03d0d3e14b185"
   },
-  "proof_bytes_hex": "00",
-  "data_chunks_hex": [
-    "deadbeef",
-    "c001d00d"
+  "proof_bytes_hex": "5653475001b89c708869e791aa5313ee4380308c812e496e5da4077b68128640f12c51de4a8a61a66114f6886db3612e28a6e201dba7677ada007bf8264208201e278cd3c798082f94a4f66f704b0eccca37b5de8d9dbdd37ee5849a06510fbe249158bcec04437fc32669af9f243c109ac9a2fe3456fa4d5c01b34af3694a2ce454457d65c945864918ea76215b819c24b4c95da8b2866e6b136f1283254255b162af800de5830e4db36bfe05f1c5f77c02b6cfbc1a4463f424a9e060e5822d351c832434",
+  "notes": [
+    "derived from the valid native proof by flipping one byte"
   ]
 }

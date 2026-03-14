@@ -1,8 +1,9 @@
 {
-  "profile_name": "groth16_bls12_381_poseidon_v1",
+  "name": "groth16_bls12_381_poseidon_v1",
+  "curve": "bls12_381",
   "backend": "native_blst_groth16",
-  "placeholder": true,
-  "status": "design-time placeholder only; not a real verifier artifact bundle",
+  "consensus_safe": false,
+  "status": "experimental real Groth16 profile with deterministic Poseidon2 public-input transition semantics",
   "consensus_tuple": {
     "version": 1,
     "proof_system_id": 2,
@@ -15,7 +16,6 @@
     "balance_leaf_format": 2,
     "data_availability_mode": 1
   },
-  "verifying_key_file": "batch_vk.bin",
   "public_inputs": [
     "sidechain_id",
     "batch_number",
@@ -29,9 +29,11 @@
     "data_root",
     "data_size"
   ],
+  "verifying_key_file": "batch_vk.bin",
+  "proving_key_file": "batch_pk.bin",
   "proof_vectors": {
     "valid": [
-      "valid/pending_real_vector.json"
+      "valid/valid_proof.json"
     ],
     "invalid": [
       "invalid/corrupt_proof.json",

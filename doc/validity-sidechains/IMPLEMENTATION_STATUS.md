@@ -126,24 +126,28 @@ This means:
 - the native backend now also evaluates the Groth16 pairing equation in-process
   against that parsed proof / VK format, with synthetic algebraic unit
   coverage
+- the proposed real profile now also has an experimental committed artifact
+  bundle with a real proving key, native verifying key, valid/invalid proof
+  vectors, and an external auto-prover path that emits native `VSGP` proof
+  bytes consumed by the in-process verifier
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
-- the proposed Groth16 profile now has a fixed consensus tuple and expected
-  verifier-asset layout, and the node now has a native verifier core, but
-  batch validation still cannot become trustless until real verifying-key
-  assets and real proof vectors exist for the intended circuit
+- the proposed Groth16 profile now has a fixed consensus tuple, expected
+  verifier-asset layout, committed experimental proof material, and a native
+  verifier core, but batch validation still cannot become trustless until the
+  final intended sidechain circuit replaces the current deterministic
+  public-input-only experimental semantics
 - the current native verifier path interprets each batch public input as a
   single BLS12-381 scalar, so the final real profile must either keep those
   roots / commitments field-sized or move to a decomposed public-input layout
-- the repo now contains a placeholder artifact bundle under `artifacts/`, but
-  it is explicitly marked non-real and does not satisfy the trustless gate
 - the remaining trustless blocker is no longer the generic pairing equation;
-  it is the absence of the real circuit assets and final sidechain proof
-  semantics for the intended profile
+  it is the absence of the final sidechain proof semantics for the intended
+  profile
 
 There is now a native in-process Groth16 verifier core in the repository, but
-the intended sidechain circuit and its real assets are still missing.
+the intended sidechain circuit semantics are still experimental rather than the
+final trustless state machine.
 
 ### Withdrawal execution
 
@@ -215,6 +219,10 @@ It also now has functional wallet/RPC coverage for:
   external verifier path
 - committed valid/invalid native toy proof-vector replay through the
   in-process `blst` verifier path
+- committed valid/invalid real-profile proof-vector replay through the
+  in-process `blst` verifier path
+- auto-built proof generation for the experimental real profile through the
+  configured external prover command path, with native in-process verification
 - malformed external verifier manifests for tuple/public-input mismatches
 - malformed batch DA rejection for missing chunks, malformed chunk ordering,
   oversized payloads, oversized proof bytes, and bad `data_root`
@@ -236,7 +244,7 @@ It also now has functional wallet/RPC coverage for:
 What is still missing or incomplete:
 
 - full functional coverage for the new validity-sidechain transaction families
-- real verifier test vectors
+- final non-toy sidechain verifier test vectors for the production semantics
 - DA failure-mode tests against a non-scaffold batch path
 - additional adversarial and long-range reorg coverage beyond the current
   registration, deposit, force-exit, batch, withdrawal, reclaim, and

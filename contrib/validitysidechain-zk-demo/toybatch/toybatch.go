@@ -22,6 +22,7 @@ type BatchPublicInputs struct {
 	L1MessageRootBefore   string `json:"l1_message_root_before"`
 	L1MessageRootAfter    string `json:"l1_message_root_after"`
 	ConsumedQueueMessages uint32 `json:"consumed_queue_messages"`
+	QueuePrefixCommitment string `json:"queue_prefix_commitment"`
 	WithdrawalRoot        string `json:"withdrawal_root"`
 	DataRoot              string `json:"data_root"`
 	DataSize              uint32 `json:"data_size"`

@@ -1,0 +1,285 @@
+package main
+
+import (
+	"bytes"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/nativegroth16"
+	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/realbatch"
+	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/toybatch"
+	"github.com/consensys/gnark/backend/groth16"
+	groth16bls12381 "github.com/consensys/gnark/backend/groth16/bls12-381"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/rs/zerolog"
+)
+
+const outputArtifactDir = "..\\..\\artifacts\\validitysidechain\\groth16_bls12_381_poseidon_v1"
+
+type outputFile struct {
+	Path     string `json:"path"`
+	Encoding string `json:"encoding"`
+	Contents string `json:"contents"`
+}
+
+type bundle struct {
+	OutputRoot string       `json:"output_root"`
+	Files      []outputFile `json:"files"`
+}
+
+type consensusTuple struct {
+	Version              uint8 `json:"version"`
+	ProofSystemID        uint8 `json:"proof_system_id"`
+	CircuitFamilyID      uint8 `json:"circuit_family_id"`
+	VerifierID           uint8 `json:"verifier_id"`
+	PublicInputVersion   uint8 `json:"public_input_version"`
+	StateRootFormat      uint8 `json:"state_root_format"`
+	DepositMessageFormat uint8 `json:"deposit_message_format"`
+	WithdrawalLeafFormat uint8 `json:"withdrawal_leaf_format"`
+	BalanceLeafFormat    uint8 `json:"balance_leaf_format"`
+	DataAvailabilityMode uint8 `json:"data_availability_mode"`
+}
+
+type proofVectors struct {
+	Valid   []string `json:"valid"`
+	Invalid []string `json:"invalid"`
+}
+
+type profileManifest struct {
+	Name             string         `json:"name"`
+	Curve            string         `json:"curve"`
+	Backend          string         `json:"backend"`
+	ConsensusSafe    bool           `json:"consensus_safe"`
+	Status           string         `json:"status"`
+	ConsensusTuple   consensusTuple `json:"consensus_tuple"`
+	PublicInputs     []string       `json:"public_inputs"`
+	VerifyingKeyFile string         `json:"verifying_key_file"`
+	ProvingKeyFile   string         `json:"proving_key_file"`
+	ProofVectors     proofVectors   `json:"proof_vectors"`
+}
+
+type vectorFile struct {
+	Name           string            `json:"name"`
+	Circuit        string            `json:"circuit"`
+	Curve          string            `json:"curve"`
+	ExpectedResult string            `json:"expected_result"`
+	PublicInputs   map[string]string `json:"public_inputs"`
+	ProofBytesHex  string            `json:"proof_bytes_hex"`
+	Notes          []string          `json:"notes,omitempty"`
+}
+
+func main() {
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
+	outputRoot, err := filepath.Abs(outputArtifactDir)
+	if err != nil {
+		panic(err)
+	}
+
+	request := toybatch.CommandRequest{
+		ProfileName: realbatch.ProfileName,
+		SidechainID: 9,
+		PublicInputs: toybatch.BatchPublicInputs{
+			BatchNumber:           1,
+			PriorStateRoot:        "1",
+			NewStateRoot:          "0",
+			L1MessageRootBefore:   "0",
+			L1MessageRootAfter:    "0",
+			ConsumedQueueMessages: 0,
+			QueuePrefixCommitment: "0",
+			WithdrawalRoot:        "0",
+			DataRoot:              "0",
+			DataSize:              0,
+		},
+	}
+	derivedRequest, err := realbatch.DeriveRequest(request)
+	if err != nil {
+		panic(err)
+	}
+	assignment, err := realbatch.BuildAssignment(derivedRequest)
+	if err != nil {
+		panic(err)
+	}
+
+	var circuit realbatch.PoseidonBatchTransitionCircuit
+	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, &circuit)
+	if err != nil {
+		panic(err)
+	}
+
+	pk, vk, err := groth16.Setup(ccs)
+	if err != nil {
+		panic(err)
+	}
+
+	witness, err := frontend.NewWitness(&assignment, ecc.BLS12_381.ScalarField())
+	if err != nil {
+		panic(err)
+	}
+	proof, err := groth16.Prove(ccs, pk, witness)
+	if err != nil {
+		panic(err)
+	}
+
+	var rawProof bytes.Buffer
+	if _, err := proof.WriteTo(&rawProof); err != nil {
+		panic(err)
+	}
+	var rawVK bytes.Buffer
+	if _, err := vk.WriteTo(&rawVK); err != nil {
+		panic(err)
+	}
+	var rawPK bytes.Buffer
+	if _, err := pk.WriteTo(&rawPK); err != nil {
+		panic(err)
+	}
+
+	var nativeProof groth16bls12381.Proof
+	if _, err := nativeProof.ReadFrom(bytes.NewReader(rawProof.Bytes())); err != nil {
+		panic(err)
+	}
+	var nativeVK groth16bls12381.VerifyingKey
+	if _, err := nativeVK.ReadFrom(bytes.NewReader(rawVK.Bytes())); err != nil {
+		panic(err)
+	}
+
+	validProofBytes := nativegroth16.EncodeProof(&nativeProof)
+	corruptProofBytes := append([]byte{}, validProofBytes...)
+	corruptProofBytes[len(corruptProofBytes)-1] ^= 0x01
+
+	validVector := vectorFile{
+		Name:           "valid_proof",
+		Circuit:        "poseidon_batch_transition_v1",
+		Curve:          "bls12_381",
+		ExpectedResult: "accept_in_native_verifier",
+		PublicInputs:   publicInputsMap(derivedRequest),
+		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		Notes: []string{
+			"real Groth16 proof for the experimental poseidon batch transition circuit",
+			"verified in-process by the node native blst Groth16 path",
+		},
+	}
+	mismatchRequest := derivedRequest
+	mismatchRequest.PublicInputs.NewStateRoot = "2"
+	mismatchVector := vectorFile{
+		Name:           "public_input_mismatch",
+		Circuit:        "poseidon_batch_transition_v1",
+		Curve:          "bls12_381",
+		ExpectedResult: "reject",
+		PublicInputs:   publicInputsMap(mismatchRequest),
+		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		Notes: []string{
+			"reuses the valid proof against mismatched public inputs",
+		},
+	}
+	corruptVector := vectorFile{
+		Name:           "corrupt_proof",
+		Circuit:        "poseidon_batch_transition_v1",
+		Curve:          "bls12_381",
+		ExpectedResult: "reject",
+		PublicInputs:   publicInputsMap(derivedRequest),
+		ProofBytesHex:  hex.EncodeToString(corruptProofBytes),
+		Notes: []string{
+			"derived from the valid native proof by flipping one byte",
+		},
+	}
+
+	manifest := profileManifest{
+		Name:          realbatch.ProfileName,
+		Curve:         "bls12_381",
+		Backend:       "native_blst_groth16",
+		ConsensusSafe: false,
+		Status:        "experimental real Groth16 profile with deterministic Poseidon2 public-input transition semantics",
+		ConsensusTuple: consensusTuple{
+			Version:              1,
+			ProofSystemID:        2,
+			CircuitFamilyID:      1,
+			VerifierID:           1,
+			PublicInputVersion:   2,
+			StateRootFormat:      2,
+			DepositMessageFormat: 1,
+			WithdrawalLeafFormat: 2,
+			BalanceLeafFormat:    2,
+			DataAvailabilityMode: 1,
+		},
+		PublicInputs: []string{
+			"sidechain_id",
+			"batch_number",
+			"prior_state_root",
+			"new_state_root",
+			"l1_message_root_before",
+			"l1_message_root_after",
+			"consumed_queue_messages",
+			"queue_prefix_commitment",
+			"withdrawal_root",
+			"data_root",
+			"data_size",
+		},
+		VerifyingKeyFile: "batch_vk.bin",
+		ProvingKeyFile:   "batch_pk.bin",
+		ProofVectors: proofVectors{
+			Valid:   []string{"valid/valid_proof.json"},
+			Invalid: []string{"invalid/corrupt_proof.json", "invalid/public_input_mismatch.json"},
+		},
+	}
+
+	out := bundle{
+		OutputRoot: outputRoot,
+		Files: []outputFile{
+			utf8File("profile.json", mustJSON(manifest)),
+			base64File("batch_vk.bin", nativegroth16.EncodeVerificationKey(&nativeVK)),
+			base64File("batch_pk.bin", rawPK.Bytes()),
+			utf8File("valid/valid_proof.json", mustJSON(validVector)),
+			utf8File("invalid/corrupt_proof.json", mustJSON(corruptVector)),
+			utf8File("invalid/public_input_mismatch.json", mustJSON(mismatchVector)),
+		},
+	}
+
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(out); err != nil {
+		panic(err)
+	}
+}
+
+func publicInputsMap(request toybatch.CommandRequest) map[string]string {
+	return map[string]string{
+		"sidechain_id":            itoa(uint64(request.SidechainID)),
+		"batch_number":            itoa(uint64(request.PublicInputs.BatchNumber)),
+		"prior_state_root":        request.PublicInputs.PriorStateRoot,
+		"new_state_root":          request.PublicInputs.NewStateRoot,
+		"l1_message_root_before":  request.PublicInputs.L1MessageRootBefore,
+		"l1_message_root_after":   request.PublicInputs.L1MessageRootAfter,
+		"consumed_queue_messages": itoa(uint64(request.PublicInputs.ConsumedQueueMessages)),
+		"queue_prefix_commitment": request.PublicInputs.QueuePrefixCommitment,
+		"withdrawal_root":         request.PublicInputs.WithdrawalRoot,
+		"data_root":               request.PublicInputs.DataRoot,
+		"data_size":               itoa(uint64(request.PublicInputs.DataSize)),
+	}
+}
+
+func itoa(value uint64) string {
+	return strconv.FormatUint(value, 10)
+}
+
+func mustJSON(value any) string {
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
+}
+
+func utf8File(path string, contents string) outputFile {
+	return outputFile{Path: filepath.ToSlash(path), Encoding: "utf8", Contents: contents}
+}
+
+func base64File(path string, contents []byte) outputFile {
+	return outputFile{Path: filepath.ToSlash(path), Encoding: "base64", Contents: base64.StdEncoding.EncodeToString(contents)}
+}

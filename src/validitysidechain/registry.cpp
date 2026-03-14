@@ -145,7 +145,7 @@ const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidecha
             /* verifier_backend           = */ "native_blst_groth16",
             /* scaffolding_only           = */ false,
             /* requires_external_verifier_assets = */ true,
-            /* supports_external_prover   = */ false,
+            /* supports_external_prover   = */ true,
             /* version                    = */ 1,
             /* proof_system_id            = */ 2,
             /* circuit_family_id          = */ 1,

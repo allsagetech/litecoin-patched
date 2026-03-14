@@ -278,6 +278,7 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK_EQUAL(std::string(supported_configs.back().profile_name), "groth16_bls12_381_poseidon_v1");
     BOOST_CHECK(!supported_configs.back().scaffolding_only);
     BOOST_CHECK(supported_configs.back().requires_external_verifier_assets);
+    BOOST_CHECK(supported_configs.back().supports_external_prover);
     BOOST_CHECK_EQUAL(
         GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 4)),
         ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1);
@@ -289,14 +290,15 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_REQUIRE(FindSupportedValiditySidechainConfig(config) != nullptr);
 }
 
-BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
+BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist)
 {
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
     BOOST_CHECK(status.requires_external_assets);
-    BOOST_CHECK(!status.assets_present);
-    BOOST_CHECK(!status.backend_ready);
+    BOOST_CHECK(status.assets_present);
+    BOOST_CHECK(status.prover_assets_present);
+    BOOST_CHECK(status.backend_ready);
     BOOST_CHECK(status.native_backend_available);
     BOOST_CHECK(status.native_backend_self_test_passed);
     BOOST_CHECK_GT(status.native_backend_pairing_context_bytes, 0U);
@@ -308,15 +310,14 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
         BOOST_CHECK(status.profile_manifest_key_layout_matches);
         BOOST_CHECK(status.profile_manifest_tuple_matches);
         BOOST_CHECK(status.profile_manifest_public_inputs_match);
+        BOOST_CHECK(status.valid_proof_vectors_present);
+        BOOST_CHECK(status.invalid_proof_vectors_present);
         BOOST_CHECK_EQUAL(status.profile_manifest_name, "groth16_bls12_381_poseidon_v1");
         BOOST_CHECK_GE(status.valid_proof_vector_count, 1U);
         BOOST_CHECK_GE(status.invalid_proof_vector_count, 1U);
         BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 11U);
     }
-    BOOST_CHECK(
-        status.status == "missing profile manifest" ||
-        status.status == "missing verifying key" ||
-        status.status == "placeholder verifier artifacts only");
+    BOOST_CHECK_EQUAL(status.status, "native blst Groth16 verifier ready");
 }
 
 BOOST_AUTO_TEST_CASE(native_toy_profile_reports_native_backend_ready_when_assets_exist)
@@ -805,7 +806,7 @@ BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
     BOOST_CHECK(batch->queue_prefix_commitment == public_inputs.queue_prefix_commitment);
 }
 
-BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_without_verifier_assets)
+BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_invalid_native_proof_bytes)
 {
     ValiditySidechainState state;
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
@@ -825,7 +826,7 @@ BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_without_verifier_assets)
         std::vector<unsigned char>{0x01},
         {},
         &error));
-    BOOST_CHECK_EQUAL(error, "verifier assets missing for supported profile");
+    BOOST_CHECK_EQUAL(error, "Groth16 proof bytes have unexpected length");
 }
 
 BOOST_AUTO_TEST_CASE(accept_batch_rejects_invalid_scaffold_proof_envelope)
