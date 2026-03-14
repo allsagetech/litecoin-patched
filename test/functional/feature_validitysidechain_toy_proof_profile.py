@@ -190,9 +190,12 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(toy_supported["verifier_assets"]["required"], True)
         assert_equal(toy_supported["verifier_assets"]["available"], True)
         assert_equal(toy_supported["verifier_assets"]["prover_assets_present"], True)
-        assert_equal(toy_supported["verifier_assets"]["backend_ready"], True)
-        assert_equal(toy_supported["verifier_assets"]["verifier_command_configured"], True)
-        assert_equal(toy_supported["verifier_assets"]["prover_command_configured"], True)
+        toy_external_backend_ready = toy_supported["verifier_assets"]["backend_ready"]
+        if toy_external_backend_ready:
+            assert_equal(toy_supported["verifier_assets"]["verifier_command_configured"], True)
+            assert_equal(toy_supported["verifier_assets"]["prover_command_configured"], True)
+        else:
+            assert_equal(toy_supported["verifier_assets"]["status"], "boost process support not built")
         assert_equal(toy_supported["verifier_assets"]["profile_manifest_parsed"], True)
         assert_equal(toy_supported["verifier_assets"]["profile_manifest_name_matches"], True)
         assert_equal(toy_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
@@ -270,91 +273,94 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_mismatch_vector["expected_result"], "reject")
         assert_equal(real_corrupt_vector["expected_result"], "reject")
 
-        vector_sidechain_id = int(valid_vector["public_inputs"]["sidechain_id"])
-        vector_prior_state_root = pad_field_hex(valid_vector["public_inputs"]["prior_state_root"])
-        vector_config = build_register_config(
-            toy_supported,
-            initial_state_root=vector_prior_state_root,
-            initial_withdrawal_root=vector_prior_state_root,
-        )
-        node.sendvaliditysidechainregister(vector_sidechain_id, vector_config)
-        node.generate(1)
-
-        refund_address = node.getnewaddress()
-        queued_entries = []
-        for index in range(3):
-            deposit_res = node.sendvaliditydeposit(
-                vector_sidechain_id,
-                hex_uint(0x3000 + index),
-                {"address": refund_address},
-                1,
-                index + 1,
+        if toy_external_backend_ready:
+            vector_sidechain_id = int(valid_vector["public_inputs"]["sidechain_id"])
+            vector_prior_state_root = pad_field_hex(valid_vector["public_inputs"]["prior_state_root"])
+            vector_config = build_register_config(
+                toy_supported,
+                initial_state_root=vector_prior_state_root,
+                initial_withdrawal_root=vector_prior_state_root,
             )
-            queued_entries.append({
-                "queue_index": index,
-                "message_kind": 1,
-                "message_id": deposit_res["deposit_id"],
-                "message_hash": deposit_res["deposit_message_hash"],
-            })
-        node.generate(1)
+            node.sendvaliditysidechainregister(vector_sidechain_id, vector_config)
+            node.generate(1)
 
-        vector_sidechain = get_sidechain_info(node, vector_sidechain_id)
-        assert_equal(vector_sidechain["queue_state"]["pending_message_count"], 3)
-        l1_message_root_before = vector_sidechain["queue_state"]["root"]
-        l1_message_root_after = compute_consumed_queue_root(
-            vector_sidechain_id,
-            l1_message_root_before,
-            queued_entries,
-        )
+            refund_address = node.getnewaddress()
+            queued_entries = []
+            for index in range(3):
+                deposit_res = node.sendvaliditydeposit(
+                    vector_sidechain_id,
+                    hex_uint(0x3000 + index),
+                    {"address": refund_address},
+                    1,
+                    index + 1,
+                )
+                queued_entries.append({
+                    "queue_index": index,
+                    "message_kind": 1,
+                    "message_id": deposit_res["deposit_id"],
+                    "message_hash": deposit_res["deposit_message_hash"],
+                })
+            node.generate(1)
 
-        valid_public_inputs = {
-            "batch_number": int(valid_vector["public_inputs"]["batch_number"]),
-            "prior_state_root": vector_prior_state_root,
-            "new_state_root": pad_field_hex(valid_vector["public_inputs"]["new_state_root"]),
-            "l1_message_root_before": l1_message_root_before,
-            "l1_message_root_after": l1_message_root_after,
-            "consumed_queue_messages": int(valid_vector["public_inputs"]["consumed_queue_messages"]),
-            "withdrawal_root": pad_field_hex(valid_vector["public_inputs"]["withdrawal_root"]),
-            "data_root": pad_field_hex(valid_vector["public_inputs"]["data_root"]),
-            "data_size": 0,
-        }
-        mismatch_public_inputs = dict(valid_public_inputs)
-        mismatch_public_inputs["new_state_root"] = pad_field_hex(mismatch_vector["public_inputs"]["new_state_root"])
+            vector_sidechain = get_sidechain_info(node, vector_sidechain_id)
+            assert_equal(vector_sidechain["queue_state"]["pending_message_count"], 3)
+            l1_message_root_before = vector_sidechain["queue_state"]["root"]
+            l1_message_root_after = compute_consumed_queue_root(
+                vector_sidechain_id,
+                l1_message_root_before,
+                queued_entries,
+            )
 
-        assert_raises_rpc_error(
-            -26,
-            "pairing doesn't match",
-            node.sendvaliditybatch,
-            vector_sidechain_id,
-            mismatch_public_inputs,
-            mismatch_vector["proof_bytes_hex"],
-        )
-        assert_raises_rpc_error(
-            -26,
-            "pairing doesn't match",
-            node.sendvaliditybatch,
-            vector_sidechain_id,
-            valid_public_inputs,
-            corrupt_vector["proof_bytes_hex"],
-        )
+            valid_public_inputs = {
+                "batch_number": int(valid_vector["public_inputs"]["batch_number"]),
+                "prior_state_root": vector_prior_state_root,
+                "new_state_root": pad_field_hex(valid_vector["public_inputs"]["new_state_root"]),
+                "l1_message_root_before": l1_message_root_before,
+                "l1_message_root_after": l1_message_root_after,
+                "consumed_queue_messages": int(valid_vector["public_inputs"]["consumed_queue_messages"]),
+                "withdrawal_root": pad_field_hex(valid_vector["public_inputs"]["withdrawal_root"]),
+                "data_root": pad_field_hex(valid_vector["public_inputs"]["data_root"]),
+                "data_size": 0,
+            }
+            mismatch_public_inputs = dict(valid_public_inputs)
+            mismatch_public_inputs["new_state_root"] = pad_field_hex(mismatch_vector["public_inputs"]["new_state_root"])
 
-        vector_batch_res = node.sendvaliditybatch(
-            vector_sidechain_id,
-            valid_public_inputs,
-            valid_vector["proof_bytes_hex"],
-        )
-        assert_equal(vector_batch_res["auto_scaffold_proof"], False)
-        assert_equal(vector_batch_res["auto_external_proof"], False)
-        node.generate(1)
+            assert_raises_rpc_error(
+                -26,
+                "pairing doesn't match",
+                node.sendvaliditybatch,
+                vector_sidechain_id,
+                mismatch_public_inputs,
+                mismatch_vector["proof_bytes_hex"],
+            )
+            assert_raises_rpc_error(
+                -26,
+                "pairing doesn't match",
+                node.sendvaliditybatch,
+                vector_sidechain_id,
+                valid_public_inputs,
+                corrupt_vector["proof_bytes_hex"],
+            )
 
-        vector_sidechain = get_sidechain_info(node, vector_sidechain_id)
-        assert_equal(vector_sidechain["latest_batch_number"], valid_public_inputs["batch_number"])
-        assert_equal(vector_sidechain["current_state_root"], valid_public_inputs["new_state_root"])
-        assert_equal(vector_sidechain["current_withdrawal_root"], valid_public_inputs["withdrawal_root"])
-        assert_equal(vector_sidechain["current_data_root"], valid_public_inputs["data_root"])
-        assert_equal(vector_sidechain["queue_state"]["head_index"], 3)
-        assert_equal(vector_sidechain["queue_state"]["pending_message_count"], 0)
-        assert vector_sidechain["accepted_batches"][0]["proof_size"] > 0
+            vector_batch_res = node.sendvaliditybatch(
+                vector_sidechain_id,
+                valid_public_inputs,
+                valid_vector["proof_bytes_hex"],
+            )
+            assert_equal(vector_batch_res["auto_scaffold_proof"], False)
+            assert_equal(vector_batch_res["auto_external_proof"], False)
+            node.generate(1)
+
+            vector_sidechain = get_sidechain_info(node, vector_sidechain_id)
+            assert_equal(vector_sidechain["latest_batch_number"], valid_public_inputs["batch_number"])
+            assert_equal(vector_sidechain["current_state_root"], valid_public_inputs["new_state_root"])
+            assert_equal(vector_sidechain["current_withdrawal_root"], valid_public_inputs["withdrawal_root"])
+            assert_equal(vector_sidechain["current_data_root"], valid_public_inputs["data_root"])
+            assert_equal(vector_sidechain["queue_state"]["head_index"], 3)
+            assert_equal(vector_sidechain["queue_state"]["pending_message_count"], 0)
+            assert vector_sidechain["accepted_batches"][0]["proof_size"] > 0
+        else:
+            self.log.info("Skipping external toy verifier coverage because boost::process support is not built.")
 
         self.log.info("Replaying committed native blst proof vectors through the in-process verifier.")
         native_sidechain_id = int(native_valid_vector["public_inputs"]["sidechain_id"])
@@ -444,85 +450,88 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(native_sidechain["queue_state"]["pending_message_count"], 0)
         assert native_sidechain["accepted_batches"][0]["proof_size"] > 0
 
-        self.log.info("Registering a toy Groth16 profile sidechain and accepting an externally-proven batch.")
-        sidechain_id = 12
-        initial_state_root = hex_uint(1000)
-        config = build_register_config(
-            toy_supported,
-            initial_state_root=initial_state_root,
-            initial_withdrawal_root=hex_uint(1000),
-        )
-        node.sendvaliditysidechainregister(sidechain_id, config)
-        node.generate(1)
+        if toy_external_backend_ready:
+            self.log.info("Registering a toy Groth16 profile sidechain and accepting an externally-proven batch.")
+            sidechain_id = 12
+            initial_state_root = hex_uint(1000)
+            config = build_register_config(
+                toy_supported,
+                initial_state_root=initial_state_root,
+                initial_withdrawal_root=hex_uint(1000),
+            )
+            node.sendvaliditysidechainregister(sidechain_id, config)
+            node.generate(1)
 
-        public_inputs = {
-            "batch_number": sidechain_id + 1,
-            "prior_state_root": initial_state_root,
-            "new_state_root": initial_state_root,
-            "l1_message_root_before": "00" * 32,
-            "l1_message_root_after": "00" * 32,
-            "consumed_queue_messages": 0,
-            "withdrawal_root": hex_uint(1011),
-            "data_root": hex_uint(1028),
-            "data_size": 0,
-        }
+            public_inputs = {
+                "batch_number": sidechain_id + 1,
+                "prior_state_root": initial_state_root,
+                "new_state_root": initial_state_root,
+                "l1_message_root_before": "00" * 32,
+                "l1_message_root_after": "00" * 32,
+                "consumed_queue_messages": 0,
+                "withdrawal_root": hex_uint(1011),
+                "data_root": hex_uint(1028),
+                "data_size": 0,
+            }
 
-        batch_res = node.sendvaliditybatch(sidechain_id, public_inputs)
-        assert_equal(batch_res["auto_scaffold_proof"], False)
-        assert_equal(batch_res["auto_external_proof"], True)
-        assert_equal(batch_res["auto_proof_backend"], "external_command")
-        node.generate(1)
+            batch_res = node.sendvaliditybatch(sidechain_id, public_inputs)
+            assert_equal(batch_res["auto_scaffold_proof"], False)
+            assert_equal(batch_res["auto_external_proof"], True)
+            assert_equal(batch_res["auto_proof_backend"], "external_command")
+            node.generate(1)
 
-        sidechain = get_sidechain_info(node, sidechain_id)
-        assert_equal(sidechain["latest_batch_number"], sidechain_id + 1)
-        assert_equal(sidechain["current_state_root"], public_inputs["new_state_root"])
-        assert_equal(sidechain["current_withdrawal_root"], public_inputs["withdrawal_root"])
-        assert_equal(sidechain["current_data_root"], public_inputs["data_root"])
-        assert sidechain["accepted_batches"][0]["proof_size"] > 0
+            sidechain = get_sidechain_info(node, sidechain_id)
+            assert_equal(sidechain["latest_batch_number"], sidechain_id + 1)
+            assert_equal(sidechain["current_state_root"], public_inputs["new_state_root"])
+            assert_equal(sidechain["current_withdrawal_root"], public_inputs["withdrawal_root"])
+            assert_equal(sidechain["current_data_root"], public_inputs["data_root"])
+            assert sidechain["accepted_batches"][0]["proof_size"] > 0
 
-        self.log.info("Generating a valid proof externally, corrupting it, and confirming verifier rejection.")
-        invalid_sidechain_id = 13
-        invalid_initial_state_root = hex_uint(2000)
-        invalid_config = build_register_config(
-            toy_supported,
-            initial_state_root=invalid_initial_state_root,
-            initial_withdrawal_root=hex_uint(2000),
-        )
-        node.sendvaliditysidechainregister(invalid_sidechain_id, invalid_config)
-        node.generate(1)
+            self.log.info("Generating a valid proof externally, corrupting it, and confirming verifier rejection.")
+            invalid_sidechain_id = 13
+            invalid_initial_state_root = hex_uint(2000)
+            invalid_config = build_register_config(
+                toy_supported,
+                initial_state_root=invalid_initial_state_root,
+                initial_withdrawal_root=hex_uint(2000),
+            )
+            node.sendvaliditysidechainregister(invalid_sidechain_id, invalid_config)
+            node.generate(1)
 
-        invalid_public_inputs = {
-            "batch_number": invalid_sidechain_id + 1,
-            "prior_state_root": invalid_initial_state_root,
-            "new_state_root": invalid_initial_state_root,
-            "l1_message_root_before": "00" * 32,
-            "l1_message_root_after": "00" * 32,
-            "consumed_queue_messages": 0,
-            "withdrawal_root": hex_uint(2011),
-            "data_root": hex_uint(2028),
-            "data_size": 0,
-        }
-        request = {
-            "profile_name": "gnark_groth16_toy_batch_transition_v1",
-            "artifact_dir": str(self.artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"),
-            "sidechain_id": invalid_sidechain_id,
-            "public_inputs": invalid_public_inputs,
-        }
-        proof_result = self.run_tool("prove", request)
-        assert_equal(proof_result["ok"], True)
-        proof_hex = proof_result["proof_bytes_hex"]
-        corrupted_proof_hex = proof_hex[:-2] + ("00" if proof_hex[-2:] != "00" else "01")
+            invalid_public_inputs = {
+                "batch_number": invalid_sidechain_id + 1,
+                "prior_state_root": invalid_initial_state_root,
+                "new_state_root": invalid_initial_state_root,
+                "l1_message_root_before": "00" * 32,
+                "l1_message_root_after": "00" * 32,
+                "consumed_queue_messages": 0,
+                "withdrawal_root": hex_uint(2011),
+                "data_root": hex_uint(2028),
+                "data_size": 0,
+            }
+            request = {
+                "profile_name": "gnark_groth16_toy_batch_transition_v1",
+                "artifact_dir": str(self.artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"),
+                "sidechain_id": invalid_sidechain_id,
+                "public_inputs": invalid_public_inputs,
+            }
+            proof_result = self.run_tool("prove", request)
+            assert_equal(proof_result["ok"], True)
+            proof_hex = proof_result["proof_bytes_hex"]
+            corrupted_proof_hex = proof_hex[:-2] + ("00" if proof_hex[-2:] != "00" else "01")
 
-        assert_raises_rpc_error(
-            -26,
-            "pairing doesn't match",
-            node.sendvaliditybatch,
-            invalid_sidechain_id,
-            invalid_public_inputs,
-            corrupted_proof_hex,
-        )
+            assert_raises_rpc_error(
+                -26,
+                "pairing doesn't match",
+                node.sendvaliditybatch,
+                invalid_sidechain_id,
+                invalid_public_inputs,
+                corrupted_proof_hex,
+            )
+        else:
+            self.log.info("Skipping external auto-prover toy coverage because boost::process support is not built.")
 
-        self.log.info("Replaying committed real proof vectors and auto-building a native-verified real-profile proof.")
+        self.log.info("Replaying committed real proof vectors through the native verifier.")
         real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
         real_prior_state_root = pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"])
         real_config = build_register_config(
@@ -565,24 +574,28 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_corrupt_vector["proof_bytes_hex"],
         )
 
-        real_batch_res = node.sendvaliditybatch(
-            real_sidechain_id,
-            real_public_inputs,
-        )
-        assert_equal(real_batch_res["auto_scaffold_proof"], False)
-        assert_equal(real_batch_res["auto_external_proof"], True)
-        assert_equal(real_batch_res["auto_proof_backend"], "external_command")
-        node.generate(1)
+        if toy_external_backend_ready:
+            self.log.info("Auto-building a native-verified real-profile proof through the external prover.")
+            real_batch_res = node.sendvaliditybatch(
+                real_sidechain_id,
+                real_public_inputs,
+            )
+            assert_equal(real_batch_res["auto_scaffold_proof"], False)
+            assert_equal(real_batch_res["auto_external_proof"], True)
+            assert_equal(real_batch_res["auto_proof_backend"], "external_command")
+            node.generate(1)
 
-        real_sidechain = get_sidechain_info(node, real_sidechain_id)
-        assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
-        assert_equal(real_sidechain["latest_batch_number"], real_public_inputs["batch_number"])
-        assert_equal(real_sidechain["current_state_root"], real_public_inputs["new_state_root"])
-        assert_equal(real_sidechain["current_withdrawal_root"], real_public_inputs["withdrawal_root"])
-        assert_equal(real_sidechain["current_data_root"], real_public_inputs["data_root"])
-        assert_equal(real_sidechain["queue_state"]["head_index"], 0)
-        assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
-        assert real_sidechain["accepted_batches"][0]["proof_size"] > 0
+            real_sidechain = get_sidechain_info(node, real_sidechain_id)
+            assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+            assert_equal(real_sidechain["latest_batch_number"], real_public_inputs["batch_number"])
+            assert_equal(real_sidechain["current_state_root"], real_public_inputs["new_state_root"])
+            assert_equal(real_sidechain["current_withdrawal_root"], real_public_inputs["withdrawal_root"])
+            assert_equal(real_sidechain["current_data_root"], real_public_inputs["data_root"])
+            assert_equal(real_sidechain["queue_state"]["head_index"], 0)
+            assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
+            assert real_sidechain["accepted_batches"][0]["proof_size"] > 0
+        else:
+            self.log.info("Skipping native real auto-prover coverage because boost::process support is not built.")
 
 
 if __name__ == "__main__":
