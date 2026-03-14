@@ -20,6 +20,7 @@ static constexpr unsigned char GROTH16_PROOF_MAGIC[] = {'V', 'S', 'G', 'P', 0x01
 static constexpr unsigned char GROTH16_VK_MAGIC[] = {'V', 'S', 'G', 'V', 'K', 0x01};
 static constexpr size_t GROTH16_G1_COMPRESSED_BYTES = 48;
 static constexpr size_t GROTH16_G2_COMPRESSED_BYTES = 96;
+static constexpr size_t GROTH16_SCALAR_BYTES = 32;
 static constexpr size_t GROTH16_PROOF_ENCODED_BYTES =
     sizeof(GROTH16_PROOF_MAGIC) + GROTH16_G1_COMPRESSED_BYTES + GROTH16_G2_COMPRESSED_BYTES + GROTH16_G1_COMPRESSED_BYTES;
 static constexpr size_t GROTH16_VK_HEADER_BYTES =
@@ -69,6 +70,18 @@ static bool ValidateCompressedG1(
     return true;
 }
 
+static bool UncompressG1(
+    const std::array<unsigned char, GROTH16_G1_COMPRESSED_BYTES>& point_bytes,
+    blst_p1_affine& out_point,
+    std::string* error)
+{
+    const BLST_ERROR result = blst_p1_uncompress(&out_point, point_bytes.data());
+    if (result != BLST_SUCCESS || !blst_p1_affine_in_g1(&out_point)) {
+        return FailValidation(error, "Groth16 proof artifact contains invalid G1 encoding");
+    }
+    return true;
+}
+
 static bool ValidateCompressedG2(
     const std::array<unsigned char, GROTH16_G2_COMPRESSED_BYTES>& point_bytes,
     std::string* error)
@@ -77,6 +90,77 @@ static bool ValidateCompressedG2(
     const BLST_ERROR result = blst_p2_uncompress(&point, point_bytes.data());
     if (result != BLST_SUCCESS || !blst_p2_affine_in_g2(&point)) {
         return FailValidation(error, "Groth16 proof artifact contains invalid G2 encoding");
+    }
+    return true;
+}
+
+static bool UncompressG2(
+    const std::array<unsigned char, GROTH16_G2_COMPRESSED_BYTES>& point_bytes,
+    blst_p2_affine& out_point,
+    std::string* error)
+{
+    const BLST_ERROR result = blst_p2_uncompress(&out_point, point_bytes.data());
+    if (result != BLST_SUCCESS || !blst_p2_affine_in_g2(&out_point)) {
+        return FailValidation(error, "Groth16 proof artifact contains invalid G2 encoding");
+    }
+    return true;
+}
+
+static bool ParseScalarLE(
+    const std::array<unsigned char, GROTH16_SCALAR_BYTES>& scalar_bytes,
+    blst_scalar& out_scalar,
+    std::string* error)
+{
+    if (!blst_scalar_from_le_bytes(&out_scalar, scalar_bytes.data(), scalar_bytes.size()) ||
+        !blst_scalar_fr_check(&out_scalar)) {
+        return FailValidation(error, "Groth16 public input does not fit BLS12-381 scalar field");
+    }
+    return true;
+}
+
+static bool ComputeGammaABCCombination(
+    const ValiditySidechainGroth16VerificationKey& verifying_key,
+    const std::vector<std::array<unsigned char, GROTH16_SCALAR_BYTES>>& public_inputs_le,
+    blst_p1_affine& out_point,
+    std::string* error)
+{
+    if (public_inputs_le.size() != verifying_key.public_input_count) {
+        return FailValidation(error, "Groth16 public-input count does not match verifying key");
+    }
+    if (verifying_key.gamma_abc_g1.size() != public_inputs_le.size() + 1) {
+        return FailValidation(error, "Groth16 verifying key gamma_abc layout is inconsistent");
+    }
+
+    blst_p1_affine gamma_abc_0_affine;
+    if (!UncompressG1(verifying_key.gamma_abc_g1.front(), gamma_abc_0_affine, error)) {
+        return false;
+    }
+
+    blst_p1 accumulator;
+    blst_p1_from_affine(&accumulator, &gamma_abc_0_affine);
+
+    for (size_t i = 0; i < public_inputs_le.size(); ++i) {
+        blst_scalar scalar;
+        if (!ParseScalarLE(public_inputs_le[i], scalar, error)) {
+            return false;
+        }
+
+        blst_p1_affine gamma_abc_affine;
+        if (!UncompressG1(verifying_key.gamma_abc_g1[i + 1], gamma_abc_affine, error)) {
+            return false;
+        }
+
+        blst_p1 gamma_abc;
+        blst_p1_from_affine(&gamma_abc, &gamma_abc_affine);
+
+        blst_p1 scaled_term;
+        blst_p1_mult(&scaled_term, &gamma_abc, scalar.b, 255);
+        blst_p1_add_or_double(&accumulator, &accumulator, &scaled_term);
+    }
+
+    blst_p1_to_affine(&out_point, &accumulator);
+    if (!blst_p1_affine_in_g1(&out_point)) {
+        return FailValidation(error, "Groth16 public-input linear combination left G1");
     }
     return true;
 }
@@ -226,4 +310,47 @@ bool LoadValiditySidechainGroth16VerificationKey(
         expected_public_input_count,
         out_verifying_key,
         error);
+}
+
+bool VerifyValiditySidechainGroth16Proof(
+    const ValiditySidechainGroth16VerificationKey& verifying_key,
+    const ValiditySidechainGroth16Proof& proof,
+    const std::vector<std::array<unsigned char, 32>>& public_inputs_le,
+    std::string* error)
+{
+    blst_p1_affine proof_a;
+    blst_p2_affine proof_b;
+    blst_p1_affine proof_c;
+    blst_p1_affine alpha_g1;
+    blst_p2_affine beta_g2;
+    blst_p2_affine gamma_g2;
+    blst_p2_affine delta_g2;
+    blst_p1_affine gamma_abc_sum;
+
+    if (!UncompressG1(proof.a_g1, proof_a, error) ||
+        !UncompressG2(proof.b_g2, proof_b, error) ||
+        !UncompressG1(proof.c_g1, proof_c, error) ||
+        !UncompressG1(verifying_key.alpha_g1, alpha_g1, error) ||
+        !UncompressG2(verifying_key.beta_g2, beta_g2, error) ||
+        !UncompressG2(verifying_key.gamma_g2, gamma_g2, error) ||
+        !UncompressG2(verifying_key.delta_g2, delta_g2, error) ||
+        !ComputeGammaABCCombination(verifying_key, public_inputs_le, gamma_abc_sum, error)) {
+        return false;
+    }
+
+    blst_fp12 lhs;
+    blst_fp12 rhs;
+    blst_fp12 term;
+    blst_miller_loop(&lhs, &proof_b, &proof_a);
+    blst_miller_loop(&rhs, &beta_g2, &alpha_g1);
+    blst_miller_loop(&term, &gamma_g2, &gamma_abc_sum);
+    blst_fp12_mul(&rhs, &rhs, &term);
+    blst_miller_loop(&term, &delta_g2, &proof_c);
+    blst_fp12_mul(&rhs, &rhs, &term);
+
+    if (!blst_fp12_finalverify(&lhs, &rhs)) {
+        return FailValidation(error, "Groth16 pairing doesn't match");
+    }
+
+    return true;
 }

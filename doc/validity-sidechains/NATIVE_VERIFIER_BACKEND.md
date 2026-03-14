@@ -31,15 +31,17 @@ the pairing/curve backend, not the full circuit-specific Groth16 integration.
   result
 - adds a native parser layer for the proposed Groth16 proof blob and verifying
   key blob formats, with `blst`-validated G1/G2 compressed point checks
+- adds the in-process Groth16 pairing equation over that parsed proof /
+  verifying-key format, with synthetic algebraic unit coverage
+- currently interprets each batch public input as one BLS12-381 scalar field
+  element, which means the final real profile must keep those values
+  field-sized or move to a decomposed-input profile version
 
 ## What This Does Not Solve
 
 Vendoring `blst` does not by itself complete trustlessness. The following still
 remain:
 
-- the real `groth16_bls12_381_poseidon_v1` verifier implementation in
-  `src/validitysidechain/verifier.*`
-- real verifier-key parsing and proof parsing for the final profile
 - the real batch circuit and proving assets
 - the final public-input binding and queue-prefix semantics from
   `PROPOSED_ZK_SYSTEM.md`
@@ -48,14 +50,10 @@ remain:
 
 ## Intended Next Steps
 
-1. Expand the current thin internal `blst` wrapper layer under
-   `src/validitysidechain/` from smoke-tested pairing primitives to the exact
-   point, scalar, field, and pairing operations needed by Groth16 verification.
-2. Define the on-disk verifying-key format for
-   `groth16_bls12_381_poseidon_v1/batch_vk.bin`.
-3. Implement native proof and verifying-key decoding.
-4. Implement the fixed Groth16 verification equation over `blst`.
-5. Replace the current `native_blst_groth16` hard-fail path with the real
-   in-process verifier equation.
+1. Replace the placeholder `groth16_bls12_381_poseidon_v1` artifact bundle with
+   a real `batch_vk.bin` and real proof vectors.
+2. Wire the final circuit/public-input semantics to those assets.
+3. Replace the remaining scaffold state-transition and exit semantics with the
+   final proof-backed path.
 
 Until those steps land with real assets, the branch remains non-trustless.

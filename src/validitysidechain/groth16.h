@@ -47,5 +47,10 @@ bool LoadValiditySidechainGroth16VerificationKey(
     uint32_t expected_public_input_count,
     ValiditySidechainGroth16VerificationKey& out_verifying_key,
     std::string* error = nullptr);
+bool VerifyValiditySidechainGroth16Proof(
+    const ValiditySidechainGroth16VerificationKey& verifying_key,
+    const ValiditySidechainGroth16Proof& proof,
+    const std::vector<std::array<unsigned char, 32>>& public_inputs_le,
+    std::string* error = nullptr);
 
 #endif // BITCOIN_VALIDITYSIDECHAIN_GROTH16_H

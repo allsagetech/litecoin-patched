@@ -15,6 +15,7 @@
 #include <validitysidechain/script.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <ios>
 #include <iterator>
@@ -606,6 +607,9 @@ static bool PopulateVerifierAssetsStatus(
                 out_status.status = key_error;
                 return true;
             }
+            out_status.backend_ready = true;
+            out_status.status = "native blst Groth16 verifier ready";
+            return true;
         }
         if (supported.profile_name != nullptr &&
             std::string(supported.profile_name) == TOY_PROFILE_NAME) {
@@ -630,11 +634,6 @@ static bool PopulateVerifierAssetsStatus(
         }
 
         out_status.backend_ready = false;
-        if (supported.verifier_backend != nullptr &&
-            std::string(supported.verifier_backend) == "native_blst_groth16") {
-            out_status.status = "native blst backend available; Groth16 verifier equation is not implemented";
-            return true;
-        }
         out_status.status = "assets found but Groth16 verifier backend is not implemented";
         return true;
     } catch (const fs::filesystem_error& e) {
@@ -714,6 +713,43 @@ static bool VerifyValiditySidechainBatchWithExternalCommand(
         return false;
     }
 #endif
+}
+
+static std::array<unsigned char, 32> EncodeGroth16ScalarLE(uint32_t value)
+{
+    std::array<unsigned char, 32> encoded{};
+    encoded[0] = static_cast<unsigned char>(value & 0xff);
+    encoded[1] = static_cast<unsigned char>((value >> 8) & 0xff);
+    encoded[2] = static_cast<unsigned char>((value >> 16) & 0xff);
+    encoded[3] = static_cast<unsigned char>((value >> 24) & 0xff);
+    return encoded;
+}
+
+static std::array<unsigned char, 32> EncodeGroth16ScalarLE(const uint256& value)
+{
+    std::array<unsigned char, 32> encoded{};
+    std::copy(value.begin(), value.end(), encoded.begin());
+    return encoded;
+}
+
+static std::vector<std::array<unsigned char, 32>> BuildPoseidonProfilePublicInputs(
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs)
+{
+    std::vector<std::array<unsigned char, 32>> encoded;
+    encoded.reserve(11);
+    encoded.push_back(EncodeGroth16ScalarLE(static_cast<uint32_t>(sidechain_id)));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.batch_number));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.prior_state_root));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.new_state_root));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.l1_message_root_before));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.l1_message_root_after));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.consumed_queue_messages));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.queue_prefix_commitment));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.withdrawal_root));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.data_root));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.data_size));
+    return encoded;
 }
 
 } // namespace
@@ -936,23 +972,35 @@ bool VerifyValiditySidechainBatch(
     }
 
     if (mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1) {
+        const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+        if (supported == nullptr) {
+            return FailValidation(error, "unsupported proof configuration tuple");
+        }
         ValiditySidechainVerifierAssetsStatus assets_status;
         GetValiditySidechainVerifierAssetsStatus(config, assets_status);
-        if (!assets_status.assets_present) {
-            return FailValidation(error, "verifier assets missing for supported profile");
-        }
-        if (!assets_status.native_backend_available || !assets_status.native_backend_self_test_passed) {
+        if (!assets_status.assets_present || !assets_status.backend_ready) {
             return FailValidation(
                 error,
-                assets_status.native_backend_status.empty() ?
-                    "Groth16 verifier backend is not implemented for this profile" :
-                    assets_status.native_backend_status.c_str());
+                assets_status.status.empty() ? "verifier assets missing for supported profile" : assets_status.status.c_str());
         }
         ValiditySidechainGroth16Proof proof;
         if (!ParseValiditySidechainGroth16Proof(proof_bytes, proof, error)) {
             return false;
         }
-        return FailValidation(error, "Groth16 verifier equation is not implemented for this profile");
+        const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(*supported);
+        ValiditySidechainGroth16VerificationKey verifying_key;
+        if (!LoadValiditySidechainGroth16VerificationKey(
+                ResolveVerifierArtifactDir(*supported) / VERIFIER_BATCH_VK,
+                static_cast<uint32_t>(expected_public_inputs.size()),
+                verifying_key,
+                error)) {
+            return false;
+        }
+        return VerifyValiditySidechainGroth16Proof(
+            verifying_key,
+            proof,
+            BuildPoseidonProfilePublicInputs(sidechain_id, public_inputs),
+            error);
     }
 
     ValiditySidechainScaffoldProofEnvelope envelope;

@@ -116,16 +116,24 @@ This means:
 - the proposed real profile now also has a native binary parser layer for
   Groth16 proof bytes and verifying-key blobs, including `blst`-validated
   compressed-point checks and supported public-input-count enforcement
+- the native backend now also evaluates the Groth16 pairing equation in-process
+  against that parsed proof / VK format, with synthetic algebraic unit
+  coverage
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
 - the proposed Groth16 profile now has a fixed consensus tuple and expected
-  verifier-asset layout, but batch validation still hard-fails until the
-  verifying key assets exist and the real verifier backend is implemented
+  verifier-asset layout, and the node now has a native verifier core, but
+  batch validation still cannot become trustless until real verifying-key
+  assets and real proof vectors exist for the intended circuit
+- the current native verifier path interprets each batch public input as a
+  single BLS12-381 scalar, so the final real profile must either keep those
+  roots / commitments field-sized or move to a decomposed public-input layout
 - the repo now contains a placeholder artifact bundle under `artifacts/`, but
   it is explicitly marked non-real and does not satisfy the trustless gate
-- the native `blst` pairing backend still does not implement the Groth16
-  verification equation or final sidechain proof semantics
+- the remaining trustless blocker is no longer the generic pairing equation;
+  it is the absence of the real circuit assets and final sidechain proof
+  semantics
 
 There is not yet a native in-process zk verifier equation in the repository for
 the intended sidechain circuit.
