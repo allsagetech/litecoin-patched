@@ -105,6 +105,9 @@ This means:
   through `contrib/validitysidechain-zk-demo`, but it proves only a toy
   arithmetic relation and does not satisfy the intended trustless sidechain
   semantics
+- external-profile asset status now validates manifest name/backend/key layout
+  and listed valid/invalid proof-vector files instead of treating file presence
+  alone as sufficient
 - the proposed Groth16 profile now has a fixed consensus tuple and expected
   verifier-asset layout, but batch validation still hard-fails until the
   verifying key assets exist and the real verifier backend is implemented
@@ -180,6 +183,8 @@ It also now has functional wallet/RPC coverage for:
 - deposit submission
 - force-exit request submission
 - scaffold batch submission with auto-built scaffold proof bytes
+- committed valid/invalid toy proof-vector replay through the experimental
+  external verifier path
 - malformed batch DA rejection for missing chunks, malformed chunk ordering,
   oversized payloads, oversized proof bytes, and bad `data_root`
 - forced-inclusion recovery by requiring matured force-exit requests to be

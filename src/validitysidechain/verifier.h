@@ -28,14 +28,26 @@ struct ValiditySidechainVerifierAssetsStatus
     bool backend_ready{false};
     bool verifier_command_configured{false};
     bool prover_command_configured{false};
+    bool profile_manifest_parsed{false};
+    bool profile_manifest_name_matches{false};
+    bool profile_manifest_backend_matches{false};
+    bool profile_manifest_key_layout_matches{false};
+    bool valid_proof_vectors_present{false};
+    bool invalid_proof_vectors_present{false};
     std::string artifact_name;
     std::string artifact_dir;
     std::string backend_name;
     std::string profile_manifest_path;
+    std::string profile_manifest_name;
+    std::string profile_manifest_backend;
     std::string verifying_key_path;
     std::string proving_key_path;
     uint64_t verifying_key_bytes{0};
     uint64_t proving_key_bytes{0};
+    uint64_t valid_proof_vector_count{0};
+    uint64_t invalid_proof_vector_count{0};
+    std::vector<std::string> valid_proof_vector_paths;
+    std::vector<std::string> invalid_proof_vector_paths;
     std::string status;
 };
 

@@ -1683,20 +1683,40 @@ static UniValue ValiditySidechainConfigToJSON(const ValiditySidechainConfig& con
 static UniValue ValiditySidechainVerifierAssetsToJSON(const ValiditySidechainVerifierAssetsStatus& status)
 {
     UniValue result(UniValue::VOBJ);
+    UniValue valid_vectors(UniValue::VARR);
+    for (const auto& path : status.valid_proof_vector_paths) {
+        valid_vectors.push_back(path);
+    }
+    UniValue invalid_vectors(UniValue::VARR);
+    for (const auto& path : status.invalid_proof_vector_paths) {
+        invalid_vectors.push_back(path);
+    }
     result.pushKV("required", status.requires_external_assets);
     result.pushKV("available", status.assets_present);
     result.pushKV("prover_assets_present", status.prover_assets_present);
     result.pushKV("backend_ready", status.backend_ready);
     result.pushKV("verifier_command_configured", status.verifier_command_configured);
     result.pushKV("prover_command_configured", status.prover_command_configured);
+    result.pushKV("profile_manifest_parsed", status.profile_manifest_parsed);
+    result.pushKV("profile_manifest_name_matches", status.profile_manifest_name_matches);
+    result.pushKV("profile_manifest_backend_matches", status.profile_manifest_backend_matches);
+    result.pushKV("profile_manifest_key_layout_matches", status.profile_manifest_key_layout_matches);
+    result.pushKV("valid_proof_vectors_present", status.valid_proof_vectors_present);
+    result.pushKV("invalid_proof_vectors_present", status.invalid_proof_vectors_present);
     result.pushKV("artifact_name", status.artifact_name);
     result.pushKV("artifact_dir", status.artifact_dir);
     result.pushKV("backend_name", status.backend_name);
     result.pushKV("profile_manifest_path", status.profile_manifest_path);
+    result.pushKV("profile_manifest_name", status.profile_manifest_name);
+    result.pushKV("profile_manifest_backend", status.profile_manifest_backend);
     result.pushKV("verifying_key_path", status.verifying_key_path);
     result.pushKV("proving_key_path", status.proving_key_path);
     result.pushKV("verifying_key_bytes", static_cast<int64_t>(status.verifying_key_bytes));
     result.pushKV("proving_key_bytes", static_cast<int64_t>(status.proving_key_bytes));
+    result.pushKV("valid_proof_vector_count", static_cast<int64_t>(status.valid_proof_vector_count));
+    result.pushKV("invalid_proof_vector_count", static_cast<int64_t>(status.invalid_proof_vector_count));
+    result.pushKV("valid_proof_vector_paths", valid_vectors);
+    result.pushKV("invalid_proof_vector_paths", invalid_vectors);
     result.pushKV("status", status.status);
     return result;
 }

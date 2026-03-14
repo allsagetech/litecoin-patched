@@ -42,6 +42,17 @@ struct ValiditySidechainScaffoldProofEnvelope
     uint256 current_l1_message_root;
 };
 
+struct ParsedVerifierManifest
+{
+    bool placeholder{false};
+    std::string profile_name;
+    std::string backend_name;
+    std::string verifying_key_file;
+    std::string proving_key_file;
+    std::vector<std::string> valid_vector_files;
+    std::vector<std::string> invalid_vector_files;
+};
+
 static bool FailValidation(std::string* error, const char* message)
 {
     if (error != nullptr) {
@@ -186,6 +197,19 @@ static bool ReadFilePrefix(const fs::path& path, std::string& out, size_t max_by
     return true;
 }
 
+static bool ReadTextFile(const fs::path& path, std::string& out)
+{
+    fsbridge::ifstream file(path);
+    if (!file.is_open()) {
+        return false;
+    }
+
+    out.assign(
+        std::istreambuf_iterator<char>(file),
+        std::istreambuf_iterator<char>());
+    return true;
+}
+
 static bool FileContainsPlaceholderSentinel(const fs::path& path)
 {
     std::string prefix;
@@ -194,6 +218,90 @@ static bool FileContainsPlaceholderSentinel(const fs::path& path)
     }
     return prefix.find(PLACEHOLDER_SENTINEL) != std::string::npos ||
            prefix.find("\"placeholder\": true") != std::string::npos;
+}
+
+static bool ParseStringArray(
+    const UniValue& value,
+    std::vector<std::string>& out)
+{
+    if (!value.isArray()) {
+        return false;
+    }
+
+    out.clear();
+    out.reserve(value.size());
+    for (size_t i = 0; i < value.size(); ++i) {
+        if (!value[i].isStr()) {
+            return false;
+        }
+        out.push_back(value[i].get_str());
+    }
+    return true;
+}
+
+static bool ParseVerifierManifest(
+    const fs::path& manifest_path,
+    ParsedVerifierManifest& out_manifest,
+    std::string* error)
+{
+    std::string manifest_json;
+    if (!ReadTextFile(manifest_path, manifest_json)) {
+        return FailValidation(error, "unable to read profile manifest");
+    }
+
+    UniValue root(UniValue::VOBJ);
+    if (!root.read(manifest_json) || !root.isObject()) {
+        return FailValidation(error, "profile manifest is not valid JSON");
+    }
+
+    out_manifest = ParsedVerifierManifest{};
+
+    const UniValue& profile_name = find_value(root, "name");
+    if (profile_name.isStr()) {
+        out_manifest.profile_name = profile_name.get_str();
+    } else {
+        const UniValue& legacy_profile_name = find_value(root, "profile_name");
+        if (legacy_profile_name.isStr()) {
+            out_manifest.profile_name = legacy_profile_name.get_str();
+        }
+    }
+
+    const UniValue& backend_name = find_value(root, "backend");
+    if (backend_name.isStr()) {
+        out_manifest.backend_name = backend_name.get_str();
+    }
+
+    const UniValue& placeholder = find_value(root, "placeholder");
+    if (placeholder.isBool()) {
+        out_manifest.placeholder = placeholder.get_bool();
+    }
+
+    const UniValue& verifying_key_file = find_value(root, "verifying_key_file");
+    if (verifying_key_file.isStr()) {
+        out_manifest.verifying_key_file = verifying_key_file.get_str();
+    }
+
+    const UniValue& proving_key_file = find_value(root, "proving_key_file");
+    if (proving_key_file.isStr()) {
+        out_manifest.proving_key_file = proving_key_file.get_str();
+    }
+
+    const UniValue& proof_vectors = find_value(root, "proof_vectors");
+    if (proof_vectors.isObject()) {
+        const UniValue& valid_vectors = find_value(proof_vectors, "valid");
+        if (!valid_vectors.isNull() &&
+            !ParseStringArray(valid_vectors, out_manifest.valid_vector_files)) {
+            return FailValidation(error, "profile manifest valid proof_vectors must be a string array");
+        }
+
+        const UniValue& invalid_vectors = find_value(proof_vectors, "invalid");
+        if (!invalid_vectors.isNull() &&
+            !ParseStringArray(invalid_vectors, out_manifest.invalid_vector_files)) {
+            return FailValidation(error, "profile manifest invalid proof_vectors must be a string array");
+        }
+    }
+
+    return true;
 }
 
 static bool PopulateVerifierAssetsStatus(
@@ -226,6 +334,7 @@ static bool PopulateVerifierAssetsStatus(
         const bool has_manifest = fs::exists(manifest_path) && fs::is_regular_file(manifest_path);
         const bool has_vk = fs::exists(verifying_key_path) && fs::is_regular_file(verifying_key_path);
         const bool has_pk = fs::exists(proving_key_path) && fs::is_regular_file(proving_key_path);
+        ParsedVerifierManifest manifest;
 
         if (has_vk) {
             out_status.verifying_key_bytes = static_cast<uint64_t>(fs::file_size(verifying_key_path));
@@ -240,11 +349,104 @@ static bool PopulateVerifierAssetsStatus(
             out_status.status = "missing profile manifest";
             return true;
         }
+        {
+            std::string manifest_error;
+            if (!ParseVerifierManifest(manifest_path, manifest, &manifest_error)) {
+                out_status.assets_present = false;
+                out_status.prover_assets_present = false;
+                out_status.backend_ready = false;
+                out_status.status = manifest_error;
+                return true;
+            }
+        }
+        out_status.profile_manifest_parsed = true;
+        out_status.profile_manifest_name = manifest.profile_name;
+        out_status.profile_manifest_backend = manifest.backend_name;
+        out_status.valid_proof_vector_count = static_cast<uint64_t>(manifest.valid_vector_files.size());
+        out_status.invalid_proof_vector_count = static_cast<uint64_t>(manifest.invalid_vector_files.size());
+
+        for (const auto& relpath : manifest.valid_vector_files) {
+            out_status.valid_proof_vector_paths.push_back((artifact_dir / relpath).string());
+        }
+        for (const auto& relpath : manifest.invalid_vector_files) {
+            out_status.invalid_proof_vector_paths.push_back((artifact_dir / relpath).string());
+        }
+
+        const std::string expected_profile_name =
+            supported.profile_name == nullptr ? "" : supported.profile_name;
+        out_status.profile_manifest_name_matches =
+            !manifest.profile_name.empty() && manifest.profile_name == expected_profile_name;
+        if (!out_status.profile_manifest_name_matches) {
+            out_status.assets_present = false;
+            out_status.prover_assets_present = false;
+            out_status.backend_ready = false;
+            out_status.status = "profile manifest name does not match supported profile";
+            return true;
+        }
+
+        const std::string expected_backend_name =
+            supported.verifier_backend == nullptr ? "" : supported.verifier_backend;
+        out_status.profile_manifest_backend_matches =
+            manifest.backend_name.empty() || manifest.backend_name == expected_backend_name;
+        if (!out_status.profile_manifest_backend_matches) {
+            out_status.assets_present = false;
+            out_status.prover_assets_present = false;
+            out_status.backend_ready = false;
+            out_status.status = "profile manifest backend does not match supported profile";
+            return true;
+        }
+
+        out_status.profile_manifest_key_layout_matches =
+            manifest.verifying_key_file.empty() ||
+            manifest.verifying_key_file == fs::path(VERIFIER_BATCH_VK).string();
+        if (!out_status.profile_manifest_key_layout_matches ||
+            (!manifest.proving_key_file.empty() &&
+             manifest.proving_key_file != fs::path(VERIFIER_BATCH_PK).string())) {
+            out_status.assets_present = false;
+            out_status.prover_assets_present = false;
+            out_status.backend_ready = false;
+            out_status.status = "profile manifest key layout does not match expected artifact names";
+            return true;
+        }
+
+        out_status.valid_proof_vectors_present = !manifest.valid_vector_files.empty();
+        for (const auto& relpath : manifest.valid_vector_files) {
+            const fs::path candidate = artifact_dir / relpath;
+            if (!fs::exists(candidate) || !fs::is_regular_file(candidate) || fs::file_size(candidate) == 0) {
+                out_status.valid_proof_vectors_present = false;
+                break;
+            }
+        }
+        if (!out_status.valid_proof_vectors_present) {
+            out_status.assets_present = false;
+            out_status.prover_assets_present = false;
+            out_status.backend_ready = false;
+            out_status.status = "profile manifest valid proof vector missing";
+            return true;
+        }
+
+        out_status.invalid_proof_vectors_present = !manifest.invalid_vector_files.empty();
+        for (const auto& relpath : manifest.invalid_vector_files) {
+            const fs::path candidate = artifact_dir / relpath;
+            if (!fs::exists(candidate) || !fs::is_regular_file(candidate) || fs::file_size(candidate) == 0) {
+                out_status.invalid_proof_vectors_present = false;
+                break;
+            }
+        }
+        if (!out_status.invalid_proof_vectors_present) {
+            out_status.assets_present = false;
+            out_status.prover_assets_present = false;
+            out_status.backend_ready = false;
+            out_status.status = "profile manifest invalid proof vector missing";
+            return true;
+        }
+
         if (!has_vk || out_status.verifying_key_bytes == 0) {
             out_status.status = "missing verifying key";
             return true;
         }
-        if (FileContainsPlaceholderSentinel(manifest_path) ||
+        if (manifest.placeholder ||
+            FileContainsPlaceholderSentinel(manifest_path) ||
             FileContainsPlaceholderSentinel(verifying_key_path)) {
             out_status.assets_present = false;
             out_status.status = "placeholder verifier artifacts only";
@@ -468,8 +670,10 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
 
     ValiditySidechainVerifierAssetsStatus assets_status;
     GetValiditySidechainVerifierAssetsStatus(config, assets_status);
-    if (!assets_status.prover_assets_present) {
-        return FailValidation(error, "proving key missing for supported profile");
+    if (!assets_status.assets_present || !assets_status.prover_assets_present) {
+        return FailValidation(
+            error,
+            assets_status.status.empty() ? "proving key missing for supported profile" : assets_status.status.c_str());
     }
 
 #ifndef HAVE_BOOST_PROCESS
@@ -554,6 +758,13 @@ bool VerifyValiditySidechainBatch(
         const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
         if (supported == nullptr) {
             return FailValidation(error, "unsupported proof configuration tuple");
+        }
+        ValiditySidechainVerifierAssetsStatus assets_status;
+        GetValiditySidechainVerifierAssetsStatus(config, assets_status);
+        if (!assets_status.assets_present || !assets_status.backend_ready) {
+            return FailValidation(
+                error,
+                assets_status.status.empty() ? "verifier assets missing for supported profile" : assets_status.status.c_str());
         }
         return VerifyValiditySidechainBatchWithExternalCommand(
             *supported,

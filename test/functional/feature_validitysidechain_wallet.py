@@ -193,6 +193,12 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_artifact_name"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_assets"]["required"], True)
+        if toy_supported["verifier_assets"]["profile_manifest_parsed"]:
+            assert_equal(toy_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+            assert_equal(toy_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
+            assert_equal(toy_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+            assert_equal(toy_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+            assert_equal(toy_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_supported["scaffolding_only"], False)
         assert_equal(real_supported["requires_external_verifier_assets"], True)
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
@@ -200,6 +206,11 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], False)
         assert_equal(real_supported["verifier_assets"]["backend_ready"], False)
+        if real_supported["verifier_assets"]["profile_manifest_parsed"]:
+            assert_equal(real_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+            assert_equal(real_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+            assert_equal(real_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+            assert_equal(real_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
 
         withdrawals = [
             {
@@ -564,6 +575,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
         assert_equal(real_sidechain["verifier_assets"]["available"], False)
         assert_equal(real_sidechain["verifier_assets"]["backend_ready"], False)
+        if real_sidechain["verifier_assets"]["profile_manifest_parsed"]:
+            assert_equal(real_sidechain["verifier_assets"]["profile_manifest_name_matches"], True)
+            assert_equal(real_sidechain["verifier_assets"]["profile_manifest_key_layout_matches"], True)
 
         real_public_inputs = {
             "batch_number": 1,

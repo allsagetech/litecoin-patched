@@ -381,6 +381,9 @@ Current branch status:
 - fixed proof-config registry now exists in `src/validitysidechain/registry.*`,
   including scaffold modes, an experimental real toy profile, and the planned
   native Groth16 profile slot
+- external-profile verifier asset status now validates manifest naming, backend
+  labeling, key layout, and listed proof-vector files before reporting the
+  bundle as ready
 - registration config encoding exists in `src/validitysidechain/script.*`
 - deposit queue message encoding exists in `src/validitysidechain/script.*`
 - batch public-input encoding exists in `src/validitysidechain/script.*`
