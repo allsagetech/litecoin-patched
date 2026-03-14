@@ -250,7 +250,7 @@ BOOST_FIXTURE_TEST_SUITE(validitysidechain_state_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 {
     const auto& supported_configs = GetSupportedValiditySidechainConfigs();
-    BOOST_REQUIRE_EQUAL(supported_configs.size(), 4U);
+    BOOST_REQUIRE_EQUAL(supported_configs.size(), 5U);
     BOOST_CHECK_EQUAL(std::string(supported_configs.front().profile_name), "scaffold_onchain_da_v1");
     BOOST_CHECK(supported_configs.front().scaffolding_only);
     BOOST_CHECK_EQUAL(
@@ -268,11 +268,18 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK_EQUAL(
         GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 2)),
         ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1);
+    BOOST_CHECK_EQUAL(std::string(supported_configs.at(3).profile_name), "native_blst_groth16_toy_batch_transition_v1");
+    BOOST_CHECK(!supported_configs.at(3).scaffolding_only);
+    BOOST_CHECK(supported_configs.at(3).requires_external_verifier_assets);
+    BOOST_CHECK(!supported_configs.at(3).supports_external_prover);
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 3)),
+        ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1);
     BOOST_CHECK_EQUAL(std::string(supported_configs.back().profile_name), "groth16_bls12_381_poseidon_v1");
     BOOST_CHECK(!supported_configs.back().scaffolding_only);
     BOOST_CHECK(supported_configs.back().requires_external_verifier_assets);
     BOOST_CHECK_EQUAL(
-        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 3)),
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 4)),
         ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1);
 
     const ValiditySidechainConfig config = MakeSupportedConfig();
@@ -284,7 +291,7 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 
 BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
 {
-    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 3);
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
     BOOST_CHECK(status.requires_external_assets);
@@ -310,6 +317,31 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_missing_assets)
         status.status == "missing profile manifest" ||
         status.status == "missing verifying key" ||
         status.status == "placeholder verifier artifacts only");
+}
+
+BOOST_AUTO_TEST_CASE(native_toy_profile_reports_native_backend_ready_when_assets_exist)
+{
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 3);
+    ValiditySidechainVerifierAssetsStatus status;
+    BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
+    BOOST_CHECK(status.requires_external_assets);
+    BOOST_CHECK(status.assets_present);
+    BOOST_CHECK(status.backend_ready);
+    BOOST_CHECK(status.native_backend_available);
+    BOOST_CHECK(status.native_backend_self_test_passed);
+    BOOST_CHECK_EQUAL(status.artifact_name, "native_blst_groth16_toy_batch_transition_v1");
+    if (status.profile_manifest_parsed) {
+        BOOST_CHECK(status.profile_manifest_name_matches);
+        BOOST_CHECK(status.profile_manifest_backend_matches);
+        BOOST_CHECK(status.profile_manifest_key_layout_matches);
+        BOOST_CHECK(status.profile_manifest_tuple_matches);
+        BOOST_CHECK(status.profile_manifest_public_inputs_match);
+        BOOST_CHECK(status.valid_proof_vectors_present);
+        BOOST_CHECK(status.invalid_proof_vectors_present);
+        BOOST_CHECK_EQUAL(status.profile_manifest_name, "native_blst_groth16_toy_batch_transition_v1");
+        BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 7U);
+    }
+    BOOST_CHECK_EQUAL(status.status, "native blst Groth16 verifier ready");
 }
 
 BOOST_AUTO_TEST_CASE(native_blst_backend_self_test_passes)
@@ -776,7 +808,7 @@ BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
 BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_without_verifier_assets)
 {
     ValiditySidechainState state;
-    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 3);
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
     BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 27, /* registration_height= */ 710, config));
 
     const ValiditySidechain* sidechain = state.GetSidechain(27);

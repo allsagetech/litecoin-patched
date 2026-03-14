@@ -34,6 +34,7 @@ static constexpr char VERIFIER_BATCH_VK[] = "batch_vk.bin";
 static constexpr char VERIFIER_BATCH_PK[] = "batch_pk.bin";
 static constexpr char PLACEHOLDER_SENTINEL[] = "PLACEHOLDER";
 static constexpr char TOY_PROFILE_NAME[] = "gnark_groth16_toy_batch_transition_v1";
+static constexpr char NATIVE_TOY_PROFILE_NAME[] = "native_blst_groth16_toy_batch_transition_v1";
 static constexpr char POSEIDON_PROFILE_NAME[] = "groth16_bls12_381_poseidon_v1";
 
 struct ValiditySidechainScaffoldProofEnvelope
@@ -275,6 +276,18 @@ static std::vector<std::string> ExpectedManifestPublicInputs(const SupportedVali
 {
     if (supported.profile_name != nullptr &&
         std::string(supported.profile_name) == TOY_PROFILE_NAME) {
+        return {
+            "sidechain_id",
+            "batch_number",
+            "prior_state_root",
+            "new_state_root",
+            "consumed_queue_messages",
+            "withdrawal_root",
+            "data_root",
+        };
+    }
+    if (supported.profile_name != nullptr &&
+        std::string(supported.profile_name) == NATIVE_TOY_PROFILE_NAME) {
         return {
             "sidechain_id",
             "batch_number",
@@ -752,6 +765,22 @@ static std::vector<std::array<unsigned char, 32>> BuildPoseidonProfilePublicInpu
     return encoded;
 }
 
+static std::vector<std::array<unsigned char, 32>> BuildToyProfilePublicInputs(
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs)
+{
+    std::vector<std::array<unsigned char, 32>> encoded;
+    encoded.reserve(7);
+    encoded.push_back(EncodeGroth16ScalarLE(static_cast<uint32_t>(sidechain_id)));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.batch_number));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.prior_state_root));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.new_state_root));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.consumed_queue_messages));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.withdrawal_root));
+    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.data_root));
+    return encoded;
+}
+
 } // namespace
 
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config)
@@ -769,6 +798,11 @@ ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const V
         supported->profile_name != nullptr &&
         std::string(supported->profile_name) == TOY_PROFILE_NAME) {
         return ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1;
+    }
+    if (!supported->scaffolding_only &&
+        supported->profile_name != nullptr &&
+        std::string(supported->profile_name) == NATIVE_TOY_PROFILE_NAME) {
+        return ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1;
     }
     if (!supported->scaffolding_only &&
         supported->profile_name != nullptr &&
@@ -794,6 +828,8 @@ const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVer
             return "groth16_bls12_381_poseidon_v1";
         case ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1:
             return "gnark_groth16_toy_batch_transition_v1";
+        case ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1:
+            return "native_blst_groth16_toy_batch_transition_v1";
     }
 
     return "unknown";
@@ -947,6 +983,7 @@ bool VerifyValiditySidechainBatch(
     if (mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY &&
         mode != ValiditySidechainBatchVerifierMode::SCAFFOLD_TRANSITION_COMMITMENT &&
         mode != ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1 &&
+        mode != ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1 &&
         mode != ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1) {
         return FailValidation(error, "proof verifier is not implemented for this profile");
     }
@@ -1000,6 +1037,38 @@ bool VerifyValiditySidechainBatch(
             verifying_key,
             proof,
             BuildPoseidonProfilePublicInputs(sidechain_id, public_inputs),
+            error);
+    }
+
+    if (mode == ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1) {
+        const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+        if (supported == nullptr) {
+            return FailValidation(error, "unsupported proof configuration tuple");
+        }
+        ValiditySidechainVerifierAssetsStatus assets_status;
+        GetValiditySidechainVerifierAssetsStatus(config, assets_status);
+        if (!assets_status.assets_present || !assets_status.backend_ready) {
+            return FailValidation(
+                error,
+                assets_status.status.empty() ? "verifier assets missing for supported profile" : assets_status.status.c_str());
+        }
+        ValiditySidechainGroth16Proof proof;
+        if (!ParseValiditySidechainGroth16Proof(proof_bytes, proof, error)) {
+            return false;
+        }
+        const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(*supported);
+        ValiditySidechainGroth16VerificationKey verifying_key;
+        if (!LoadValiditySidechainGroth16VerificationKey(
+                ResolveVerifierArtifactDir(*supported) / VERIFIER_BATCH_VK,
+                static_cast<uint32_t>(expected_public_inputs.size()),
+                verifying_key,
+                error)) {
+            return false;
+        }
+        return VerifyValiditySidechainGroth16Proof(
+            verifying_key,
+            proof,
+            BuildToyProfilePublicInputs(sidechain_id, public_inputs),
             error);
     }
 

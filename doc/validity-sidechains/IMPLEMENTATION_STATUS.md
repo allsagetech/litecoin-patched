@@ -78,18 +78,20 @@ The current implementation is not yet the final trustless design.
 
 ### Batch verification
 
-`COMMIT_VALIDITY_BATCH` currently uses two scaffold verifier profiles, one
-experimental real toy profile, and one proposed native real profile slot:
+`COMMIT_VALIDITY_BATCH` currently uses two scaffold verifier profiles, two
+experimental toy Groth16 profiles, and one proposed native real profile slot:
 
 - supported profile names:
   - `scaffold_onchain_da_v1`
   - `scaffold_transition_da_v1`
   - `gnark_groth16_toy_batch_transition_v1`
+  - `native_blst_groth16_toy_batch_transition_v1`
   - `groth16_bls12_381_poseidon_v1`
 - verifier modes:
   - `scaffold_queue_prefix_commitment_v1`
   - `scaffold_transition_commitment_v1`
   - `gnark_groth16_toy_batch_transition_v1`
+  - `native_blst_groth16_toy_batch_transition_v1`
   - `groth16_bls12_381_poseidon_v1`
 
 This means:
@@ -110,6 +112,11 @@ This means:
   through `contrib/validitysidechain-zk-demo`, but it proves only a toy
   arithmetic relation and does not satisfy the intended trustless sidechain
   semantics
+- the native toy Groth16 profile now has committed converted proof vectors and
+  a native binary verifying-key blob under `artifacts/validitysidechain/`,
+  and the node can replay those committed vectors through the in-process
+  `blst` verifier, but it still proves only the same toy arithmetic relation
+  rather than the intended sidechain circuit
 - the repo now vendors `blst` under `external/blst/` as the selected native
   BLS12-381 pairing backend, and the node now compiles a portable in-process
   `blst` library plus a backend self-test wrapper for the proposed real profile
@@ -206,6 +213,8 @@ It also now has functional wallet/RPC coverage for:
 - scaffold batch submission with auto-built scaffold proof bytes
 - committed valid/invalid toy proof-vector replay through the experimental
   external verifier path
+- committed valid/invalid native toy proof-vector replay through the
+  in-process `blst` verifier path
 - malformed external verifier manifests for tuple/public-input mismatches
 - malformed batch DA rejection for missing chunks, malformed chunk ordering,
   oversized payloads, oversized proof bytes, and bad `data_root`

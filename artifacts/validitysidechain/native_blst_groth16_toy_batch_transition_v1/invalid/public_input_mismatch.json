@@ -1,0 +1,19 @@
+{
+  "name": "public_input_mismatch",
+  "circuit": "toy_batch_transition_v1",
+  "curve": "bls12_381",
+  "expected_result": "reject",
+  "public_inputs": {
+    "batch_number": "9",
+    "consumed_queue_messages": "3",
+    "data_root": "101f",
+    "new_state_root": "1004",
+    "prior_state_root": "1000",
+    "sidechain_id": "8",
+    "withdrawal_root": "100e"
+  },
+  "proof_bytes_hex": "5653475001b7efb1c5496cba9aa0e6277548061331e69ab1cd00ccfcbe0f84c49b0ed5964f6b2caec4258d2a56f54bd2e7008aaf8d995fb35c30ee836a5ae405e15940af48504845797cd3d6ccdbf126650ad31bb7dbf0b7d3f11c68f6d1fa62a2c4dc085014c7882c2c5b70b7f8492a3e739740bee6743100d156e001ed7dde0810c1fd17e7c35b256757c7d0e8950f2428a8a460917e3c46a54ceb24e860456dec519a02ece39fcd4a521c4d29e57c75418446b8372593f9dde1f2724643a2f469e498b7",
+  "notes": [
+    "reuses the native valid proof against a different public input set"
+  ]
+}

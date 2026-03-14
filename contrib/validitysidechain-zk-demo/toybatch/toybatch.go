@@ -13,6 +13,7 @@ import (
 )
 
 const ProfileName = "gnark_groth16_toy_batch_transition_v1"
+const NativeProfileName = "native_blst_groth16_toy_batch_transition_v1"
 
 type BatchPublicInputs struct {
 	BatchNumber           uint32 `json:"batch_number"`

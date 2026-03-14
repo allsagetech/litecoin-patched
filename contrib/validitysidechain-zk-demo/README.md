@@ -28,6 +28,7 @@ To regenerate:
 ```powershell
 cd contrib/validitysidechain-zk-demo
 go run ./cmd/generate-demo | python materialize_bundle.py
+go run ./cmd/export-native-bundle | python materialize_bundle.py
 ```
 
 Helper commands:
@@ -51,3 +52,8 @@ python run_tool.py verify
 The wrapper fixes the working directory and forwards stdin/stdout so the node
 can invoke the helper commands through `-validityprovercommand` and
 `-validityverifiercommand`.
+
+The native toy artifact exporter converts the gnark-generated toy proof and
+verifying key into the node's native Groth16 encoding under:
+
+- `artifacts/validitysidechain/native_blst_groth16_toy_batch_transition_v1/`

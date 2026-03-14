@@ -18,6 +18,7 @@ enum class ValiditySidechainBatchVerifierMode : uint8_t {
     SCAFFOLD_TRANSITION_COMMITMENT = 2,
     GROTH16_BLS12_381_POSEIDON_V1 = 3,
     GNARK_GROTH16_TOY_BATCH_TRANSITION_V1 = 4,
+    NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1 = 5,
 };
 
 struct ValiditySidechainVerifierAssetsStatus

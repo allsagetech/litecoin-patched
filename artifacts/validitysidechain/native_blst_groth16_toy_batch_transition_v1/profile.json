@@ -1,0 +1,38 @@
+{
+  "name": "native_blst_groth16_toy_batch_transition_v1",
+  "curve": "bls12_381",
+  "backend": "native_blst_groth16",
+  "consensus_safe": false,
+  "status": "real toy Groth16 profile for in-process native blst verification",
+  "consensus_tuple": {
+    "version": 1,
+    "proof_system_id": 3,
+    "circuit_family_id": 2,
+    "verifier_id": 2,
+    "public_input_version": 4,
+    "state_root_format": 1,
+    "deposit_message_format": 1,
+    "withdrawal_leaf_format": 1,
+    "balance_leaf_format": 1,
+    "data_availability_mode": 1
+  },
+  "public_inputs": [
+    "sidechain_id",
+    "batch_number",
+    "prior_state_root",
+    "new_state_root",
+    "consumed_queue_messages",
+    "withdrawal_root",
+    "data_root"
+  ],
+  "verifying_key_file": "batch_vk.bin",
+  "proof_vectors": {
+    "valid": [
+      "valid/valid_proof.json"
+    ],
+    "invalid": [
+      "invalid/corrupt_proof.json",
+      "invalid/public_input_mismatch.json"
+    ]
+  }
+}

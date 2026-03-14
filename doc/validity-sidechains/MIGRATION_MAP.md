@@ -405,10 +405,12 @@ Current branch status:
 - batch public-input encoding now also carries `queue_prefix_commitment`, so
   accepted batches commit to the exact consumed pending L1 prefix instead of
   only the before/after queue roots
-- the current branch exposes two scaffold verifier modes plus one proposed real
-  Groth16 profile slot:
+- the current branch exposes two scaffold verifier modes, one experimental
+  native toy Groth16 mode, and one proposed real Groth16 profile slot:
   `scaffold_queue_prefix_commitment_v1` for no-op-root batches,
   `scaffold_transition_commitment_v1` for deterministic root/DA transitions,
+  `native_blst_groth16_toy_batch_transition_v1` for committed in-process toy
+  proof-vector replay through the native `blst` verifier,
   and `groth16_bls12_381_poseidon_v1` as a fixed non-scaffold tuple that still
   hard-fails until verifier assets and the real backend are supplied
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,

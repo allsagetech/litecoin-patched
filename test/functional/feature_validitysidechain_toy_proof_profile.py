@@ -109,9 +109,13 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.zk_runner = self.zk_demo_dir / "run_tool.py"
         self.artifact_root = self.repo_root / "artifacts"
         self.toy_artifact_dir = self.artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"
+        self.native_toy_artifact_dir = self.artifact_root / "validitysidechain" / "native_blst_groth16_toy_batch_transition_v1"
         self.valid_vector_path = self.toy_artifact_dir / "valid" / "valid_proof.json"
         self.invalid_mismatch_vector_path = self.toy_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.invalid_corrupt_vector_path = self.toy_artifact_dir / "invalid" / "corrupt_proof.json"
+        self.native_valid_vector_path = self.native_toy_artifact_dir / "valid" / "valid_proof.json"
+        self.native_invalid_mismatch_vector_path = self.native_toy_artifact_dir / "invalid" / "public_input_mismatch.json"
+        self.native_invalid_corrupt_vector_path = self.native_toy_artifact_dir / "invalid" / "corrupt_proof.json"
         self.have_go = shutil.which("go") is not None
 
         base_args = ["-acceptnonstdtxn=1"]
@@ -133,6 +137,9 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             self.valid_vector_path,
             self.invalid_mismatch_vector_path,
             self.invalid_corrupt_vector_path,
+            self.native_valid_vector_path,
+            self.native_invalid_mismatch_vector_path,
+            self.native_invalid_corrupt_vector_path,
         ):
             if not required_path.exists():
                 raise SkipTest(f"toy proof vector is missing: {required_path}")
@@ -168,6 +175,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         node.generatetoaddress(101, node.getnewaddress())
 
         toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
+        native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_backend"], "external_gnark_command")
         assert_equal(toy_supported["supports_external_prover"], True)
@@ -190,16 +198,43 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(toy_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(toy_supported["verifier_assets"]["valid_proof_vector_count"], 1)
         assert_equal(toy_supported["verifier_assets"]["invalid_proof_vector_count"], 2)
+        assert_equal(native_toy_supported["batch_verifier_mode"], "native_blst_groth16_toy_batch_transition_v1")
+        assert_equal(native_toy_supported["verifier_backend"], "native_blst_groth16")
+        assert_equal(native_toy_supported["supports_external_prover"], False)
+        assert_equal(native_toy_supported["verifier_assets"]["required"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["available"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["backend_ready"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["native_backend_available"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_parsed"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_name"], "native_blst_groth16_toy_batch_transition_v1")
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_backend"], "native_blst_groth16")
+        assert_equal(native_toy_supported["verifier_assets"]["profile_manifest_public_input_count"], 7)
+        assert_equal(native_toy_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
+        assert_equal(native_toy_supported["verifier_assets"]["valid_proof_vector_count"], 1)
+        assert_equal(native_toy_supported["verifier_assets"]["invalid_proof_vector_count"], 2)
 
         self.log.info("Replaying committed proof vectors through consensus.")
         valid_vector = load_json(self.valid_vector_path)
         mismatch_vector = load_json(self.invalid_mismatch_vector_path)
         corrupt_vector = load_json(self.invalid_corrupt_vector_path)
+        native_valid_vector = load_json(self.native_valid_vector_path)
+        native_mismatch_vector = load_json(self.native_invalid_mismatch_vector_path)
+        native_corrupt_vector = load_json(self.native_invalid_corrupt_vector_path)
         assert_equal(valid_vector["expected_result"], "accept_in_demo_verifier")
         assert_equal(mismatch_vector["expected_result"], "reject")
         assert_equal(corrupt_vector["expected_result"], "reject")
+        assert_equal(native_valid_vector["expected_result"], "accept_in_native_verifier")
+        assert_equal(native_mismatch_vector["expected_result"], "reject")
+        assert_equal(native_corrupt_vector["expected_result"], "reject")
 
-        vector_sidechain_id = 7
+        vector_sidechain_id = int(valid_vector["public_inputs"]["sidechain_id"])
         vector_prior_state_root = pad_field_hex(valid_vector["public_inputs"]["prior_state_root"])
         vector_config = build_register_config(
             toy_supported,
@@ -277,13 +312,101 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         node.generate(1)
 
         vector_sidechain = get_sidechain_info(node, vector_sidechain_id)
-        assert_equal(vector_sidechain["latest_batch_number"], 8)
+        assert_equal(vector_sidechain["latest_batch_number"], valid_public_inputs["batch_number"])
         assert_equal(vector_sidechain["current_state_root"], valid_public_inputs["new_state_root"])
         assert_equal(vector_sidechain["current_withdrawal_root"], valid_public_inputs["withdrawal_root"])
         assert_equal(vector_sidechain["current_data_root"], valid_public_inputs["data_root"])
         assert_equal(vector_sidechain["queue_state"]["head_index"], 3)
         assert_equal(vector_sidechain["queue_state"]["pending_message_count"], 0)
         assert vector_sidechain["accepted_batches"][0]["proof_size"] > 0
+
+        self.log.info("Replaying committed native blst proof vectors through the in-process verifier.")
+        native_sidechain_id = int(native_valid_vector["public_inputs"]["sidechain_id"])
+        native_prior_state_root = pad_field_hex(native_valid_vector["public_inputs"]["prior_state_root"])
+        native_config = build_register_config(
+            native_toy_supported,
+            initial_state_root=native_prior_state_root,
+            initial_withdrawal_root=native_prior_state_root,
+        )
+        node.sendvaliditysidechainregister(native_sidechain_id, native_config)
+        node.generate(1)
+
+        native_queued_entries = []
+        for index in range(3):
+            deposit_res = node.sendvaliditydeposit(
+                native_sidechain_id,
+                hex_uint(0x4000 + index),
+                {"address": refund_address},
+                1,
+                index + 1,
+            )
+            native_queued_entries.append({
+                "queue_index": index,
+                "message_kind": 1,
+                "message_id": deposit_res["deposit_id"],
+                "message_hash": deposit_res["deposit_message_hash"],
+            })
+        node.generate(1)
+
+        native_sidechain = get_sidechain_info(node, native_sidechain_id)
+        assert_equal(native_sidechain["queue_state"]["pending_message_count"], 3)
+        native_l1_message_root_before = native_sidechain["queue_state"]["root"]
+        native_l1_message_root_after = compute_consumed_queue_root(
+            native_sidechain_id,
+            native_l1_message_root_before,
+            native_queued_entries,
+        )
+
+        native_valid_public_inputs = {
+            "batch_number": int(native_valid_vector["public_inputs"]["batch_number"]),
+            "prior_state_root": native_prior_state_root,
+            "new_state_root": pad_field_hex(native_valid_vector["public_inputs"]["new_state_root"]),
+            "l1_message_root_before": native_l1_message_root_before,
+            "l1_message_root_after": native_l1_message_root_after,
+            "consumed_queue_messages": int(native_valid_vector["public_inputs"]["consumed_queue_messages"]),
+            "withdrawal_root": pad_field_hex(native_valid_vector["public_inputs"]["withdrawal_root"]),
+            "data_root": pad_field_hex(native_valid_vector["public_inputs"]["data_root"]),
+            "data_size": 0,
+        }
+        native_mismatch_public_inputs = dict(native_valid_public_inputs)
+        native_mismatch_public_inputs["new_state_root"] = pad_field_hex(native_mismatch_vector["public_inputs"]["new_state_root"])
+
+        assert_raises_rpc_error(
+            -26,
+            "Groth16 pairing doesn't match",
+            node.sendvaliditybatch,
+            native_sidechain_id,
+            native_mismatch_public_inputs,
+            native_mismatch_vector["proof_bytes_hex"],
+        )
+        assert_raises_rpc_error(
+            -26,
+            "Groth16 pairing doesn't match",
+            node.sendvaliditybatch,
+            native_sidechain_id,
+            native_valid_public_inputs,
+            native_corrupt_vector["proof_bytes_hex"],
+        )
+
+        native_batch_res = node.sendvaliditybatch(
+            native_sidechain_id,
+            native_valid_public_inputs,
+            native_valid_vector["proof_bytes_hex"],
+        )
+        assert_equal(native_batch_res["auto_scaffold_proof"], False)
+        assert_equal(native_batch_res["auto_external_proof"], False)
+        assert_equal(native_batch_res["auto_proof_backend"], "none")
+        node.generate(1)
+
+        native_sidechain = get_sidechain_info(node, native_sidechain_id)
+        assert_equal(native_sidechain["batch_verifier_mode"], "native_blst_groth16_toy_batch_transition_v1")
+        assert_equal(native_sidechain["latest_batch_number"], native_valid_public_inputs["batch_number"])
+        assert_equal(native_sidechain["current_state_root"], native_valid_public_inputs["new_state_root"])
+        assert_equal(native_sidechain["current_withdrawal_root"], native_valid_public_inputs["withdrawal_root"])
+        assert_equal(native_sidechain["current_data_root"], native_valid_public_inputs["data_root"])
+        assert_equal(native_sidechain["queue_state"]["head_index"], 3)
+        assert_equal(native_sidechain["queue_state"]["pending_message_count"], 0)
+        assert native_sidechain["accepted_batches"][0]["proof_size"] > 0
 
         self.log.info("Registering a toy Groth16 profile sidechain and accepting an externally-proven batch.")
         sidechain_id = 12
