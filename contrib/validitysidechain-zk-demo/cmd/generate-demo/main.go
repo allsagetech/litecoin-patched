@@ -17,6 +17,7 @@ import (
 )
 
 const outputDirName = "generated/toy_batch_transition_bls12_381_v1"
+const profileName = "gnark_groth16_toy_batch_transition_v1"
 
 type ToyBatchTransitionCircuit struct {
 	SidechainID            frontend.Variable `gnark:",public"`
@@ -104,11 +105,11 @@ func publicInputsFromAssignment(assignment ToyBatchTransitionCircuit) DemoPublic
 	return DemoPublicInputs{
 		SidechainID:           fmt.Sprint(assignment.SidechainID),
 		BatchNumber:           fmt.Sprint(assignment.BatchNumber),
-		PriorStateRoot:        fmt.Sprint(assignment.PriorStateRoot),
-		NewStateRoot:          fmt.Sprint(assignment.NewStateRoot),
+		PriorStateRoot:        fmt.Sprintf("%x", assignment.PriorStateRoot),
+		NewStateRoot:          fmt.Sprintf("%x", assignment.NewStateRoot),
 		ConsumedQueueMessages: fmt.Sprint(assignment.ConsumedQueueMessages),
-		WithdrawalRoot:        fmt.Sprint(assignment.WithdrawalRoot),
-		DataRoot:              fmt.Sprint(assignment.DataRoot),
+		WithdrawalRoot:        fmt.Sprintf("%x", assignment.WithdrawalRoot),
+		DataRoot:              fmt.Sprintf("%x", assignment.DataRoot),
 	}
 }
 
@@ -141,11 +142,11 @@ func main() {
 	validAssignment := ToyBatchTransitionCircuit{
 		SidechainID:           7,
 		BatchNumber:           8,
-		PriorStateRoot:        1000,
-		NewStateRoot:          1003,
+		PriorStateRoot:        0x1000,
+		NewStateRoot:          0x1003,
 		ConsumedQueueMessages: 3,
-		WithdrawalRoot:        1014,
-		DataRoot:              1031,
+		WithdrawalRoot:        0x100e,
+		DataRoot:              0x101f,
 		StateDelta:            3,
 		WithdrawalDelta:       11,
 		DataDelta:             17,
@@ -203,7 +204,7 @@ func main() {
 	}
 
 	mismatchedAssignment := validAssignment
-	mismatchedAssignment.NewStateRoot = 1004
+	mismatchedAssignment.NewStateRoot = 0x1004
 	invalidMismatchVector := DemoVector{
 		Name:           "public_input_mismatch",
 		Circuit:        "toy_batch_transition_v1",
@@ -217,7 +218,7 @@ func main() {
 	}
 
 	profile := DemoProfile{
-		Name:          "toy_batch_transition_bls12_381_v1",
+		Name:          profileName,
 		Curve:         "bls12_381",
 		Backend:       "gnark_groth16",
 		ConsensusSafe: false,

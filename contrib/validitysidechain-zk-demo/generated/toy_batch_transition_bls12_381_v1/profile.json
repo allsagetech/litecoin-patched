@@ -1,5 +1,5 @@
 {
-  "name": "toy_batch_transition_bls12_381_v1",
+  "name": "gnark_groth16_toy_batch_transition_v1",
   "curve": "bls12_381",
   "backend": "gnark_groth16",
   "consensus_safe": false,
