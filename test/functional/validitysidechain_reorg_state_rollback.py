@@ -170,7 +170,8 @@ class ValiditySidechainReorgStateRollback(BitcoinTestFramework):
             "data_root": sidechain["current_data_root"],
             "data_size": 0,
         }
-        n0.sendvaliditybatch(sidechain_id, public_inputs)
+        batch_res = n0.sendvaliditybatch(sidechain_id, public_inputs)
+        batch_txid = batch_res["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
         batch_height = n0.getblockcount()
 
@@ -182,7 +183,8 @@ class ValiditySidechainReorgStateRollback(BitcoinTestFramework):
             }
             for withdrawal in withdrawals
         ]
-        n0.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_rpc_entries)
+        verified_withdrawal_res = n0.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_rpc_entries)
+        verified_withdrawal_txid = verified_withdrawal_res["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
 
         escape_height = batch_height + config["escape_hatch_delay"]
@@ -200,7 +202,8 @@ class ValiditySidechainReorgStateRollback(BitcoinTestFramework):
         ]
         sidechain = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
         assert sidechain is not None
-        n0.sendescapeexit(sidechain_id, sidechain["current_state_root"], escape_exit_rpc_entries)
+        escape_exit_res = n0.sendescapeexit(sidechain_id, sidechain["current_state_root"], escape_exit_rpc_entries)
+        escape_exit_txid = escape_exit_res["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
 
         info_n0 = n0.getvaliditysidechaininfo()
@@ -261,11 +264,23 @@ class ValiditySidechainReorgStateRollback(BitcoinTestFramework):
         public_inputs["l1_message_root_after"] = sidechain_after_restart["queue_state"]["root"]
         public_inputs["withdrawal_root"] = sidechain_after_restart["current_withdrawal_root"]
         public_inputs["data_root"] = sidechain_after_restart["current_data_root"]
-        n0.sendvaliditybatch(sidechain_id, public_inputs)
+        mempool = n0.getrawmempool()
+        if batch_txid in mempool:
+            self.log.info("The original batch transaction was restored to mempool after the reorg.")
+        else:
+            batch_res = n0.sendvaliditybatch(sidechain_id, public_inputs)
+            batch_txid = batch_res["txid"]
+        assert batch_txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
         batch_height = n0.getblockcount()
 
-        n0.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_rpc_entries)
+        mempool = n0.getrawmempool()
+        if verified_withdrawal_txid in mempool:
+            self.log.info("The original verified-withdrawal transaction was restored to mempool after the reorg.")
+        else:
+            verified_withdrawal_res = n0.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_rpc_entries)
+            verified_withdrawal_txid = verified_withdrawal_res["txid"]
+        assert verified_withdrawal_txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
 
         escape_height = batch_height + config["escape_hatch_delay"]
@@ -275,7 +290,17 @@ class ValiditySidechainReorgStateRollback(BitcoinTestFramework):
 
         sidechain_after_restart = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
         assert sidechain_after_restart is not None
-        n0.sendescapeexit(sidechain_id, sidechain_after_restart["current_state_root"], escape_exit_rpc_entries)
+        mempool = n0.getrawmempool()
+        if escape_exit_txid in mempool:
+            self.log.info("The original escape-exit transaction was restored to mempool after the reorg.")
+        else:
+            escape_exit_res = n0.sendescapeexit(
+                sidechain_id,
+                sidechain_after_restart["current_state_root"],
+                escape_exit_rpc_entries,
+            )
+            escape_exit_txid = escape_exit_res["txid"]
+        assert escape_exit_txid in n0.getrawmempool()
         n0.generatetoaddress(1, n0.getnewaddress())
 
         final_sidechain = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
