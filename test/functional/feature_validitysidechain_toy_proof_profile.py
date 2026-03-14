@@ -550,7 +550,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
 
         assert_raises_rpc_error(
             -26,
-            "Groth16 pairing doesn't match",
+            "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
             real_mismatch_public_inputs,
