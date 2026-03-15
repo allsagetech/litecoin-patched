@@ -623,7 +623,7 @@ jobs:
         run: |
           src/test/test_litecoin --catch_system_errors=no --run_test=validitysidechain_script_tests
           src/test/test_litecoin --catch_system_errors=no --run_test=validitysidechain_state_tests
-          src/test/test_litecoin --catch_system_errors=no --run_test=validitysidechain_groth16_tests
+          src/test/test_litecoin --catch_system_errors=yes --log_level=test_suite --run_test=validitysidechain_groth16_tests
 
       - name: Run validity sidechain functional tests
         env:
