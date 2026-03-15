@@ -184,6 +184,9 @@ This means:
   `withdrawal_root_single_leaf_experimental` rather than the generic
   `withdrawal_root_merkle_inclusion` mode, so node observability no longer
   overstates the current withdrawal execution capability
+- the auto-prover path now also fails early on unsupported experimental real
+  witness shapes, rejecting more than one consumed queue entry or more than
+  one withdrawal witness leaf before invoking the external prover command
 - consensus now also requires the executed withdrawal proof itself to be a
   literal single-leaf proof for `groth16_bls12_381_poseidon_v1`, so a
   hand-crafted Merkle proof for one leaf out of a larger withdrawal tree no

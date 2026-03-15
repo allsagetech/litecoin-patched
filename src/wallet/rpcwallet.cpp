@@ -2072,7 +2072,7 @@ static RPCHelpMan sendvaliditybatch()
                     {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Withdrawal root"},
                     {"data_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Data-availability root"},
                     {"data_size", RPCArg::Type::NUM, RPCArg::Optional::NO, "Published data size in bytes"},
-                    {"withdrawal_leaves", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional experimental prover witness for the real profile. Ignored by consensus encoding.",
+                    {"withdrawal_leaves", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional experimental prover witness for the real profile. Ignored by consensus encoding. The current experimental real profile supports at most one witness leaf.",
                         {
                             {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                                 {

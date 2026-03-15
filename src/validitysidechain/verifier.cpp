@@ -940,6 +940,14 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     if (!supported->supports_external_prover) {
         return FailValidation(error, "external prover is not supported for this profile");
     }
+    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config) &&
+        consumed_queue_entries.size() > 1) {
+        return FailValidation(error, "experimental real profile supports at most one consumed queue entry for auto prover");
+    }
+    if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config) &&
+        withdrawal_leaves.size() > 1) {
+        return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");
+    }
 
     ValiditySidechainVerifierAssetsStatus assets_status;
     GetValiditySidechainVerifierAssetsStatus(config, assets_status);

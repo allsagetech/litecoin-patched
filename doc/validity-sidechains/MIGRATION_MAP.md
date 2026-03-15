@@ -432,6 +432,9 @@ Current branch status:
   profile so a hand-crafted proof of one leaf out of a larger withdrawal tree
   is no longer accepted under the current experimental mode, plus RPC
   reporting of `withdrawal_root_single_leaf_experimental` for that profile,
+  plus early auto-prover rejection of unsupported multi-entry queue or
+  multi-leaf withdrawal witness shapes for that profile before invoking the
+  external prover,
   along with
   committed invalid vectors for mismatched `new_state_root`,
   `queue_prefix_commitment`, and `withdrawal_root`, plus functional rejection

@@ -718,6 +718,46 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
 
         real_auto_prover_ready = toy_external_backend_ready and real_supported["verifier_assets"]["prover_assets_present"]
         if real_auto_prover_ready:
+            self.log.info("Rejecting unsupported multi-entry queue witness data before real auto-prover proof generation.")
+            real_auto_queue_sidechain_id = 34
+            real_auto_queue_initial_root = hex_uint(4100)
+            real_auto_queue_config = build_register_config(
+                real_supported,
+                initial_state_root=real_auto_queue_initial_root,
+                initial_withdrawal_root="00" * 32,
+            )
+            node.sendvaliditysidechainregister(real_auto_queue_sidechain_id, real_auto_queue_config)
+            node.generate(1)
+            for nonce in range(2):
+                node.sendvaliditydeposit(
+                    real_auto_queue_sidechain_id,
+                    hex_uint(0x5000 + nonce),
+                    {"address": refund_address},
+                    Decimal("0.25"),
+                    nonce + 1,
+                )
+            node.generate(1)
+            real_auto_queue_sidechain = get_sidechain_info(node, real_auto_queue_sidechain_id)
+            assert_equal(real_auto_queue_sidechain["queue_state"]["pending_message_count"], 2)
+            unsupported_queue_public_inputs = {
+                "batch_number": 1,
+                "prior_state_root": real_auto_queue_initial_root,
+                "new_state_root": hex_uint(4101),
+                "l1_message_root_before": real_auto_queue_sidechain["queue_state"]["root"],
+                "l1_message_root_after": real_auto_queue_sidechain["queue_state"]["root"],
+                "consumed_queue_messages": 2,
+                "withdrawal_root": "00" * 32,
+                "data_root": "00" * 32,
+                "data_size": 0,
+            }
+            assert_raises_rpc_error(
+                -8,
+                "experimental real profile supports at most one consumed queue entry for auto prover",
+                node.sendvaliditybatch,
+                real_auto_queue_sidechain_id,
+                unsupported_queue_public_inputs,
+            )
+
             self.log.info("Rejecting mismatched withdrawal witness data before real auto-prover proof generation.")
             bad_real_withdrawal_public_inputs = dict(real_public_inputs)
             bad_real_withdrawal_public_inputs["withdrawal_leaves"] = [
@@ -734,6 +774,29 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                 node.sendvaliditybatch,
                 real_sidechain_id,
                 bad_real_withdrawal_public_inputs,
+                None,
+                real_data_chunks,
+            )
+            self.log.info("Rejecting unsupported multi-leaf withdrawal witness data before real auto-prover proof generation.")
+            multi_leaf_real_withdrawal_public_inputs = dict(real_public_inputs)
+            multi_leaf_real_withdrawal_public_inputs["withdrawal_leaves"] = [
+                {
+                    "withdrawal_id": leaf["withdrawal_id"],
+                    "script": leaf["script"],
+                    "amount": Decimal(leaf["amount"]),
+                }
+                for leaf in real_valid_vector.get("withdrawal_leaves", [])
+            ] + [{
+                "withdrawal_id": "de" * 32,
+                "script": build_script_destination(node),
+                "amount": Decimal("0.01"),
+            }]
+            assert_raises_rpc_error(
+                -8,
+                "experimental real profile supports at most one withdrawal leaf witness for auto prover",
+                node.sendvaliditybatch,
+                real_sidechain_id,
+                multi_leaf_real_withdrawal_public_inputs,
                 None,
                 real_data_chunks,
             )
