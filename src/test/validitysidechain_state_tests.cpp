@@ -302,7 +302,8 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
     BOOST_CHECK(status.requires_external_assets);
     BOOST_CHECK(status.assets_present);
-    BOOST_CHECK(status.prover_assets_present);
+    BOOST_CHECK(!status.prover_assets_present);
+    BOOST_CHECK_EQUAL(status.proving_key_bytes, 0U);
     BOOST_CHECK(status.backend_ready);
     BOOST_CHECK(status.native_backend_available);
     BOOST_CHECK(status.native_backend_self_test_passed);
@@ -386,6 +387,7 @@ BOOST_AUTO_TEST_CASE(toy_profile_requires_external_command_or_assets)
         status.status == "missing verifying key" ||
         status.status == "missing proving key" ||
         status.status == "verifier command not configured" ||
+        status.status == "boost process support not built" ||
         status.status == "profile manifest valid proof vector missing" ||
         status.status == "profile manifest invalid proof vector missing");
 }

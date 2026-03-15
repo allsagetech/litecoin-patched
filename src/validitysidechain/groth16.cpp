@@ -111,12 +111,10 @@ static bool ParseScalarLE(
     blst_scalar& out_scalar,
     std::string* error)
 {
-    const bool is_zero = std::all_of(
-        scalar_bytes.begin(),
-        scalar_bytes.end(),
-        [](unsigned char byte) { return byte == 0; });
-    if ((!blst_scalar_from_le_bytes(&out_scalar, scalar_bytes.data(), scalar_bytes.size()) && !is_zero) ||
-        !blst_scalar_fr_check(&out_scalar)) {
+    // Load the raw scalar bytes without modular reduction; fr_check enforces
+    // the canonical BLS12-381 scalar-field range, including zero.
+    blst_scalar_from_lendian(&out_scalar, scalar_bytes.data());
+    if (!blst_scalar_fr_check(&out_scalar)) {
         return FailValidation(error, "Groth16 public input does not fit BLS12-381 scalar field");
     }
     return true;
