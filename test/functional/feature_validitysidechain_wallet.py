@@ -761,6 +761,18 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
+            {
+                **real_public_inputs,
+                "withdrawal_root": pad_field_hex("2"),
+            },
+            real_valid_vector["proof_bytes_hex"],
+            real_data_chunks,
+        )
+        assert_raises_rpc_error(
+            -26,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_sidechain_id,
             real_public_inputs,
             real_corrupt_vector["proof_bytes_hex"],
             real_data_chunks,

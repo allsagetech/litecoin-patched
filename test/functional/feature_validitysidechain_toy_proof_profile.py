@@ -636,6 +636,17 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_mismatch_vector["proof_bytes_hex"],
             real_data_chunks,
         )
+        real_withdrawal_mismatch_public_inputs = dict(real_public_inputs)
+        real_withdrawal_mismatch_public_inputs["withdrawal_root"] = pad_field_hex("2")
+        assert_raises_rpc_error(
+            -26,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_withdrawal_mismatch_public_inputs,
+            real_valid_vector["proof_bytes_hex"],
+            real_data_chunks,
+        )
         assert_raises_rpc_error(
             -26,
             "Groth16",

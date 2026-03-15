@@ -64,6 +64,7 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 		c.L1MessageRootAfter,
 		c.ConsumedQueueMessages,
 		c.QueuePrefixCommitment,
+		c.WithdrawalRoot,
 		c.DataRoot,
 		c.DataSize,
 	)
@@ -174,6 +175,11 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 		cleared.PublicInputs.DataRoot = computePublishedDataRoot(chunks)
 		cleared.PublicInputs.DataSize = uint32(computePublishedDataSize(chunks))
 	}
+	withdrawalRoot, err := computeWithdrawalRootFromRequest(request)
+	if err != nil {
+		return toybatch.CommandRequest{}, err
+	}
+	cleared.PublicInputs.WithdrawalRoot = withdrawalRoot
 	assignment, err := BuildAssignment(cleared)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
@@ -183,10 +189,6 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 		assignment.PriorStateRoot.(*big.Int),
 		mustTransitionCommitment(assignment),
 	)
-	if err != nil {
-		return toybatch.CommandRequest{}, err
-	}
-	withdrawalRoot, err := computeWithdrawalRootFromRequest(request)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
 	}
@@ -257,6 +259,7 @@ func mustTransitionCommitment(assignment PoseidonBatchTransitionCircuit) *big.In
 		assignment.L1MessageRootAfter.(*big.Int),
 		assignment.ConsumedQueueMessages.(*big.Int),
 		assignment.QueuePrefixCommitment.(*big.Int),
+		assignment.WithdrawalRoot.(*big.Int),
 		assignment.DataRoot.(*big.Int),
 		assignment.DataSize.(*big.Int),
 	)

@@ -10,7 +10,7 @@
     "data_size": "13",
     "l1_message_root_after": "328590f67ce8c3461e9874a427e9fcc2578134ff6a36eb098ddbaafbef04a27e",
     "l1_message_root_before": "4516194056b44dfa2fc1800147576dd0d63bd0c55ef9743d634df2ecdd449092",
-    "new_state_root": "5422adbf753bba7de74c532984692058647cf73496331118850207167d2e45b8",
+    "new_state_root": "18b070f2de49d29f2b55dfdefa4fed7a2c4272d836b38ea2a4027492a5ca1958",
     "prior_state_root": "1",
     "queue_prefix_commitment": "0ada18d0e921053acbff1737ac51763b6e91457d7bafff7511c037e2765cfda2",
     "sidechain_id": "9",
@@ -45,11 +45,12 @@
     "7265616c2d6261746368",
     "2d6461"
   ],
-  "proof_bytes_hex": "56534750018ca875c6c05af8a7efa675127fda7f829d8b23dc7b1a32eed0af0d17354390bbac887aa74f0bcdf5f88edd5316f242ab87629c74a3903655912ec950e09a5c39561baee5f44b74f620d4487b562ebf3ac890bea02576227ccd28f0567629e118174f8c451be392315182b678cb6ed9c97c8306f55e99c2d08f5ec28f88d395e5b15bb3a6d3cae511d8377313bad5472495acc73e3f91d575c99aed7695bf19f2c70021abab7c91e9ebf8d98ac94e53ee239b6666c99cebf8571c5a1d9c4e27f8",
+  "proof_bytes_hex": "5653475001a6afc2585f220b459983794e36a9dc9f2f6898743c177a4f8840a9a793e2195a298a2ef7ebd24becf3b05efefcf9fe5194d85b6928cfcd9d6d0ea68361689e6e83c391762bba644a82f1e1db9548edc2dc22fbe6ac5059637f630646922900010fbdd0c047d6319c56011e324356be003c4969cff7fd0f0a7b11133c0c599e8e87fd3032a48cbd1d49013e1816ac80c490cf09643043c85a5cab1dfc85a1cd8216e64f9733f68c5cb511cea09e7874ba9c64aef43d7298f1ace1259beb15bebe",
   "notes": [
     "real Groth16 proof for the experimental poseidon batch transition circuit",
     "includes one deterministic deposit queue entry fixture for surrounding node-side queue checks",
     "includes one deterministic withdrawal leaf fixture for surrounding node-side withdrawal execution checks",
+    "binds withdrawal_root directly into the Poseidon transition commitment",
     "the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
     "binds a non-empty published DA payload through data_root and data_size",
     "verified in-process by the node native blst Groth16 path"

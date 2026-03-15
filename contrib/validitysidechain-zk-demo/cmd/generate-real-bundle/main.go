@@ -215,6 +215,7 @@ func main() {
 			"real Groth16 proof for the experimental poseidon batch transition circuit",
 			"includes one deterministic deposit queue entry fixture for surrounding node-side queue checks",
 			"includes one deterministic withdrawal leaf fixture for surrounding node-side withdrawal execution checks",
+			"binds withdrawal_root directly into the Poseidon transition commitment",
 			"the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
 			"binds a non-empty published DA payload through data_root and data_size",
 			"verified in-process by the node native blst Groth16 path",

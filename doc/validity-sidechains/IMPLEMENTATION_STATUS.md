@@ -145,8 +145,9 @@ This means:
 - the experimental real-profile vectors now also bind one deterministic
   withdrawal leaf through the actual Litecoin withdrawal-root hashing path, so
   the committed valid vector can still drive `EXECUTE_VERIFIED_WITHDRAWALS`
-  against a proof-backed accepted batch even though the current circuit does
-  not yet prove that withdrawal witness internally
+  against a proof-backed accepted batch, and `withdrawal_root` is now bound
+  directly into the experimental Poseidon transition commitment even though the
+  circuit still does not prove that withdrawal witness internally
 - the experimental real-profile proving key is now generator-produced but not
   committed in-tree; committed artifacts remain verifier-side only, while
   local real-profile auto-prover runs require regenerating that proving key
