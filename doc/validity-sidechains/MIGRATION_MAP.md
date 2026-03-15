@@ -426,7 +426,9 @@ Current branch status:
   committed invalid vectors for mismatched `new_state_root`,
   `queue_prefix_commitment`, and `withdrawal_root`; the proving key still has
   to be regenerated locally, so the committed repo bundle remains verifier-side
-  only and still stops short of final trustless semantics
+  only and still stops short of final trustless semantics even though the
+  validity-sidechain CI job now materializes that proving key transiently on
+  the runner for auto-prover coverage
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking

@@ -137,6 +137,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.toy_artifact_dir = self.artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"
         self.native_toy_artifact_dir = self.artifact_root / "validitysidechain" / "native_blst_groth16_toy_batch_transition_v1"
         self.real_artifact_dir = self.artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
+        self.real_proving_key_path = self.real_artifact_dir / "batch_pk.bin"
         self.valid_vector_path = self.toy_artifact_dir / "valid" / "valid_proof.json"
         self.invalid_mismatch_vector_path = self.toy_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.invalid_corrupt_vector_path = self.toy_artifact_dir / "invalid" / "corrupt_proof.json"
@@ -265,7 +266,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_supported["supports_external_prover"], True)
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], True)
-        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], False)
+        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], self.real_proving_key_path.exists())
         assert_equal(real_supported["verifier_assets"]["backend_ready"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_self_test_passed"], True)

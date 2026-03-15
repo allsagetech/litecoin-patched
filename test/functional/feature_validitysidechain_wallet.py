@@ -247,6 +247,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         node = self.nodes[0]
         repo_root = Path(__file__).resolve().parents[2]
         real_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
+        real_proving_key_present = (real_artifact_dir / "batch_pk.bin").exists()
         real_valid_vector = load_json(real_artifact_dir / "valid" / "valid_proof.json")
         real_mismatch_vector = load_json(real_artifact_dir / "invalid" / "public_input_mismatch.json")
         real_queue_prefix_mismatch_vector = load_json(real_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json")
@@ -317,7 +318,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], True)
-        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], False)
+        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], real_proving_key_present)
         assert_equal(real_supported["verifier_assets"]["backend_ready"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_self_test_passed"], True)
@@ -733,7 +734,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
         assert_equal(real_sidechain["verifier_assets"]["available"], True)
-        assert_equal(real_sidechain["verifier_assets"]["prover_assets_present"], False)
+        assert_equal(real_sidechain["verifier_assets"]["prover_assets_present"], real_proving_key_present)
         assert_equal(real_sidechain["verifier_assets"]["backend_ready"], True)
         assert_equal(real_sidechain["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_sidechain["verifier_assets"]["native_backend_self_test_passed"], True)

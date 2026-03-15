@@ -592,6 +592,11 @@ jobs:
             python3 -m pip install litecoin_scrypt
           fi
 
+      - name: Materialize experimental real Groth16 proving assets
+        run: |
+          cd contrib/validitysidechain-zk-demo
+          go run ./cmd/generate-real-bundle | python3 materialize_bundle.py
+
       - name: autogen
         run: ./autogen.sh
 

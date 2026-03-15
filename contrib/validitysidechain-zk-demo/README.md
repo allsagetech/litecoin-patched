@@ -29,6 +29,7 @@ To regenerate:
 cd contrib/validitysidechain-zk-demo
 go run ./cmd/generate-demo | python materialize_bundle.py
 go run ./cmd/export-native-bundle | python materialize_bundle.py
+go run ./cmd/generate-real-bundle | python materialize_bundle.py
 ```
 
 Helper commands:

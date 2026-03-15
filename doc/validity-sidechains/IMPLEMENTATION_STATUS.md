@@ -155,7 +155,8 @@ This means:
 - the experimental real-profile proving key is now generator-produced but not
   committed in-tree; committed artifacts remain verifier-side only, while
   local real-profile auto-prover runs require regenerating that proving key
-  out of tree
+  out of tree, and the validity-sidechain CI job now does that materialization
+  transiently on the runner before functional tests
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
