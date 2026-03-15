@@ -951,6 +951,28 @@ bool ValiditySidechainState::AcceptBatch(
         }
         return false;
     }
+    std::vector<ValiditySidechainQueueEntry> consumed_queue_entries;
+    std::string queue_error;
+    if (!GetValiditySidechainConsumedQueueEntries(
+            *sidechain,
+            public_inputs.consumed_queue_messages,
+            consumed_queue_entries,
+            &queue_error)) {
+        if (error != nullptr) {
+            *error = queue_error;
+        }
+        return false;
+    }
+    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain->config)) {
+        for (const auto& entry : consumed_queue_entries) {
+            if (entry.message_kind != ValiditySidechainQueueEntry::MESSAGE_DEPOSIT) {
+                if (error != nullptr) {
+                    *error = "experimental real profile currently supports consumed deposit queue entries only";
+                }
+                return false;
+            }
+        }
+    }
 
     ValiditySidechainBatchVerifierMode verifier_mode;
     std::string verifier_error;
@@ -975,7 +997,6 @@ bool ValiditySidechainState::AcceptBatch(
 
     uint256 expected_l1_message_root_after;
     uint256 expected_queue_prefix_commitment;
-    std::string queue_error;
     uint32_t required_consumed_queue_messages = 0;
     if (!ComputeRequiredConsumedQueueMessages(*sidechain, accepted_height, required_consumed_queue_messages, &queue_error)) {
         if (error != nullptr) {

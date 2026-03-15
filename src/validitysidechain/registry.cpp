@@ -240,7 +240,7 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
         return "local_prefix_consensus_scaffold";
     }
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
-        return "local_prefix_consensus_single_entry_experimental";
+        return "local_prefix_consensus_single_deposit_entry_experimental";
     }
     return "local_prefix_consensus_count_only";
 }

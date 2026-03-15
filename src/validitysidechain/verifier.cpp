@@ -944,6 +944,13 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
         consumed_queue_entries.size() > 1) {
         return FailValidation(error, "experimental real profile supports at most one consumed queue entry for auto prover");
     }
+    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
+        for (const auto& entry : consumed_queue_entries) {
+            if (entry.message_kind != ValiditySidechainQueueEntry::MESSAGE_DEPOSIT) {
+                return FailValidation(error, "experimental real profile supports consumed deposit queue entries only for auto prover");
+            }
+        }
+    }
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config) &&
         withdrawal_leaves.size() > 1) {
         return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");

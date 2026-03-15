@@ -184,6 +184,11 @@ This means:
   `consumed_queue_messages > 1`, matching the current experimental
   single-entry queue-fixture coverage instead of silently accepting broader
   queue consumption semantics than that profile actually models
+- consensus, wallet RPCs, and top-level profile reporting now also pin that
+  same experimental batch queue mode to consumed deposit entries only, exposed
+  as `local_prefix_consensus_single_deposit_entry_experimental`, so the node
+  no longer implies current proof coverage for consumed force-exit queue
+  entries on that profile
 - consensus and wallet RPCs now also hard-reject more than one executed
   withdrawal leaf for `groth16_bls12_381_poseidon_v1`, matching the current
   single-leaf experimental withdrawal binding instead of pretending broader

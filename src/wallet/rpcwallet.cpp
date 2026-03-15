@@ -2067,7 +2067,7 @@ static RPCHelpMan sendvaliditybatch()
                     {"new_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "New finalized state root"},
                     {"l1_message_root_before", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root before batch consumption"},
                     {"l1_message_root_after", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root after batch consumption"},
-                    {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages"},
+                    {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages. The current experimental real profile supports at most one consumed deposit entry."},
                     {"queue_prefix_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional commitment to the exact consumed queue prefix. If omitted, the wallet computes it from the active chainstate."},
                     {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Withdrawal root"},
                     {"data_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Data-availability root"},
@@ -2164,6 +2164,15 @@ static RPCHelpMan sendvaliditybatch()
                     consumed_queue_entries,
                     &queue_entries_error)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, queue_entries_error);
+            }
+            if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)) {
+                for (const auto& entry : consumed_queue_entries) {
+                    if (entry.message_kind != ValiditySidechainQueueEntry::MESSAGE_DEPOSIT) {
+                        throw JSONRPCError(
+                            RPC_INVALID_PARAMETER,
+                            "experimental real profile currently supports consumed deposit queue entries only");
+                    }
+                }
             }
 
             std::vector<unsigned char> proof_bytes;

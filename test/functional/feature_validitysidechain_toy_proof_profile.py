@@ -268,7 +268,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_supported["supports_external_prover"], True)
-        assert_equal(real_supported["batch_queue_binding_mode"], "local_prefix_consensus_single_entry_experimental")
+        assert_equal(real_supported["batch_queue_binding_mode"], "local_prefix_consensus_single_deposit_entry_experimental")
         assert_equal(real_supported["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], True)
@@ -756,6 +756,48 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                 node.sendvaliditybatch,
                 real_auto_queue_sidechain_id,
                 unsupported_queue_public_inputs,
+            )
+            self.log.info("Rejecting consumed force-exit queue entries before real auto-prover proof generation.")
+            real_auto_force_exit_sidechain_id = 35
+            real_auto_force_exit_initial_root = hex_uint(4200)
+            real_auto_force_exit_config = build_register_config(
+                real_supported,
+                initial_state_root=real_auto_force_exit_initial_root,
+                initial_withdrawal_root="00" * 32,
+            )
+            node.sendvaliditysidechainregister(real_auto_force_exit_sidechain_id, real_auto_force_exit_config)
+            node.generate(1)
+            node.sendforceexitrequest(
+                real_auto_force_exit_sidechain_id,
+                "77" * 32,
+                "88" * 32,
+                Decimal("0.25"),
+                {"address": refund_address},
+                1,
+            )
+            node.generate(1)
+            real_auto_force_exit_sidechain = get_sidechain_info(node, real_auto_force_exit_sidechain_id)
+            assert_equal(
+                real_auto_force_exit_sidechain["batch_queue_binding_mode"],
+                "local_prefix_consensus_single_deposit_entry_experimental",
+            )
+            assert_raises_rpc_error(
+                -8,
+                "experimental real profile currently supports consumed deposit queue entries only",
+                node.sendvaliditybatch,
+                real_auto_force_exit_sidechain_id,
+                {
+                    "batch_number": 1,
+                    "prior_state_root": real_auto_force_exit_initial_root,
+                    "new_state_root": real_auto_force_exit_initial_root,
+                    "l1_message_root_before": real_auto_force_exit_sidechain["queue_state"]["root"],
+                    "l1_message_root_after": real_auto_force_exit_sidechain["queue_state"]["root"],
+                    "consumed_queue_messages": 1,
+                    "withdrawal_root": "00" * 32,
+                    "data_root": "00" * 32,
+                    "data_size": 0,
+                },
+                None,
             )
 
             self.log.info("Rejecting mismatched withdrawal witness data before real auto-prover proof generation.")
