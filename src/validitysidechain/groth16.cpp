@@ -128,16 +128,14 @@ static bool IsZeroScalarLE(const std::array<unsigned char, GROTH16_SCALAR_BYTES>
         [](unsigned char byte) { return byte == 0; });
 }
 
-static void ComputeSafeMillerLoop(
-    blst_fp12& out_result,
-    const blst_p2_affine& q,
-    const blst_p1_affine& p)
+static void NegateG2Affine(
+    blst_p2_affine& out_point,
+    const blst_p2_affine& point)
 {
-    if (blst_p2_affine_is_inf(&q) || blst_p1_affine_is_inf(&p)) {
-        out_result = *blst_fp12_one();
-        return;
-    }
-    blst_miller_loop(&out_result, &q, &p);
+    blst_p2 point_jacobian;
+    blst_p2_from_affine(&point_jacobian, &point);
+    blst_p2_cneg(&point_jacobian, true);
+    blst_p2_to_affine(&out_point, &point_jacobian);
 }
 
 static bool ComputeGammaABCCombination(
@@ -386,17 +384,25 @@ bool VerifyValiditySidechainGroth16Proof(
         return false;
     }
 
-    blst_fp12 lhs;
-    blst_fp12 rhs;
-    blst_fp12 term;
-    ComputeSafeMillerLoop(lhs, proof_b, proof_a);
-    ComputeSafeMillerLoop(rhs, beta_g2, alpha_g1);
-    ComputeSafeMillerLoop(term, gamma_g2, gamma_abc_sum);
-    blst_fp12_mul(&rhs, &rhs, &term);
-    ComputeSafeMillerLoop(term, delta_g2, proof_c);
-    blst_fp12_mul(&rhs, &rhs, &term);
+    const size_t pairing_size = blst_pairing_sizeof();
+    if (pairing_size == 0) {
+        return FailValidation(error, "Groth16 verifier pairing context is unavailable");
+    }
 
-    if (!blst_fp12_finalverify(&lhs, &rhs)) {
+    std::vector<uint64_t> pairing_storage((pairing_size + sizeof(uint64_t) - 1) / sizeof(uint64_t));
+    auto* pairing = reinterpret_cast<blst_pairing*>(pairing_storage.data());
+    blst_pairing_init(pairing, /* hash_or_encode= */ false, nullptr, 0);
+
+    blst_p2_affine negated_proof_b;
+    NegateG2Affine(negated_proof_b, proof_b);
+
+    blst_pairing_raw_aggregate(pairing, &negated_proof_b, &proof_a);
+    blst_pairing_raw_aggregate(pairing, &beta_g2, &alpha_g1);
+    blst_pairing_raw_aggregate(pairing, &gamma_g2, &gamma_abc_sum);
+    blst_pairing_raw_aggregate(pairing, &delta_g2, &proof_c);
+    blst_pairing_commit(pairing);
+
+    if (!blst_pairing_finalverify(pairing, nullptr)) {
         return FailValidation(error, "Groth16 pairing doesn't match");
     }
 
