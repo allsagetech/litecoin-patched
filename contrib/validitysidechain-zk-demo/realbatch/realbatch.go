@@ -52,6 +52,10 @@ type PoseidonBatchTransitionCircuit struct {
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
+	// Keep the experimental native profile on the fixed 11 public inputs for now.
+	// Wiring the SHA-based queue/withdrawal witness gadgets directly into Define
+	// currently makes gnark emit an extra commitment/public-input wire, which
+	// breaks the node's native verifier artifact layout.
 	transitionHasher, err := newPoseidonHasher(api)
 	if err != nil {
 		return err

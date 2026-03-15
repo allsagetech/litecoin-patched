@@ -422,7 +422,10 @@ Current branch status:
   path, and native in-process verification for the current experimental
   queue/withdrawal fixture relation, which now binds `withdrawal_root` into
   the transition commitment while keeping the single consumed queue witness
-  plus single withdrawal witness host-validated outside the proof, along with
+  plus single withdrawal witness host-validated outside the proof because the
+  current `gnark` SHA-based witness gadgets still introduce an extra
+  commitment/public-input wire that breaks the fixed 11-input native layout,
+  along with
   consensus rejection of `consumed_queue_messages > 1` for that profile so
   the node no longer accepts broader queue-consumption semantics than the
   current experimental bundle covers, plus consensus and wallet rejection of
