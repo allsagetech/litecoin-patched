@@ -37,7 +37,9 @@
     ],
     "invalid": [
       "invalid/corrupt_proof.json",
-      "invalid/public_input_mismatch.json"
+      "invalid/public_input_mismatch.json",
+      "invalid/queue_prefix_commitment_mismatch.json",
+      "invalid/withdrawal_root_mismatch.json"
     ]
   }
 }

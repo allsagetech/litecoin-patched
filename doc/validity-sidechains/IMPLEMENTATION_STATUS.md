@@ -148,6 +148,9 @@ This means:
   against a proof-backed accepted batch, and `withdrawal_root` is now bound
   directly into the experimental Poseidon transition commitment even though the
   circuit still does not prove that withdrawal witness internally
+- the committed real-profile invalid vectors now cover corrupted proofs,
+  `new_state_root` mismatch, `queue_prefix_commitment` mismatch, and
+  `withdrawal_root` mismatch against the same accepted public-input tuple
 - the experimental real-profile proving key is now generator-produced but not
   committed in-tree; committed artifacts remain verifier-side only, while
   local real-profile auto-prover runs require regenerating that proving key

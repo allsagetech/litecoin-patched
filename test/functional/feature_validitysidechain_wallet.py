@@ -249,6 +249,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
         real_valid_vector = load_json(real_artifact_dir / "valid" / "valid_proof.json")
         real_mismatch_vector = load_json(real_artifact_dir / "invalid" / "public_input_mismatch.json")
+        real_queue_prefix_mismatch_vector = load_json(real_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json")
+        real_withdrawal_root_mismatch_vector = load_json(real_artifact_dir / "invalid" / "withdrawal_root_mismatch.json")
         real_corrupt_vector = load_json(real_artifact_dir / "invalid" / "corrupt_proof.json")
         mining_address = node.getnewaddress()
         node.generatetoaddress(101, mining_address)
@@ -763,9 +765,21 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             real_sidechain_id,
             {
                 **real_public_inputs,
-                "withdrawal_root": pad_field_hex("2"),
+                "withdrawal_root": pad_field_hex(real_withdrawal_root_mismatch_vector["public_inputs"]["withdrawal_root"]),
             },
-            real_valid_vector["proof_bytes_hex"],
+            real_withdrawal_root_mismatch_vector["proof_bytes_hex"],
+            real_data_chunks,
+        )
+        assert_raises_rpc_error(
+            -26,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            {
+                **real_public_inputs,
+                "queue_prefix_commitment": pad_field_hex(real_queue_prefix_mismatch_vector["public_inputs"]["queue_prefix_commitment"]),
+            },
+            real_queue_prefix_mismatch_vector["proof_bytes_hex"],
             real_data_chunks,
         )
         assert_raises_rpc_error(

@@ -145,6 +145,8 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.native_invalid_corrupt_vector_path = self.native_toy_artifact_dir / "invalid" / "corrupt_proof.json"
         self.real_valid_vector_path = self.real_artifact_dir / "valid" / "valid_proof.json"
         self.real_invalid_mismatch_vector_path = self.real_artifact_dir / "invalid" / "public_input_mismatch.json"
+        self.real_invalid_queue_prefix_mismatch_vector_path = self.real_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json"
+        self.real_invalid_withdrawal_root_mismatch_vector_path = self.real_artifact_dir / "invalid" / "withdrawal_root_mismatch.json"
         self.real_invalid_corrupt_vector_path = self.real_artifact_dir / "invalid" / "corrupt_proof.json"
         self.have_go = shutil.which("go") is not None
 
@@ -172,6 +174,8 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             self.native_invalid_corrupt_vector_path,
             self.real_valid_vector_path,
             self.real_invalid_mismatch_vector_path,
+            self.real_invalid_queue_prefix_mismatch_vector_path,
+            self.real_invalid_withdrawal_root_mismatch_vector_path,
             self.real_invalid_corrupt_vector_path,
         ):
             if not required_path.exists():
@@ -277,7 +281,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_supported["verifier_assets"]["valid_proof_vectors_present"], True)
         assert_equal(real_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_supported["verifier_assets"]["valid_proof_vector_count"], 1)
-        assert_equal(real_supported["verifier_assets"]["invalid_proof_vector_count"], 2)
+        assert_equal(real_supported["verifier_assets"]["invalid_proof_vector_count"], 4)
 
         self.log.info("Replaying committed proof vectors through consensus.")
         valid_vector = load_json(self.valid_vector_path)
@@ -288,6 +292,8 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         native_corrupt_vector = load_json(self.native_invalid_corrupt_vector_path)
         real_valid_vector = load_json(self.real_valid_vector_path)
         real_mismatch_vector = load_json(self.real_invalid_mismatch_vector_path)
+        real_queue_prefix_mismatch_vector = load_json(self.real_invalid_queue_prefix_mismatch_vector_path)
+        real_withdrawal_root_mismatch_vector = load_json(self.real_invalid_withdrawal_root_mismatch_vector_path)
         real_corrupt_vector = load_json(self.real_invalid_corrupt_vector_path)
         assert_equal(valid_vector["expected_result"], "accept_in_demo_verifier")
         assert_equal(mismatch_vector["expected_result"], "reject")
@@ -297,6 +303,8 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(native_corrupt_vector["expected_result"], "reject")
         assert_equal(real_valid_vector["expected_result"], "accept_in_native_verifier")
         assert_equal(real_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_queue_prefix_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_withdrawal_root_mismatch_vector["expected_result"], "reject")
         assert_equal(real_corrupt_vector["expected_result"], "reject")
         refund_address = node.getnewaddress()
         native_toy_vectors_da_compatible = pad_field_hex(native_valid_vector["public_inputs"]["data_root"]) == ("00" * 32)
@@ -626,6 +634,14 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         real_data_chunks = list(real_valid_vector.get("data_chunks_hex", []))
         real_mismatch_public_inputs = dict(real_public_inputs)
         real_mismatch_public_inputs["new_state_root"] = pad_field_hex(real_mismatch_vector["public_inputs"]["new_state_root"])
+        real_queue_prefix_mismatch_public_inputs = dict(real_public_inputs)
+        real_queue_prefix_mismatch_public_inputs["queue_prefix_commitment"] = pad_field_hex(
+            real_queue_prefix_mismatch_vector["public_inputs"]["queue_prefix_commitment"]
+        )
+        real_withdrawal_root_mismatch_public_inputs = dict(real_public_inputs)
+        real_withdrawal_root_mismatch_public_inputs["withdrawal_root"] = pad_field_hex(
+            real_withdrawal_root_mismatch_vector["public_inputs"]["withdrawal_root"]
+        )
 
         assert_raises_rpc_error(
             -26,
@@ -636,15 +652,22 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_mismatch_vector["proof_bytes_hex"],
             real_data_chunks,
         )
-        real_withdrawal_mismatch_public_inputs = dict(real_public_inputs)
-        real_withdrawal_mismatch_public_inputs["withdrawal_root"] = pad_field_hex("2")
         assert_raises_rpc_error(
             -26,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
-            real_withdrawal_mismatch_public_inputs,
-            real_valid_vector["proof_bytes_hex"],
+            real_queue_prefix_mismatch_public_inputs,
+            real_queue_prefix_mismatch_vector["proof_bytes_hex"],
+            real_data_chunks,
+        )
+        assert_raises_rpc_error(
+            -26,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_withdrawal_root_mismatch_public_inputs,
+            real_withdrawal_root_mismatch_vector["proof_bytes_hex"],
             real_data_chunks,
         )
         assert_raises_rpc_error(

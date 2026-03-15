@@ -238,6 +238,40 @@ func main() {
 			"reuses the valid proof against mismatched public inputs",
 		},
 	}
+	withdrawalRootMismatchRequest := derivedRequest
+	withdrawalRootMismatchRequest.PublicInputs.WithdrawalRoot = "2"
+	withdrawalRootMismatchVector := vectorFile{
+		Name:           "withdrawal_root_mismatch",
+		Circuit:        "poseidon_batch_transition_v1",
+		Curve:          "bls12_381",
+		ExpectedResult: "reject",
+		PublicInputs:   publicInputsMap(withdrawalRootMismatchRequest),
+		SetupDeposits:  []depositSetup{deposit},
+		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
+		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
+		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
+		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		Notes: []string{
+			"reuses the valid proof against a mismatched withdrawal_root public input",
+		},
+	}
+	queuePrefixMismatchRequest := derivedRequest
+	queuePrefixMismatchRequest.PublicInputs.QueuePrefixCommitment = "2"
+	queuePrefixMismatchVector := vectorFile{
+		Name:           "queue_prefix_commitment_mismatch",
+		Circuit:        "poseidon_batch_transition_v1",
+		Curve:          "bls12_381",
+		ExpectedResult: "reject",
+		PublicInputs:   publicInputsMap(queuePrefixMismatchRequest),
+		SetupDeposits:  []depositSetup{deposit},
+		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
+		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
+		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
+		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		Notes: []string{
+			"reuses the valid proof against a mismatched queue_prefix_commitment public input",
+		},
+	}
 	corruptVector := vectorFile{
 		Name:           "corrupt_proof",
 		Circuit:        "poseidon_batch_transition_v1",
@@ -289,7 +323,12 @@ func main() {
 		ProvingKeyFile:   "batch_pk.bin",
 		ProofVectors: proofVectors{
 			Valid:   []string{"valid/valid_proof.json"},
-			Invalid: []string{"invalid/corrupt_proof.json", "invalid/public_input_mismatch.json"},
+			Invalid: []string{
+				"invalid/corrupt_proof.json",
+				"invalid/public_input_mismatch.json",
+				"invalid/queue_prefix_commitment_mismatch.json",
+				"invalid/withdrawal_root_mismatch.json",
+			},
 		},
 	}
 
@@ -302,6 +341,8 @@ func main() {
 			utf8File("valid/valid_proof.json", mustJSON(validVector)),
 			utf8File("invalid/corrupt_proof.json", mustJSON(corruptVector)),
 			utf8File("invalid/public_input_mismatch.json", mustJSON(mismatchVector)),
+			utf8File("invalid/queue_prefix_commitment_mismatch.json", mustJSON(queuePrefixMismatchVector)),
+			utf8File("invalid/withdrawal_root_mismatch.json", mustJSON(withdrawalRootMismatchVector)),
 		},
 	}
 

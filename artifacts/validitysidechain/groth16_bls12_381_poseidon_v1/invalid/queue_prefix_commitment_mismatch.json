@@ -1,5 +1,5 @@
 {
-  "name": "corrupt_proof",
+  "name": "queue_prefix_commitment_mismatch",
   "circuit": "poseidon_batch_transition_v1",
   "curve": "bls12_381",
   "expected_result": "reject",
@@ -12,7 +12,7 @@
     "l1_message_root_before": "4516194056b44dfa2fc1800147576dd0d63bd0c55ef9743d634df2ecdd449092",
     "new_state_root": "18b070f2de49d29f2b55dfdefa4fed7a2c4272d836b38ea2a4027492a5ca1958",
     "prior_state_root": "1",
-    "queue_prefix_commitment": "0ada18d0e921053acbff1737ac51763b6e91457d7bafff7511c037e2765cfda2",
+    "queue_prefix_commitment": "2",
     "sidechain_id": "9",
     "withdrawal_root": "0c0ec66808e467179ad7a8fcda5c702342e17b415f0d8f310e238af2c4ecc2c9"
   },
@@ -45,8 +45,8 @@
     "7265616c2d6261746368",
     "2d6461"
   ],
-  "proof_bytes_hex": "56534750019265964523402d1c216a6d1c8d920c5b9185bd8039eeba43e4472845ee413d197e92563e4a0f0372857fc3474593284cb06933be5fdf18daf026d9cb31c1cb0739330bb3a202a7cca3b89b81241c82ff538dc558dec0cd38291db6d063e071db05689c52770dc0685280a9c01c4507ddd241baabe173ab5862476a73be18bafd2da7379690f64b56c6f0c25a6c2e270ab5078521edf2a62e217d61cf80431ca0ed2418ee20865e1a873047866bf42afdbac3e3df8dc02787e68f2f2b30f5b8e7",
+  "proof_bytes_hex": "56534750019265964523402d1c216a6d1c8d920c5b9185bd8039eeba43e4472845ee413d197e92563e4a0f0372857fc3474593284cb06933be5fdf18daf026d9cb31c1cb0739330bb3a202a7cca3b89b81241c82ff538dc558dec0cd38291db6d063e071db05689c52770dc0685280a9c01c4507ddd241baabe173ab5862476a73be18bafd2da7379690f64b56c6f0c25a6c2e270ab5078521edf2a62e217d61cf80431ca0ed2418ee20865e1a873047866bf42afdbac3e3df8dc02787e68f2f2b30f5b8e6",
   "notes": [
-    "derived from the valid native proof by flipping one byte"
+    "reuses the valid proof against a mismatched queue_prefix_commitment public input"
   ]
 }
