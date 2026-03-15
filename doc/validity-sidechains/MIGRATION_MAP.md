@@ -420,12 +420,13 @@ Current branch status:
   fixture with a non-zero `queue_prefix_commitment`, one deterministic
   withdrawal-leaf fixture through the actual Litecoin withdrawal-root hashing
   path, and native in-process verification for the current experimental
-  public-input-only relation, which now binds `withdrawal_root` into the
-  transition commitment plus committed invalid vectors for mismatched
-  `new_state_root`, `queue_prefix_commitment`, and `withdrawal_root`; the
-  proving key still has to be regenerated locally, so the committed repo
-  bundle remains verifier-side only and still stops short of final trustless
-  semantics
+  one-entry queue/withdrawal witness relation, which now binds
+  `withdrawal_root` into the transition commitment and constrains the single
+  consumed queue witness plus single withdrawal witness internally, along with
+  committed invalid vectors for mismatched `new_state_root`,
+  `queue_prefix_commitment`, and `withdrawal_root`; the proving key still has
+  to be regenerated locally, so the committed repo bundle remains verifier-side
+  only and still stops short of final trustless semantics
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking

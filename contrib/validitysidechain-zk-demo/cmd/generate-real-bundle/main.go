@@ -2,11 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"math/big"
 	"os"
@@ -16,12 +16,12 @@ import (
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/nativegroth16"
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/realbatch"
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/toybatch"
+	"github.com/consensys/gnark-crypto/ecc"
+	bls12381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	"github.com/consensys/gnark/backend/groth16"
 	groth16bls12381 "github.com/consensys/gnark/backend/groth16/bls12-381"
-	bls12381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/rs/zerolog"
 )
 
@@ -70,17 +70,17 @@ type profileManifest struct {
 }
 
 type vectorFile struct {
-	Name                string                     `json:"name"`
-	Circuit             string                     `json:"circuit"`
-	Curve               string                     `json:"curve"`
-	ExpectedResult      string                     `json:"expected_result"`
-	PublicInputs        map[string]string          `json:"public_inputs"`
-	SetupDeposits       []depositSetup             `json:"setup_deposits,omitempty"`
+	Name                 string                        `json:"name"`
+	Circuit              string                        `json:"circuit"`
+	Curve                string                        `json:"curve"`
+	ExpectedResult       string                        `json:"expected_result"`
+	PublicInputs         map[string]string             `json:"public_inputs"`
+	SetupDeposits        []depositSetup                `json:"setup_deposits,omitempty"`
 	ConsumedQueueEntries []toybatch.ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
-	WithdrawalLeaves    []toybatch.WithdrawalLeaf  `json:"withdrawal_leaves,omitempty"`
-	DataChunksHex       []string                   `json:"data_chunks_hex,omitempty"`
-	ProofBytesHex       string                     `json:"proof_bytes_hex"`
-	Notes               []string                   `json:"notes,omitempty"`
+	WithdrawalLeaves     []toybatch.WithdrawalLeaf     `json:"withdrawal_leaves,omitempty"`
+	DataChunksHex        []string                      `json:"data_chunks_hex,omitempty"`
+	ProofBytesHex        string                        `json:"proof_bytes_hex"`
+	Notes                []string                      `json:"notes,omitempty"`
 }
 
 type depositSetup struct {
@@ -149,6 +149,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if err := realbatch.ValidateDerivedRequest(derivedRequest); err != nil {
+		panic(err)
+	}
 	assignment, err := realbatch.BuildAssignment(derivedRequest)
 	if err != nil {
 		panic(err)
@@ -201,20 +204,20 @@ func main() {
 	corruptProofBytes[len(corruptProofBytes)-1] ^= 0x01
 
 	validVector := vectorFile{
-		Name:           "valid_proof",
-		Circuit:        "poseidon_batch_transition_v1",
-		Curve:          "bls12_381",
-		ExpectedResult: "accept_in_native_verifier",
-		PublicInputs:   publicInputsMap(derivedRequest),
-		SetupDeposits:  []depositSetup{deposit},
+		Name:                 "valid_proof",
+		Circuit:              "poseidon_batch_transition_v1",
+		Curve:                "bls12_381",
+		ExpectedResult:       "accept_in_native_verifier",
+		PublicInputs:         publicInputsMap(derivedRequest),
+		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
-		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
-		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
-		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
+		DataChunksHex:        append([]string{}, derivedRequest.DataChunksHex...),
+		ProofBytesHex:        hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"real Groth16 proof for the experimental poseidon batch transition circuit",
-			"includes one deterministic deposit queue entry fixture for surrounding node-side queue checks",
-			"includes one deterministic withdrawal leaf fixture for surrounding node-side withdrawal execution checks",
+			"includes one deterministic deposit queue entry fixture constrained inside the proof and reused by surrounding node-side queue checks",
+			"includes one deterministic withdrawal leaf fixture constrained inside the proof and reused by surrounding node-side withdrawal execution checks",
 			"binds withdrawal_root directly into the Poseidon transition commitment",
 			"the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
 			"binds a non-empty published DA payload through data_root and data_size",
@@ -224,16 +227,16 @@ func main() {
 	mismatchRequest := derivedRequest
 	mismatchRequest.PublicInputs.NewStateRoot = "2"
 	mismatchVector := vectorFile{
-		Name:           "public_input_mismatch",
-		Circuit:        "poseidon_batch_transition_v1",
-		Curve:          "bls12_381",
-		ExpectedResult: "reject",
-		PublicInputs:   publicInputsMap(mismatchRequest),
-		SetupDeposits:  []depositSetup{deposit},
+		Name:                 "public_input_mismatch",
+		Circuit:              "poseidon_batch_transition_v1",
+		Curve:                "bls12_381",
+		ExpectedResult:       "reject",
+		PublicInputs:         publicInputsMap(mismatchRequest),
+		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
-		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
-		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
-		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
+		DataChunksHex:        append([]string{}, derivedRequest.DataChunksHex...),
+		ProofBytesHex:        hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"reuses the valid proof against mismatched public inputs",
 		},
@@ -241,16 +244,16 @@ func main() {
 	withdrawalRootMismatchRequest := derivedRequest
 	withdrawalRootMismatchRequest.PublicInputs.WithdrawalRoot = "2"
 	withdrawalRootMismatchVector := vectorFile{
-		Name:           "withdrawal_root_mismatch",
-		Circuit:        "poseidon_batch_transition_v1",
-		Curve:          "bls12_381",
-		ExpectedResult: "reject",
-		PublicInputs:   publicInputsMap(withdrawalRootMismatchRequest),
-		SetupDeposits:  []depositSetup{deposit},
+		Name:                 "withdrawal_root_mismatch",
+		Circuit:              "poseidon_batch_transition_v1",
+		Curve:                "bls12_381",
+		ExpectedResult:       "reject",
+		PublicInputs:         publicInputsMap(withdrawalRootMismatchRequest),
+		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
-		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
-		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
-		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
+		DataChunksHex:        append([]string{}, derivedRequest.DataChunksHex...),
+		ProofBytesHex:        hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"reuses the valid proof against a mismatched withdrawal_root public input",
 		},
@@ -258,31 +261,31 @@ func main() {
 	queuePrefixMismatchRequest := derivedRequest
 	queuePrefixMismatchRequest.PublicInputs.QueuePrefixCommitment = "2"
 	queuePrefixMismatchVector := vectorFile{
-		Name:           "queue_prefix_commitment_mismatch",
-		Circuit:        "poseidon_batch_transition_v1",
-		Curve:          "bls12_381",
-		ExpectedResult: "reject",
-		PublicInputs:   publicInputsMap(queuePrefixMismatchRequest),
-		SetupDeposits:  []depositSetup{deposit},
+		Name:                 "queue_prefix_commitment_mismatch",
+		Circuit:              "poseidon_batch_transition_v1",
+		Curve:                "bls12_381",
+		ExpectedResult:       "reject",
+		PublicInputs:         publicInputsMap(queuePrefixMismatchRequest),
+		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
-		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
-		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
-		ProofBytesHex:  hex.EncodeToString(validProofBytes),
+		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
+		DataChunksHex:        append([]string{}, derivedRequest.DataChunksHex...),
+		ProofBytesHex:        hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"reuses the valid proof against a mismatched queue_prefix_commitment public input",
 		},
 	}
 	corruptVector := vectorFile{
-		Name:           "corrupt_proof",
-		Circuit:        "poseidon_batch_transition_v1",
-		Curve:          "bls12_381",
-		ExpectedResult: "reject",
-		PublicInputs:   publicInputsMap(derivedRequest),
-		SetupDeposits:  []depositSetup{deposit},
+		Name:                 "corrupt_proof",
+		Circuit:              "poseidon_batch_transition_v1",
+		Curve:                "bls12_381",
+		ExpectedResult:       "reject",
+		PublicInputs:         publicInputsMap(derivedRequest),
+		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
-		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
-		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
-		ProofBytesHex:  hex.EncodeToString(corruptProofBytes),
+		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
+		DataChunksHex:        append([]string{}, derivedRequest.DataChunksHex...),
+		ProofBytesHex:        hex.EncodeToString(corruptProofBytes),
 		Notes: []string{
 			"derived from the valid native proof by flipping one byte",
 		},
@@ -293,7 +296,7 @@ func main() {
 		Curve:         "bls12_381",
 		Backend:       "native_blst_groth16",
 		ConsensusSafe: false,
-		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and non-empty queue/withdrawal/DA test vectors",
+		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and one-entry queue/withdrawal witness constraints plus non-empty DA test vectors",
 		ConsensusTuple: consensusTuple{
 			Version:              1,
 			ProofSystemID:        2,
@@ -322,7 +325,7 @@ func main() {
 		VerifyingKeyFile: "batch_vk.bin",
 		ProvingKeyFile:   "batch_pk.bin",
 		ProofVectors: proofVectors{
-			Valid:   []string{"valid/valid_proof.json"},
+			Valid: []string{"valid/valid_proof.json"},
 			Invalid: []string{
 				"invalid/corrupt_proof.json",
 				"invalid/public_input_mismatch.json",

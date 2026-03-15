@@ -76,6 +76,12 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 	}
 	stateHasher.Write(c.PriorStateRoot, transitionCommitment)
 	api.AssertIsEqual(c.NewStateRoot, stateHasher.Sum())
+	if err := assertExperimentalQueueWitness(api, c); err != nil {
+		return err
+	}
+	if err := assertExperimentalWithdrawalWitness(api, c); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -142,25 +148,25 @@ func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCi
 	}
 
 	return PoseidonBatchTransitionCircuit{
-		SidechainID:               sidechainID,
-		BatchNumber:               batchNumber,
-		PriorStateRoot:            priorStateRoot,
-		NewStateRoot:              newStateRoot,
-		L1MessageRootBefore:       l1MessageRootBefore,
-		L1MessageRootAfter:        l1MessageRootAfter,
-		ConsumedQueueMessages:     consumedQueueMessages,
-		QueuePrefixCommitment:     queuePrefixCommitment,
-		WithdrawalRoot:            withdrawalRoot,
-		DataRoot:                  dataRoot,
-		DataSize:                  dataSize,
-		ConsumedEntryPresent:      consumedEntryPresent,
-		ConsumedEntryQueueIndex:   consumedEntryQueueIndex,
-		ConsumedEntryMessageKind:  consumedEntryMessageKind,
-		ConsumedEntryMessageID:    consumedEntryMessageID,
-		ConsumedEntryMessageHash:  consumedEntryMessageHash,
-		WithdrawalLeafPresent:     withdrawalLeafPresent,
-		WithdrawalLeafID:          withdrawalLeafID,
-		WithdrawalLeafAmount:      withdrawalLeafAmount,
+		SidechainID:                         sidechainID,
+		BatchNumber:                         batchNumber,
+		PriorStateRoot:                      priorStateRoot,
+		NewStateRoot:                        newStateRoot,
+		L1MessageRootBefore:                 l1MessageRootBefore,
+		L1MessageRootAfter:                  l1MessageRootAfter,
+		ConsumedQueueMessages:               consumedQueueMessages,
+		QueuePrefixCommitment:               queuePrefixCommitment,
+		WithdrawalRoot:                      withdrawalRoot,
+		DataRoot:                            dataRoot,
+		DataSize:                            dataSize,
+		ConsumedEntryPresent:                consumedEntryPresent,
+		ConsumedEntryQueueIndex:             consumedEntryQueueIndex,
+		ConsumedEntryMessageKind:            consumedEntryMessageKind,
+		ConsumedEntryMessageID:              consumedEntryMessageID,
+		ConsumedEntryMessageHash:            consumedEntryMessageHash,
+		WithdrawalLeafPresent:               withdrawalLeafPresent,
+		WithdrawalLeafID:                    withdrawalLeafID,
+		WithdrawalLeafAmount:                withdrawalLeafAmount,
 		WithdrawalLeafDestinationCommitment: withdrawalLeafDestinationCommitment,
 	}, nil
 }
@@ -215,6 +221,12 @@ func ValidateDerivedRequest(request toybatch.CommandRequest) error {
 	if err := validatePublishedDataWitness(request); err != nil {
 		return err
 	}
+	if err := validateExperimentalQueueWitness(derived); err != nil {
+		return err
+	}
+	if err := validateExperimentalWithdrawalWitness(derived); err != nil {
+		return err
+	}
 	if normalizeHex(request.PublicInputs.NewStateRoot) != normalizeHex(derived.PublicInputs.NewStateRoot) {
 		return fmt.Errorf("new_state_root does not match derived Poseidon transition")
 	}
@@ -240,6 +252,59 @@ func validatePublishedDataWitness(request toybatch.CommandRequest) error {
 	expectedRoot := computePublishedDataRoot(chunks)
 	if normalizeHex(request.PublicInputs.DataRoot) != normalizeHex(expectedRoot) {
 		return fmt.Errorf("data_root does not match provided data_chunks_hex")
+	}
+	return nil
+}
+
+func validateExperimentalQueueWitness(request toybatch.CommandRequest) error {
+	if len(request.ConsumedQueueEntries) > 1 {
+		return fmt.Errorf("experimental real profile supports at most one consumed queue entry")
+	}
+	if len(request.ConsumedQueueEntries) != int(request.PublicInputs.ConsumedQueueMessages) {
+		return fmt.Errorf("consumed_queue_entries length must match consumed_queue_messages")
+	}
+	if len(request.ConsumedQueueEntries) == 0 {
+		if normalizeHex(request.PublicInputs.L1MessageRootAfter) != normalizeHex(request.PublicInputs.L1MessageRootBefore) {
+			return fmt.Errorf("l1_message_root_after does not match the empty consumed queue witness")
+		}
+		if normalizeHex(request.PublicInputs.QueuePrefixCommitment) != "0" {
+			return fmt.Errorf("queue_prefix_commitment does not match the empty consumed queue witness")
+		}
+		return nil
+	}
+
+	entry := request.ConsumedQueueEntries[0]
+	if entry.MessageKind != 1 && entry.MessageKind != 2 {
+		return fmt.Errorf("consumed_queue_entries[0].message_kind must be 1 or 2")
+	}
+	expectedAfter := computeQueueStepDisplayHex(
+		queueConsumeMagic,
+		uint8(request.SidechainID),
+		request.PublicInputs.L1MessageRootBefore,
+		entry,
+	)
+	if normalizeHex(request.PublicInputs.L1MessageRootAfter) != normalizeHex(expectedAfter) {
+		return fmt.Errorf("l1_message_root_after does not match consumed_queue_entries witness")
+	}
+	expectedPrefix := computeQueueStepDisplayHex(
+		queuePrefixCommitmentMagic,
+		uint8(request.SidechainID),
+		"0",
+		entry,
+	)
+	if normalizeHex(request.PublicInputs.QueuePrefixCommitment) != normalizeHex(expectedPrefix) {
+		return fmt.Errorf("queue_prefix_commitment does not match consumed_queue_entries witness")
+	}
+	return nil
+}
+
+func validateExperimentalWithdrawalWitness(request toybatch.CommandRequest) error {
+	expectedRoot, err := computeWithdrawalRootFromRequest(request)
+	if err != nil {
+		return err
+	}
+	if normalizeHex(request.PublicInputs.WithdrawalRoot) != normalizeHex(expectedRoot) {
+		return fmt.Errorf("withdrawal_root does not match withdrawal_leaves witness")
 	}
 	return nil
 }
@@ -548,6 +613,25 @@ func buildWithdrawalRootPayload(leafCount uint32, merkleRoot []byte) []byte {
 	payload = append(payload, count[:]...)
 	payload = append(payload, merkleRoot...)
 	return payload
+}
+
+func computeQueueStepDisplayHex(
+	magic []uint8,
+	sidechainID uint8,
+	priorRoot string,
+	entry toybatch.ConsumedQueueEntry,
+) string {
+	payload := make([]byte, 0, len(magic)+1+32+8+1+32+32)
+	payload = append(payload, magic...)
+	payload = append(payload, sidechainID)
+	payload = append(payload, uint256HexToLEBytes(priorRoot)...)
+	var queueIndex [8]byte
+	binary.LittleEndian.PutUint64(queueIndex[:], entry.QueueIndex)
+	payload = append(payload, queueIndex[:]...)
+	payload = append(payload, entry.MessageKind)
+	payload = append(payload, uint256HexToLEBytes(entry.MessageID)...)
+	payload = append(payload, uint256HexToLEBytes(entry.MessageHash)...)
+	return hashPayloadDisplayHex(payload)
 }
 
 func uint256HexToLEBytes(raw string) []byte {

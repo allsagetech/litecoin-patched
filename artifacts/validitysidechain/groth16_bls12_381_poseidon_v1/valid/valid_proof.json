@@ -45,11 +45,11 @@
     "7265616c2d6261746368",
     "2d6461"
   ],
-  "proof_bytes_hex": "56534750019265964523402d1c216a6d1c8d920c5b9185bd8039eeba43e4472845ee413d197e92563e4a0f0372857fc3474593284cb06933be5fdf18daf026d9cb31c1cb0739330bb3a202a7cca3b89b81241c82ff538dc558dec0cd38291db6d063e071db05689c52770dc0685280a9c01c4507ddd241baabe173ab5862476a73be18bafd2da7379690f64b56c6f0c25a6c2e270ab5078521edf2a62e217d61cf80431ca0ed2418ee20865e1a873047866bf42afdbac3e3df8dc02787e68f2f2b30f5b8e6",
+  "proof_bytes_hex": "56534750018b91f90d4882f0cc38abb5ec7de2e718d332cc7a53e72547ec1728a57051dfd296ab0f982c301a137c81a0604b4a814db6c7454e6c0746bf55d2df0823249b0ba7d9790107d9e299b1b3b6136a883a1500d7eceeba2bb217cf5e274e83a7558310ef0e5c301bf91bf32105620563d85b281b5ca4d89a1ecb5ee3d5b9f6bcd4fe5546a025b21d081c8f13af954777d794a60a46e7e3934aec9ea04c4bb55348668d8dce5a2a4c0a2a0dba0c8be5a7fd6fe3aec0ca24f85b881eb9aa9c567723ec",
   "notes": [
     "real Groth16 proof for the experimental poseidon batch transition circuit",
-    "includes one deterministic deposit queue entry fixture for surrounding node-side queue checks",
-    "includes one deterministic withdrawal leaf fixture for surrounding node-side withdrawal execution checks",
+    "includes one deterministic deposit queue entry fixture constrained inside the proof and reused by surrounding node-side queue checks",
+    "includes one deterministic withdrawal leaf fixture constrained inside the proof and reused by surrounding node-side withdrawal execution checks",
     "binds withdrawal_root directly into the Poseidon transition commitment",
     "the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
     "binds a non-empty published DA payload through data_root and data_size",

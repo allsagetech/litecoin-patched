@@ -139,15 +139,16 @@ This means:
   nonce chosen so the queue hashes fit the current one-scalar-per-input native
   verifier format
 - the experimental real-profile prover request now also carries
-  `consumed_queue_entries`, but the current circuit has been reduced back to a
-  public-input-only relation while the surrounding node state machine
-  continues to enforce queue-prefix consumption locally
+  `consumed_queue_entries`, and the current experimental circuit now
+  constrains one consumed queue witness internally, even though the
+  surrounding node state machine still enforces the reachable queue-prefix
+  rules locally
 - the experimental real-profile vectors now also bind one deterministic
   withdrawal leaf through the actual Litecoin withdrawal-root hashing path, so
   the committed valid vector can still drive `EXECUTE_VERIFIED_WITHDRAWALS`
   against a proof-backed accepted batch, and `withdrawal_root` is now bound
-  directly into the experimental Poseidon transition commitment even though the
-  circuit still does not prove that withdrawal witness internally
+  directly into the experimental Poseidon transition commitment while the
+  experimental circuit now also constrains that single withdrawal witness
 - the committed real-profile invalid vectors now cover corrupted proofs,
   `new_state_root` mismatch, `queue_prefix_commitment` mismatch, and
   `withdrawal_root` mismatch against the same accepted public-input tuple
@@ -162,7 +163,7 @@ This means:
   verifier-asset layout, committed experimental proof material, and a native
   verifier core, but batch validation still cannot become trustless until the
   final intended sidechain circuit replaces the current deterministic
-  public-input-only experimental semantics
+  one-entry experimental queue/withdrawal transition semantics
 - the current native verifier path interprets each batch public input as a
   single BLS12-381 scalar, so the final real profile must either keep those
   roots / commitments field-sized or move to a decomposed public-input layout
