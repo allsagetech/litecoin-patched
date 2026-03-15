@@ -12,10 +12,16 @@ import (
 	poseidon2native "github.com/consensys/gnark-crypto/ecc/bls12-381/fr/poseidon2"
 	"github.com/consensys/gnark/frontend"
 	gnarkhash "github.com/consensys/gnark/std/hash"
+	sha2circuit "github.com/consensys/gnark/std/hash/sha2"
+	"github.com/consensys/gnark/std/math/bits"
+	"github.com/consensys/gnark/std/math/uints"
 	poseidon2circuit "github.com/consensys/gnark/std/permutation/poseidon2"
 )
 
 const ProfileName = "groth16_bls12_381_poseidon_v1"
+
+var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
+var queuePrefixCommitmentMagic = []uint8{'V', 'S', 'C', 'Q', 'P', 0x01}
 
 type PoseidonBatchTransitionCircuit struct {
 	SidechainID           frontend.Variable `gnark:",public"`
@@ -29,9 +35,19 @@ type PoseidonBatchTransitionCircuit struct {
 	WithdrawalRoot        frontend.Variable `gnark:",public"`
 	DataRoot              frontend.Variable `gnark:",public"`
 	DataSize              frontend.Variable `gnark:",public"`
+
+	ConsumedEntryPresent     frontend.Variable
+	ConsumedEntryQueueIndex  frontend.Variable
+	ConsumedEntryMessageKind frontend.Variable
+	ConsumedEntryMessageID   [32]uints.U8
+	ConsumedEntryMessageHash [32]uints.U8
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
+	if err := assertExperimentalQueueWitness(api, c); err != nil {
+		return err
+	}
+
 	transitionHasher, err := newPoseidonHasher(api)
 	if err != nil {
 		return err
@@ -116,18 +132,29 @@ func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCi
 		return PoseidonBatchTransitionCircuit{}, err
 	}
 
+	consumedEntryPresent, consumedEntryQueueIndex, consumedEntryMessageKind, consumedEntryMessageID, consumedEntryMessageHash, err :=
+		buildConsumedQueueWitness(request)
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+
 	return PoseidonBatchTransitionCircuit{
-		SidechainID:           sidechainID,
-		BatchNumber:           batchNumber,
-		PriorStateRoot:        priorStateRoot,
-		NewStateRoot:          newStateRoot,
-		L1MessageRootBefore:   l1MessageRootBefore,
-		L1MessageRootAfter:    l1MessageRootAfter,
-		ConsumedQueueMessages: consumedQueueMessages,
-		QueuePrefixCommitment: queuePrefixCommitment,
-		WithdrawalRoot:        withdrawalRoot,
-		DataRoot:              dataRoot,
-		DataSize:              dataSize,
+		SidechainID:               sidechainID,
+		BatchNumber:               batchNumber,
+		PriorStateRoot:            priorStateRoot,
+		NewStateRoot:              newStateRoot,
+		L1MessageRootBefore:       l1MessageRootBefore,
+		L1MessageRootAfter:        l1MessageRootAfter,
+		ConsumedQueueMessages:     consumedQueueMessages,
+		QueuePrefixCommitment:     queuePrefixCommitment,
+		WithdrawalRoot:            withdrawalRoot,
+		DataRoot:                  dataRoot,
+		DataSize:                  dataSize,
+		ConsumedEntryPresent:      consumedEntryPresent,
+		ConsumedEntryQueueIndex:   consumedEntryQueueIndex,
+		ConsumedEntryMessageKind:  consumedEntryMessageKind,
+		ConsumedEntryMessageID:    consumedEntryMessageID,
+		ConsumedEntryMessageHash:  consumedEntryMessageHash,
 	}, nil
 }
 
@@ -237,6 +264,175 @@ func mustTransitionCommitment(assignment PoseidonBatchTransitionCircuit) *big.In
 	return commitment
 }
 
+func assertExperimentalQueueWitness(api frontend.API, circuit *PoseidonBatchTransitionCircuit) error {
+	bapi, err := uints.NewBytes(api)
+	if err != nil {
+		return err
+	}
+	u64api, err := uints.New[uints.U64](api)
+	if err != nil {
+		return err
+	}
+
+	api.AssertIsBoolean(circuit.ConsumedEntryPresent)
+	api.AssertIsEqual(circuit.ConsumedQueueMessages, circuit.ConsumedEntryPresent)
+
+	l1MessageRootBefore := fieldToLittleEndianBytes(api, bapi, circuit.L1MessageRootBefore)
+	l1MessageRootAfter := fieldToLittleEndianBytes(api, bapi, circuit.L1MessageRootAfter)
+	queuePrefixCommitment := fieldToLittleEndianBytes(api, bapi, circuit.QueuePrefixCommitment)
+	zeroRoot := zeroByteArray32()
+
+	consumePreimage := buildQueueStepPreimage(
+		bapi,
+		u64api,
+		queueConsumeMagic,
+		circuit.SidechainID,
+		l1MessageRootBefore,
+		circuit.ConsumedEntryQueueIndex,
+		circuit.ConsumedEntryMessageKind,
+		circuit.ConsumedEntryMessageID,
+		circuit.ConsumedEntryMessageHash,
+	)
+	consumedRoot, err := doubleSHA256(api, consumePreimage)
+	if err != nil {
+		return err
+	}
+
+	prefixPreimage := buildQueueStepPreimage(
+		bapi,
+		u64api,
+		queuePrefixCommitmentMagic,
+		circuit.SidechainID,
+		zeroRoot,
+		circuit.ConsumedEntryQueueIndex,
+		circuit.ConsumedEntryMessageKind,
+		circuit.ConsumedEntryMessageID,
+		circuit.ConsumedEntryMessageHash,
+	)
+	prefixCommitment, err := doubleSHA256(api, prefixPreimage)
+	if err != nil {
+		return err
+	}
+
+	expectedAfter := selectByteArray32(bapi, circuit.ConsumedEntryPresent, consumedRoot, l1MessageRootBefore)
+	expectedPrefix := selectByteArray32(bapi, circuit.ConsumedEntryPresent, prefixCommitment, zeroRoot)
+	assertByteArray32Equal(bapi, expectedAfter, l1MessageRootAfter)
+	assertByteArray32Equal(bapi, expectedPrefix, queuePrefixCommitment)
+	return nil
+}
+
+func buildQueueStepPreimage(
+	bapi *uints.Bytes,
+	u64api *uints.BinaryField[uints.U64],
+	magic []uint8,
+	sidechainID frontend.Variable,
+	prior [32]uints.U8,
+	queueIndex frontend.Variable,
+	messageKind frontend.Variable,
+	messageID [32]uints.U8,
+	messageHash [32]uints.U8,
+) []uints.U8 {
+	preimage := make([]uints.U8, 0, len(magic)+1+32+8+1+32+32)
+	preimage = append(preimage, uints.NewU8Array(magic)...)
+	preimage = append(preimage, bapi.ValueOf(sidechainID))
+	preimage = append(preimage, prior[:]...)
+	preimage = append(preimage, u64api.UnpackLSB(u64api.ValueOf(queueIndex))...)
+	preimage = append(preimage, bapi.ValueOf(messageKind))
+	preimage = append(preimage, messageID[:]...)
+	preimage = append(preimage, messageHash[:]...)
+	return preimage
+}
+
+func doubleSHA256(api frontend.API, preimage []uints.U8) ([32]uints.U8, error) {
+	var digest [32]uints.U8
+
+	firstRound, err := sha2circuit.New(api)
+	if err != nil {
+		return digest, err
+	}
+	firstRound.Write(preimage)
+	first := firstRound.Sum()
+
+	secondRound, err := sha2circuit.New(api)
+	if err != nil {
+		return digest, err
+	}
+	secondRound.Write(first)
+	second := secondRound.Sum()
+	copy(digest[:], second)
+	return digest, nil
+}
+
+func selectByteArray32(bapi *uints.Bytes, selector frontend.Variable, whenTrue, whenFalse [32]uints.U8) [32]uints.U8 {
+	var out [32]uints.U8
+	for i := range out {
+		out[i] = bapi.Select(selector, whenTrue[i], whenFalse[i])
+	}
+	return out
+}
+
+func assertByteArray32Equal(bapi *uints.Bytes, lhs, rhs [32]uints.U8) {
+	for i := range lhs {
+		bapi.AssertIsEqual(lhs[i], rhs[i])
+	}
+}
+
+func zeroByteArray32() [32]uints.U8 {
+	var out [32]uints.U8
+	for i := range out {
+		out[i] = uints.NewU8(0)
+	}
+	return out
+}
+
+func fieldToLittleEndianBytes(api frontend.API, bapi *uints.Bytes, value frontend.Variable) [32]uints.U8 {
+	var out [32]uints.U8
+	bitsLE := bits.ToBinary(api, value, bits.WithNbDigits(256))
+	for i := 0; i < 32; i++ {
+		out[i] = bapi.ValueOf(bits.FromBinary(api, bitsLE[i*8:(i+1)*8]))
+	}
+	return out
+}
+
+func buildConsumedQueueWitness(request toybatch.CommandRequest) (frontend.Variable, frontend.Variable, frontend.Variable, [32]uints.U8, [32]uints.U8, error) {
+	var messageID [32]uints.U8
+	var messageHash [32]uints.U8
+
+	if len(request.ConsumedQueueEntries) > 1 {
+		return nil, nil, nil, messageID, messageHash, fmt.Errorf("experimental real profile supports at most one consumed queue entry")
+	}
+	if len(request.ConsumedQueueEntries) != int(request.PublicInputs.ConsumedQueueMessages) {
+		return nil, nil, nil, messageID, messageHash, fmt.Errorf("consumed_queue_entries length must match consumed_queue_messages")
+	}
+	if len(request.ConsumedQueueEntries) == 0 {
+		return new(big.Int), new(big.Int), new(big.Int), messageID, messageHash, nil
+	}
+
+	entry := request.ConsumedQueueEntries[0]
+	if entry.MessageKind != 1 && entry.MessageKind != 2 {
+		return nil, nil, nil, messageID, messageHash, fmt.Errorf("consumed_queue_entries[0].message_kind must be 1 or 2")
+	}
+
+	queueIndex, err := parseUintAsField(entry.QueueIndex, "consumed_queue_entries[0].queue_index")
+	if err != nil {
+		return nil, nil, nil, messageID, messageHash, err
+	}
+	messageKind, err := parseUintAsField(uint64(entry.MessageKind), "consumed_queue_entries[0].message_kind")
+	if err != nil {
+		return nil, nil, nil, messageID, messageHash, err
+	}
+	messageID, err = parseUint256LittleEndianBytes(entry.MessageID, "consumed_queue_entries[0].message_id")
+	if err != nil {
+		return nil, nil, nil, messageID, messageHash, err
+	}
+	messageHash, err = parseUint256LittleEndianBytes(entry.MessageHash, "consumed_queue_entries[0].message_hash")
+	if err != nil {
+		return nil, nil, nil, messageID, messageHash, err
+	}
+
+	return new(big.Int).SetUint64(1), queueIndex, messageKind, messageID, messageHash, nil
+}
+
 func newPoseidonHasher(api frontend.API) (gnarkhash.FieldHasher, error) {
 	perm, err := poseidon2circuit.NewPoseidon2FromParameters(api, 2, 6, 50)
 	if err != nil {
@@ -276,6 +472,28 @@ func parseFieldHex(raw string, fieldName string) (*big.Int, error) {
 		return nil, fmt.Errorf("%s does not fit BLS12-381 scalar field", fieldName)
 	}
 	return value, nil
+}
+
+func parseUint256LittleEndianBytes(raw string, fieldName string) ([32]uints.U8, error) {
+	var out [32]uints.U8
+	if raw == "" {
+		return out, fmt.Errorf("%s is required", fieldName)
+	}
+	normalized := raw
+	if len(normalized) > 64 {
+		return out, fmt.Errorf("%s is longer than 32 bytes", fieldName)
+	}
+	for len(normalized) < 64 {
+		normalized = "0" + normalized
+	}
+	decoded, err := hex.DecodeString(normalized)
+	if err != nil {
+		return out, fmt.Errorf("%s is not valid hex", fieldName)
+	}
+	for i := 0; i < len(decoded); i++ {
+		out[i] = uints.NewU8(decoded[len(decoded)-1-i])
+	}
+	return out, nil
 }
 
 func parseUintAsField(value uint64, fieldName string) (*big.Int, error) {

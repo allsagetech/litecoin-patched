@@ -2124,6 +2124,15 @@ static RPCHelpMan sendvaliditybatch()
                 (request.params.size() > 3 && !request.params[3].isNull())
                     ? ParseHexArray(request.params[3], "data_chunks")
                     : std::vector<std::vector<unsigned char>>{};
+            std::vector<ValiditySidechainQueueEntry> consumed_queue_entries;
+            std::string queue_entries_error;
+            if (!GetValiditySidechainConsumedQueueEntries(
+                    sidechain,
+                    public_inputs.consumed_queue_messages,
+                    consumed_queue_entries,
+                    &queue_entries_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, queue_entries_error);
+            }
 
             std::vector<unsigned char> proof_bytes;
             bool auto_scaffold_proof = false;
@@ -2150,6 +2159,7 @@ static RPCHelpMan sendvaliditybatch()
                             sidechain.config,
                             sidechain_id,
                             public_inputs,
+                            consumed_queue_entries,
                             data_chunks,
                             proof_bytes,
                             &proof_error)) {

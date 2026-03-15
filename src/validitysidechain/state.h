@@ -377,5 +377,10 @@ bool ComputeValiditySidechainQueuePrefixCommitment(
     uint32_t consumed_queue_messages,
     uint256& out_commitment,
     std::string* error = nullptr);
+bool GetValiditySidechainConsumedQueueEntries(
+    const ValiditySidechain& sidechain,
+    uint32_t consumed_queue_messages,
+    std::vector<ValiditySidechainQueueEntry>& out_entries,
+    std::string* error = nullptr);
 
 #endif // BITCOIN_VALIDITYSIDECHAIN_STATE_H

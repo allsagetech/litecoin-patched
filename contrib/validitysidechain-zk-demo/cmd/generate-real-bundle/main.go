@@ -70,15 +70,16 @@ type profileManifest struct {
 }
 
 type vectorFile struct {
-	Name           string            `json:"name"`
-	Circuit        string            `json:"circuit"`
-	Curve          string            `json:"curve"`
-	ExpectedResult string            `json:"expected_result"`
-	PublicInputs   map[string]string `json:"public_inputs"`
-	SetupDeposits  []depositSetup    `json:"setup_deposits,omitempty"`
-	DataChunksHex  []string          `json:"data_chunks_hex,omitempty"`
-	ProofBytesHex  string            `json:"proof_bytes_hex"`
-	Notes          []string          `json:"notes,omitempty"`
+	Name                string                     `json:"name"`
+	Circuit             string                     `json:"circuit"`
+	Curve               string                     `json:"curve"`
+	ExpectedResult      string                     `json:"expected_result"`
+	PublicInputs        map[string]string          `json:"public_inputs"`
+	SetupDeposits       []depositSetup             `json:"setup_deposits,omitempty"`
+	ConsumedQueueEntries []toybatch.ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
+	DataChunksHex       []string                   `json:"data_chunks_hex,omitempty"`
+	ProofBytesHex       string                     `json:"proof_bytes_hex"`
+	Notes               []string                   `json:"notes,omitempty"`
 }
 
 type depositSetup struct {
@@ -122,6 +123,12 @@ func main() {
 			hex.EncodeToString([]byte("real-batch")),
 			hex.EncodeToString([]byte("-da")),
 		},
+		ConsumedQueueEntries: []toybatch.ConsumedQueueEntry{{
+			QueueIndex:  0,
+			MessageKind: 1,
+			MessageID:   deposit.DepositID,
+			MessageHash: depositMessageHash,
+		}},
 	}
 	derivedRequest, err := realbatch.DeriveRequest(request)
 	if err != nil {
@@ -185,6 +192,7 @@ func main() {
 		ExpectedResult: "accept_in_native_verifier",
 		PublicInputs:   publicInputsMap(derivedRequest),
 		SetupDeposits:  []depositSetup{deposit},
+		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(validProofBytes),
 		Notes: []string{
@@ -204,6 +212,7 @@ func main() {
 		ExpectedResult: "reject",
 		PublicInputs:   publicInputsMap(mismatchRequest),
 		SetupDeposits:  []depositSetup{deposit},
+		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(validProofBytes),
 		Notes: []string{
@@ -217,6 +226,7 @@ func main() {
 		ExpectedResult: "reject",
 		PublicInputs:   publicInputsMap(derivedRequest),
 		SetupDeposits:  []depositSetup{deposit},
+		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(corruptProofBytes),
 		Notes: []string{

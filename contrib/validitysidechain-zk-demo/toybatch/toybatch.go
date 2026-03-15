@@ -28,13 +28,21 @@ type BatchPublicInputs struct {
 	DataSize              uint32 `json:"data_size"`
 }
 
+type ConsumedQueueEntry struct {
+	QueueIndex  uint64 `json:"queue_index"`
+	MessageKind uint8  `json:"message_kind"`
+	MessageID   string `json:"message_id"`
+	MessageHash string `json:"message_hash"`
+}
+
 type CommandRequest struct {
-	ProfileName  string            `json:"profile_name"`
-	ArtifactDir  string            `json:"artifact_dir"`
-	SidechainID  uint64            `json:"sidechain_id"`
-	PublicInputs BatchPublicInputs `json:"public_inputs"`
-	DataChunksHex []string         `json:"data_chunks_hex,omitempty"`
-	ProofBytesHex string           `json:"proof_bytes_hex,omitempty"`
+	ProfileName         string               `json:"profile_name"`
+	ArtifactDir         string               `json:"artifact_dir"`
+	SidechainID         uint64               `json:"sidechain_id"`
+	PublicInputs        BatchPublicInputs    `json:"public_inputs"`
+	ConsumedQueueEntries []ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
+	DataChunksHex       []string             `json:"data_chunks_hex,omitempty"`
+	ProofBytesHex       string               `json:"proof_bytes_hex,omitempty"`
 }
 
 type CommandResult struct {

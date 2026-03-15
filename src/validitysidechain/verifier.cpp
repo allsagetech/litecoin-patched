@@ -737,6 +737,20 @@ static UniValue DataChunksToJSON(const std::vector<std::vector<unsigned char>>& 
     return chunks;
 }
 
+static UniValue ConsumedQueueEntriesToJSON(const std::vector<ValiditySidechainQueueEntry>& consumed_queue_entries)
+{
+    UniValue entries(UniValue::VARR);
+    for (const auto& entry : consumed_queue_entries) {
+        UniValue encoded(UniValue::VOBJ);
+        encoded.pushKV("queue_index", static_cast<int64_t>(entry.queue_index));
+        encoded.pushKV("message_kind", static_cast<int64_t>(entry.message_kind));
+        encoded.pushKV("message_id", entry.message_id.GetHex());
+        encoded.pushKV("message_hash", entry.message_hash.GetHex());
+        entries.push_back(encoded);
+    }
+    return entries;
+}
+
 static std::array<unsigned char, 32> EncodeGroth16ScalarLE(uint32_t value)
 {
     std::array<unsigned char, 32> encoded{};
@@ -897,6 +911,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,
     const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<ValiditySidechainQueueEntry>& consumed_queue_entries,
     const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,
     std::string* error)
@@ -932,6 +947,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     request.pushKV("artifact_dir", ResolveVerifierArtifactDir(*supported).string());
     request.pushKV("sidechain_id", static_cast<int64_t>(sidechain_id));
     request.pushKV("public_inputs", BatchPublicInputsToJSON(public_inputs));
+    request.pushKV("consumed_queue_entries", ConsumedQueueEntriesToJSON(consumed_queue_entries));
     request.pushKV("data_chunks_hex", DataChunksToJSON(data_chunks));
 
     try {

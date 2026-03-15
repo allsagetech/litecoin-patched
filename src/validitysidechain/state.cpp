@@ -540,6 +540,38 @@ bool ComputeValiditySidechainQueuePrefixCommitment(
         error);
 }
 
+bool GetValiditySidechainConsumedQueueEntries(
+    const ValiditySidechain& sidechain,
+    uint32_t consumed_queue_messages,
+    std::vector<ValiditySidechainQueueEntry>& out_entries,
+    std::string* error)
+{
+    out_entries.clear();
+    out_entries.reserve(consumed_queue_messages);
+
+    uint64_t next_queue_index = sidechain.queue_state.head_index;
+    for (uint32_t i = 0; i < consumed_queue_messages; ++i) {
+        const auto queue_it = sidechain.queue_entries.find(next_queue_index);
+        if (queue_it == sidechain.queue_entries.end()) {
+            if (error != nullptr) {
+                *error = "batch references missing queue entry";
+            }
+            return false;
+        }
+        if (queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
+            if (error != nullptr) {
+                *error = "batch queue consumption is not a contiguous pending prefix";
+            }
+            return false;
+        }
+
+        out_entries.push_back(queue_it->second);
+        ++next_queue_index;
+    }
+
+    return true;
+}
+
 const ValiditySidechain* ValiditySidechainState::GetSidechain(uint8_t id) const
 {
     const auto it = sidechains.find(id);

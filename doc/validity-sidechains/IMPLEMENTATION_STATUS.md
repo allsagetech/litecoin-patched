@@ -138,6 +138,11 @@ This means:
   queue entry and bind a non-zero `queue_prefix_commitment`, with the deposit
   nonce chosen so the queue hashes fit the current one-scalar-per-input native
   verifier format
+- the experimental real-profile prover request now also carries
+  `consumed_queue_entries`, and the current circuit proves the one-entry
+  `l1_message_root_after` and `queue_prefix_commitment` transitions from that
+  private queue witness instead of treating those queue fields as public-input
+  placeholders
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
