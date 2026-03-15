@@ -77,6 +77,20 @@ std::array<unsigned char, 96> CompressedG2Multiple(uint64_t scalar_value)
     return out;
 }
 
+std::array<unsigned char, 48> CompressedG1Infinity()
+{
+    std::array<unsigned char, 48> out{};
+    out[0] = 0xc0;
+    return out;
+}
+
+std::array<unsigned char, 96> CompressedG2Infinity()
+{
+    std::array<unsigned char, 96> out{};
+    out[0] = 0xc0;
+    return out;
+}
+
 std::array<unsigned char, 32> ScalarLE(uint64_t value)
 {
     std::array<unsigned char, 32> out{};
@@ -320,6 +334,17 @@ BOOST_AUTO_TEST_CASE(groth16_proof_rejects_invalid_magic)
     BOOST_CHECK_EQUAL(error, "Groth16 proof bytes have invalid magic");
 }
 
+BOOST_AUTO_TEST_CASE(groth16_proof_rejects_infinity_points)
+{
+    ValiditySidechainGroth16Proof proof = MakeProof();
+    proof.a_g1 = CompressedG1Infinity();
+
+    ValiditySidechainGroth16Proof parsed;
+    std::string error;
+    BOOST_CHECK(!ParseValiditySidechainGroth16Proof(EncodeValiditySidechainGroth16Proof(proof), parsed, &error));
+    BOOST_CHECK_EQUAL(error, "Groth16 proof artifact contains invalid G1 encoding");
+}
+
 BOOST_AUTO_TEST_CASE(groth16_verifying_key_roundtrip_parses)
 {
     const ValiditySidechainGroth16VerificationKey verifying_key = MakeVerificationKey(/* public_input_count= */ 11);
@@ -356,6 +381,21 @@ BOOST_AUTO_TEST_CASE(groth16_verifying_key_rejects_truncated_bytes)
     std::string error;
     BOOST_CHECK(!ParseValiditySidechainGroth16VerificationKey(encoded, 11, parsed, &error));
     BOOST_CHECK_EQUAL(error, "Groth16 verifying key bytes have unexpected length");
+}
+
+BOOST_AUTO_TEST_CASE(groth16_verifying_key_rejects_infinity_points)
+{
+    ValiditySidechainGroth16VerificationKey verifying_key = MakeVerificationKey(/* public_input_count= */ 11);
+    verifying_key.alpha_g1 = CompressedG1Infinity();
+    verifying_key.beta_g2 = CompressedG2Infinity();
+
+    ValiditySidechainGroth16VerificationKey parsed;
+    std::string error;
+    BOOST_CHECK(!ParseValiditySidechainGroth16VerificationKey(
+        EncodeValiditySidechainGroth16VerificationKey(verifying_key), 11, parsed, &error));
+    BOOST_CHECK(
+        error == "Groth16 proof artifact contains invalid G1 encoding" ||
+        error == "Groth16 proof artifact contains invalid G2 encoding");
 }
 
 BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_accepts_synthetic_valid_equation)

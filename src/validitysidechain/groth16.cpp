@@ -64,7 +64,7 @@ static bool ValidateCompressedG1(
 {
     blst_p1_affine point;
     const BLST_ERROR result = blst_p1_uncompress(&point, point_bytes.data());
-    if (result != BLST_SUCCESS || !blst_p1_affine_in_g1(&point)) {
+    if (result != BLST_SUCCESS || !blst_p1_affine_in_g1(&point) || blst_p1_affine_is_inf(&point)) {
         return FailValidation(error, "Groth16 proof artifact contains invalid G1 encoding");
     }
     return true;
@@ -76,7 +76,7 @@ static bool UncompressG1(
     std::string* error)
 {
     const BLST_ERROR result = blst_p1_uncompress(&out_point, point_bytes.data());
-    if (result != BLST_SUCCESS || !blst_p1_affine_in_g1(&out_point)) {
+    if (result != BLST_SUCCESS || !blst_p1_affine_in_g1(&out_point) || blst_p1_affine_is_inf(&out_point)) {
         return FailValidation(error, "Groth16 proof artifact contains invalid G1 encoding");
     }
     return true;
@@ -88,7 +88,7 @@ static bool ValidateCompressedG2(
 {
     blst_p2_affine point;
     const BLST_ERROR result = blst_p2_uncompress(&point, point_bytes.data());
-    if (result != BLST_SUCCESS || !blst_p2_affine_in_g2(&point)) {
+    if (result != BLST_SUCCESS || !blst_p2_affine_in_g2(&point) || blst_p2_affine_is_inf(&point)) {
         return FailValidation(error, "Groth16 proof artifact contains invalid G2 encoding");
     }
     return true;
@@ -100,7 +100,7 @@ static bool UncompressG2(
     std::string* error)
 {
     const BLST_ERROR result = blst_p2_uncompress(&out_point, point_bytes.data());
-    if (result != BLST_SUCCESS || !blst_p2_affine_in_g2(&out_point)) {
+    if (result != BLST_SUCCESS || !blst_p2_affine_in_g2(&out_point) || blst_p2_affine_is_inf(&out_point)) {
         return FailValidation(error, "Groth16 proof artifact contains invalid G2 encoding");
     }
     return true;
@@ -126,6 +126,18 @@ static bool IsZeroScalarLE(const std::array<unsigned char, GROTH16_SCALAR_BYTES>
         scalar_bytes.begin(),
         scalar_bytes.end(),
         [](unsigned char byte) { return byte == 0; });
+}
+
+static void ComputeSafeMillerLoop(
+    blst_fp12& out_result,
+    const blst_p2_affine& q,
+    const blst_p1_affine& p)
+{
+    if (blst_p2_affine_is_inf(&q) || blst_p1_affine_is_inf(&p)) {
+        out_result = *blst_fp12_one();
+        return;
+    }
+    blst_miller_loop(&out_result, &q, &p);
 }
 
 static bool ComputeGammaABCCombination(
@@ -377,11 +389,11 @@ bool VerifyValiditySidechainGroth16Proof(
     blst_fp12 lhs;
     blst_fp12 rhs;
     blst_fp12 term;
-    blst_miller_loop(&lhs, &proof_b, &proof_a);
-    blst_miller_loop(&rhs, &beta_g2, &alpha_g1);
-    blst_miller_loop(&term, &gamma_g2, &gamma_abc_sum);
+    ComputeSafeMillerLoop(lhs, proof_b, proof_a);
+    ComputeSafeMillerLoop(rhs, beta_g2, alpha_g1);
+    ComputeSafeMillerLoop(term, gamma_g2, gamma_abc_sum);
     blst_fp12_mul(&rhs, &rhs, &term);
-    blst_miller_loop(&term, &delta_g2, &proof_c);
+    ComputeSafeMillerLoop(term, delta_g2, proof_c);
     blst_fp12_mul(&rhs, &rhs, &term);
 
     if (!blst_fp12_finalverify(&lhs, &rhs)) {
