@@ -216,8 +216,8 @@ func main() {
 		ProofBytesHex:        hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"real Groth16 proof for the experimental poseidon batch transition circuit",
-			"includes one deterministic deposit queue entry fixture constrained inside the proof and reused by surrounding node-side queue checks",
-			"includes one deterministic withdrawal leaf fixture constrained inside the proof and reused by surrounding node-side withdrawal execution checks",
+			"includes one deterministic deposit queue entry fixture validated host-side and reused by surrounding node-side queue checks",
+			"includes one deterministic withdrawal leaf fixture validated host-side and reused by surrounding node-side withdrawal execution checks",
 			"binds withdrawal_root directly into the Poseidon transition commitment",
 			"the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
 			"binds a non-empty published DA payload through data_root and data_size",
@@ -296,7 +296,7 @@ func main() {
 		Curve:         "bls12_381",
 		Backend:       "native_blst_groth16",
 		ConsensusSafe: false,
-		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and one-entry queue/withdrawal witness constraints plus non-empty DA test vectors",
+		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics, host-validated queue/withdrawal fixtures, and non-empty DA test vectors",
 		ConsensusTuple: consensusTuple{
 			Version:              1,
 			ProofSystemID:        2,

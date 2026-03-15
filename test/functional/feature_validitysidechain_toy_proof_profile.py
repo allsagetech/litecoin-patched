@@ -307,6 +307,35 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_queue_prefix_mismatch_vector["expected_result"], "reject")
         assert_equal(real_withdrawal_root_mismatch_vector["expected_result"], "reject")
         assert_equal(real_corrupt_vector["expected_result"], "reject")
+
+        self.log.info("Replaying the committed real vector through the external verify helper too.")
+        real_verify_request = {
+            "profile_name": "groth16_bls12_381_poseidon_v1",
+            "artifact_dir": str(self.real_artifact_dir),
+            "sidechain_id": int(real_valid_vector["public_inputs"]["sidechain_id"]),
+            "public_inputs": {
+                "batch_number": int(real_valid_vector["public_inputs"]["batch_number"]),
+                "prior_state_root": real_valid_vector["public_inputs"]["prior_state_root"],
+                "new_state_root": real_valid_vector["public_inputs"]["new_state_root"],
+                "l1_message_root_before": real_valid_vector["public_inputs"]["l1_message_root_before"],
+                "l1_message_root_after": real_valid_vector["public_inputs"]["l1_message_root_after"],
+                "consumed_queue_messages": int(real_valid_vector["public_inputs"]["consumed_queue_messages"]),
+                "queue_prefix_commitment": real_valid_vector["public_inputs"]["queue_prefix_commitment"],
+                "withdrawal_root": real_valid_vector["public_inputs"]["withdrawal_root"],
+                "data_root": real_valid_vector["public_inputs"]["data_root"],
+                "data_size": int(real_valid_vector["public_inputs"]["data_size"]),
+            },
+            "proof_bytes_hex": real_valid_vector["proof_bytes_hex"],
+        }
+        real_verify_result = self.run_tool("verify", real_verify_request)
+        assert_equal(real_verify_result["ok"], True)
+
+        real_verify_mismatch_request = dict(real_verify_request)
+        real_verify_mismatch_request["public_inputs"] = dict(real_verify_request["public_inputs"])
+        real_verify_mismatch_request["public_inputs"]["new_state_root"] = real_mismatch_vector["public_inputs"]["new_state_root"]
+        real_verify_mismatch_result = self.run_tool("verify", real_verify_mismatch_request)
+        assert_equal(real_verify_mismatch_result["ok"], False)
+        assert real_verify_mismatch_result["error"]
         refund_address = node.getnewaddress()
         native_toy_vectors_da_compatible = pad_field_hex(native_valid_vector["public_inputs"]["data_root"]) == ("00" * 32)
 

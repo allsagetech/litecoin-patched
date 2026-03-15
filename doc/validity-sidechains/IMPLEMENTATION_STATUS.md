@@ -152,6 +152,9 @@ This means:
 - the functional real auto-prover coverage now also rejects mismatched
   `withdrawal_leaves` witness metadata before proof generation, so the wallet
   no longer treats that experimental witness as best-effort input
+- the Go `verify-batch` helper now also understands the committed native real
+  `groth16_bls12_381_poseidon_v1` bundle, giving the branch an external
+  verifier-tool cross-check in addition to the in-process native verifier
 - the committed real-profile invalid vectors now cover corrupted proofs,
   `new_state_root` mismatch, `queue_prefix_commitment` mismatch, and
   `withdrawal_root` mismatch against the same accepted public-input tuple
@@ -167,7 +170,8 @@ This means:
   verifier-asset layout, committed experimental proof material, and a native
   verifier core, but batch validation still cannot become trustless until the
   final intended sidechain circuit replaces the current deterministic
-  one-entry experimental queue/withdrawal transition semantics
+  experimental transition semantics with host-validated queue/withdrawal
+  fixtures
 - the current native verifier path interprets each batch public input as a
   single BLS12-381 scalar, so the final real profile must either keep those
   roots / commitments field-sized or move to a decomposed public-input layout

@@ -76,13 +76,6 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 	}
 	stateHasher.Write(c.PriorStateRoot, transitionCommitment)
 	api.AssertIsEqual(c.NewStateRoot, stateHasher.Sum())
-	if err := assertExperimentalQueueWitness(api, c); err != nil {
-		return err
-	}
-	if err := assertExperimentalWithdrawalWitness(api, c); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -168,6 +161,67 @@ func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCi
 		WithdrawalLeafID:                    withdrawalLeafID,
 		WithdrawalLeafAmount:                withdrawalLeafAmount,
 		WithdrawalLeafDestinationCommitment: withdrawalLeafDestinationCommitment,
+	}, nil
+}
+
+func BuildPublicAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
+	sidechainID, err := parseUintAsField(request.SidechainID, "sidechain_id")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	batchNumber, err := parseUintAsField(uint64(request.PublicInputs.BatchNumber), "batch_number")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	priorStateRoot, err := parseFieldHex(request.PublicInputs.PriorStateRoot, "prior_state_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	newStateRoot, err := parseFieldHex(request.PublicInputs.NewStateRoot, "new_state_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	l1MessageRootBefore, err := parseFieldHex(request.PublicInputs.L1MessageRootBefore, "l1_message_root_before")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	l1MessageRootAfter, err := parseFieldHex(request.PublicInputs.L1MessageRootAfter, "l1_message_root_after")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	consumedQueueMessages, err := parseUintAsField(uint64(request.PublicInputs.ConsumedQueueMessages), "consumed_queue_messages")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	queuePrefixCommitment, err := parseFieldHex(request.PublicInputs.QueuePrefixCommitment, "queue_prefix_commitment")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	withdrawalRoot, err := parseFieldHex(request.PublicInputs.WithdrawalRoot, "withdrawal_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	dataRoot, err := parseFieldHex(request.PublicInputs.DataRoot, "data_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+	dataSize, err := parseUintAsField(uint64(request.PublicInputs.DataSize), "data_size")
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
+
+	return PoseidonBatchTransitionCircuit{
+		SidechainID:           sidechainID,
+		BatchNumber:           batchNumber,
+		PriorStateRoot:        priorStateRoot,
+		NewStateRoot:          newStateRoot,
+		L1MessageRootBefore:   l1MessageRootBefore,
+		L1MessageRootAfter:    l1MessageRootAfter,
+		ConsumedQueueMessages: consumedQueueMessages,
+		QueuePrefixCommitment: queuePrefixCommitment,
+		WithdrawalRoot:        withdrawalRoot,
+		DataRoot:              dataRoot,
+		DataSize:              dataSize,
 	}, nil
 }
 

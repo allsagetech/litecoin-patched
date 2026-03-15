@@ -43,6 +43,9 @@ Both commands read a single JSON request from stdin and emit a single JSON
 response on stdout for the experimental external-profile integration in
 `src/validitysidechain/verifier.cpp`.
 
+`verify-batch` now supports both the toy external profile and the experimental
+real native `groth16_bls12_381_poseidon_v1` bundle.
+
 For the functional test harness, use the wrapper script:
 
 ```powershell
