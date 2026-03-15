@@ -9,10 +9,12 @@ import json
 import os
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 
-from test_framework.messages import hash256, ser_uint256
+from test_framework.messages import CTransaction, CTxOut, hash256, ser_uint256, uint256_from_str
+from test_framework.script import CScript
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 
@@ -68,6 +70,10 @@ def load_json(path):
         return json.load(handle)
 
 
+def hash256_uint256(payload):
+    return uint256_from_str(hash256(payload))
+
+
 def compute_queue_consume_root(sidechain_id, prior_root, queue_index, message_kind, message_id, message_hash):
     payload = b"VSCQC\x01"
     payload += sidechain_id.to_bytes(1, "little")
@@ -116,6 +122,61 @@ def compute_queue_prefix_commitment(sidechain_id, entries):
             entry["message_hash"],
         )
     return commitment
+
+
+def encode_pushdata(payload):
+    if len(payload) < 0x4C:
+        return bytes([len(payload)]) + payload
+    if len(payload) <= 0xFF:
+        return b"\x4c" + bytes([len(payload)]) + payload
+    if len(payload) <= 0xFFFF:
+        return b"\x4d" + struct.pack("<H", len(payload)) + payload
+    return b"\x4e" + struct.pack("<I", len(payload)) + payload
+
+
+def encode_batch_public_inputs(public_inputs):
+    return (
+        struct.pack("<I", public_inputs["batch_number"]) +
+        ser_uint256(int(public_inputs["prior_state_root"], 16)) +
+        ser_uint256(int(public_inputs["new_state_root"], 16)) +
+        ser_uint256(int(public_inputs["l1_message_root_before"], 16)) +
+        ser_uint256(int(public_inputs["l1_message_root_after"], 16)) +
+        struct.pack("<I", public_inputs["consumed_queue_messages"]) +
+        ser_uint256(int(public_inputs.get("queue_prefix_commitment", "00" * 32), 16)) +
+        ser_uint256(int(public_inputs["withdrawal_root"], 16)) +
+        ser_uint256(int(public_inputs["data_root"], 16)) +
+        struct.pack("<I", public_inputs["data_size"])
+    )
+
+
+def compute_batch_commitment_hash(sidechain_id, public_inputs):
+    payload = b"VSCB\x01" + bytes([sidechain_id]) + encode_batch_public_inputs(public_inputs)
+    return f"{hash256_uint256(payload):064x}"
+
+
+def encode_batch_data_chunk(index, chunk_count, chunk_bytes):
+    return struct.pack("<II", index, chunk_count) + chunk_bytes
+
+
+def build_commit_script(sidechain_id, public_inputs, proof_bytes, encoded_chunks):
+    payload = ser_uint256(int(compute_batch_commitment_hash(sidechain_id, public_inputs), 16))
+    raw = bytearray([0x6A, 0xB4])
+    raw.extend(encode_pushdata(bytes([sidechain_id])))
+    raw.extend(encode_pushdata(payload))
+    raw.extend(encode_pushdata(bytes([0x08])))
+    raw.extend(encode_pushdata(encode_batch_public_inputs(public_inputs)))
+    raw.extend(encode_pushdata(proof_bytes))
+    for chunk in encoded_chunks:
+        raw.extend(encode_pushdata(chunk))
+    return CScript(bytes(raw))
+
+
+def fund_and_sign_script_tx(node, script, amount):
+    tx = CTransaction()
+    tx.vin = []
+    tx.vout = [CTxOut(amount, script)]
+    funded = node.fundrawtransaction(tx.serialize().hex())["hex"]
+    return node.signrawtransactionwithwallet(funded)["hex"]
 
 
 def shell_join(argv):
@@ -681,6 +742,78 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         real_withdrawal_root_mismatch_public_inputs = dict(real_public_inputs)
         real_withdrawal_root_mismatch_public_inputs["withdrawal_root"] = pad_field_hex(
             real_withdrawal_root_mismatch_vector["public_inputs"]["withdrawal_root"]
+        )
+        oversized_real_public_inputs = dict(real_public_inputs)
+        oversized_real_public_inputs["data_size"] = real_supported["max_batch_data_bytes_limit"] + 1
+        real_chunk_bytes = [bytes.fromhex(chunk_hex) for chunk_hex in real_data_chunks]
+
+        self.log.info("Rejecting missing or malformed DA on the real Groth16 profile before proof verification.")
+        assert_raises_rpc_error(
+            -26,
+            "data chunks missing for non-zero data_size",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_public_inputs,
+            real_valid_vector["proof_bytes_hex"],
+        )
+        assert_raises_rpc_error(
+            -26,
+            "data size does not match published chunks",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_public_inputs,
+            real_valid_vector["proof_bytes_hex"],
+            [real_data_chunks[0]],
+        )
+        assert_raises_rpc_error(
+            -26,
+            "data root does not match published chunks",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            real_public_inputs,
+            real_valid_vector["proof_bytes_hex"],
+            list(reversed(real_data_chunks)),
+        )
+        assert_raises_rpc_error(
+            -26,
+            "data size exceeds configured limit",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            oversized_real_public_inputs,
+            real_valid_vector["proof_bytes_hex"],
+            real_data_chunks,
+        )
+        malformed_real_script = build_commit_script(
+            real_sidechain_id,
+            real_public_inputs,
+            bytes.fromhex(real_valid_vector["proof_bytes_hex"]),
+            [
+                encode_batch_data_chunk(1, len(real_chunk_bytes), real_chunk_bytes[1]),
+                encode_batch_data_chunk(0, len(real_chunk_bytes), real_chunk_bytes[0]),
+            ],
+        )
+        malformed_real_batch_hex = fund_and_sign_script_tx(node, malformed_real_script, 0)
+        assert_raises_rpc_error(
+            -26,
+            "validitysidechain-batch-metadata-bad",
+            node.sendrawtransaction,
+            malformed_real_batch_hex,
+        )
+        inconsistent_count_real_script = build_commit_script(
+            real_sidechain_id,
+            real_public_inputs,
+            bytes.fromhex(real_valid_vector["proof_bytes_hex"]),
+            [
+                encode_batch_data_chunk(0, len(real_chunk_bytes) + 1, real_chunk_bytes[0]),
+                encode_batch_data_chunk(1, len(real_chunk_bytes), real_chunk_bytes[1]),
+            ],
+        )
+        inconsistent_count_real_batch_hex = fund_and_sign_script_tx(node, inconsistent_count_real_script, 0)
+        assert_raises_rpc_error(
+            -26,
+            "validitysidechain-batch-metadata-bad",
+            node.sendrawtransaction,
+            inconsistent_count_real_batch_hex,
         )
 
         assert_raises_rpc_error(

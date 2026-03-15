@@ -619,6 +619,12 @@ jobs:
       - name: build
         run: make -j4
 
+      - name: Run validity sidechain unit tests
+        run: |
+          src/test/test_litecoin --catch_system_errors=no --run_test=validitysidechain_script_tests
+          src/test/test_litecoin --catch_system_errors=no --run_test=validitysidechain_state_tests
+          src/test/test_litecoin --catch_system_errors=no --run_test=validitysidechain_groth16_tests
+
       - name: Run validity sidechain functional tests
         env:
           LC_ALL: C
@@ -659,6 +665,7 @@ jobs:
           run_one feature_validitysidechain_toy_proof_profile.py
           run_one validitysidechain_force_exit_recovery.py
           run_one validitysidechain_force_exit_reorg.py
+          run_one validitysidechain_real_profile_reorg.py
           run_one validitysidechain_reclaim_reorg.py
           run_one validitysidechain_registration_reorg.py
           run_one validitysidechain_restart_reorg.py

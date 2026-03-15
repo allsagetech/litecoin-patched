@@ -335,7 +335,6 @@ What is still missing or incomplete:
 
 - full functional coverage for the new validity-sidechain transaction families
 - final non-toy sidechain verifier test vectors for the production semantics
-- DA failure-mode tests against a non-scaffold batch path
 - additional adversarial and long-range reorg coverage beyond the current
   registration, deposit, force-exit, batch, withdrawal, reclaim, and
   escape-exit rollback scenarios
