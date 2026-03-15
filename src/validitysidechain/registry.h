@@ -43,6 +43,8 @@ const SupportedValiditySidechainConfig* FindSupportedValiditySidechainConfig(con
 bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std::string* error = nullptr);
 bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidechainConfig& config);
+bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config);

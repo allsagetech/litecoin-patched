@@ -1908,7 +1908,8 @@ static RPCHelpMan sendforceexitrequest()
 {
     return RPCHelpMan{
         "sendforceexitrequest",
-        "Create, fund, sign and broadcast a validity-sidechain REQUEST_FORCE_EXIT transaction.\n",
+        "Create, fund, sign and broadcast a validity-sidechain REQUEST_FORCE_EXIT transaction.\n"
+        "The current experimental real profile does not support force-exit requests.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"account_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte account identifier"},
@@ -1938,8 +1939,12 @@ static RPCHelpMan sendforceexitrequest()
 
             const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
 
-            if (!HasValiditySidechainInChain(*pwallet, sidechain_id)) {
+            ValiditySidechain sidechain;
+            if (!GetValiditySidechainFromChain(*pwallet, sidechain_id, sidechain)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
+            }
+            if (!AllowsValiditySidechainForceExitRequests(sidechain.config)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "force-exit requests are not implemented for this profile");
             }
 
             ValiditySidechainForceExitData request_data;

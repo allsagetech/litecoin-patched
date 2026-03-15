@@ -189,6 +189,11 @@ This means:
   as `local_prefix_consensus_single_deposit_entry_experimental`, so the node
   no longer implies current proof coverage for consumed force-exit queue
   entries on that profile
+- the same experimental real profile now also disables new
+  `REQUEST_FORCE_EXIT` submission entirely, reported as
+  `force_exit_request_mode = "disabled_pending_real_queue_entry_proof"`,
+  because the current proof path cannot yet cover consumed force-exit queue
+  entries for that profile
 - consensus and wallet RPCs now also hard-reject more than one executed
   withdrawal leaf for `groth16_bls12_381_poseidon_v1`, matching the current
   single-leaf experimental withdrawal binding instead of pretending broader
@@ -198,6 +203,7 @@ This means:
   `withdrawal_root_merkle_inclusion` mode, so node observability no longer
   overstates the current withdrawal execution capability
 - the top-level `getvaliditysidechaininfo` RPC now also reports
+  `force_exit_request_mode = "profile_specific"`,
   `batch_queue_binding_mode = "profile_specific"` and
   `batch_withdrawal_binding_mode = "profile_specific"` alongside the existing
   profile-specific batch and withdrawal execution mode summaries

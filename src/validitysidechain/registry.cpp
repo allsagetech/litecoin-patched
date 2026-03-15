@@ -230,6 +230,23 @@ bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidech
            std::string(supported->profile_name) == "groth16_bls12_381_poseidon_v1";
 }
 
+bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config)
+{
+    return !IsValiditySidechainSingleEntryExperimentalQueueProfile(config);
+}
+
+const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (!AllowsValiditySidechainForceExitRequests(config)) {
+        return "disabled_pending_real_queue_entry_proof";
+    }
+    return "enabled_local_queue_consensus";
+}
+
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);

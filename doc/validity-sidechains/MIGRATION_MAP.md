@@ -432,8 +432,12 @@ Current branch status:
   reporting that now narrow that queue mode to
   `local_prefix_consensus_single_deposit_entry_experimental` so the current
   experimental profile does not imply proof coverage for consumed force-exit
-  queue entries, plus consensus and wallet rejection of more than one
-  executed withdrawal leaf for that profile so withdrawal
+  queue entries, plus disabled `REQUEST_FORCE_EXIT` submission for that same
+  profile reported as
+  `force_exit_request_mode = "disabled_pending_real_queue_entry_proof"` so
+  operators cannot enqueue a path the current experimental proof model cannot
+  consume, plus consensus and wallet rejection of more than one executed
+  withdrawal leaf for that profile so withdrawal
   execution does not overstate the current experimental semantics, plus
   consensus rejection of non-single-leaf withdrawal proof shapes for that
   profile so a hand-crafted proof of one leaf out of a larger withdrawal tree
@@ -466,6 +470,7 @@ Current branch status:
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration, force-exit, batch-validation, withdrawal, and escape-exit
   plumbing availability, and its top-level status summary now reports
+  `force_exit_request_mode = "profile_specific"`,
   `batch_queue_binding_mode = "profile_specific"` and
   `batch_withdrawal_binding_mode = "profile_specific"` alongside the existing
   profile-specific batch and exit mode summary fields

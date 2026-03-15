@@ -797,6 +797,12 @@ bool ValiditySidechainState::AddForceExitRequest(
         }
         return false;
     }
+    if (!AllowsValiditySidechainForceExitRequests(sidechain->config)) {
+        if (error != nullptr) {
+            *error = "force-exit requests are not implemented for this profile";
+        }
+        return false;
+    }
 
     const uint256 request_hash = ComputeValiditySidechainForceExitHash(sidechain_id, request);
     if (sidechain->pending_force_exits.count(request_hash) != 0) {

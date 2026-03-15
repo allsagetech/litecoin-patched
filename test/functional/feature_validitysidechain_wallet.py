@@ -257,6 +257,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         node.generatetoaddress(101, mining_address)
 
         info = node.getvaliditysidechaininfo()
+        assert_equal(info["force_exit_request_mode"], "profile_specific")
         assert_equal(info["batch_validation_mode"], "profile_specific")
         assert_equal(info["batch_queue_binding_mode"], "profile_specific")
         assert_equal(info["batch_withdrawal_binding_mode"], "profile_specific")
@@ -269,8 +270,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
         assert_equal(supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["escape_exit_mode"], "merkle_inclusion_scaffold")
+        assert_equal(supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(transition_supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(transition_supported["escape_exit_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(toy_supported["scaffolding_only"], False)
         assert_equal(toy_supported["requires_external_verifier_assets"], True)
         assert_equal(toy_supported["supports_external_prover"], True)
@@ -280,6 +283,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(toy_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
         assert_equal(toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
+        assert_equal(toy_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(toy_supported["verifier_artifact_name"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_assets"]["required"], True)
         if toy_supported["verifier_assets"]["profile_manifest_parsed"]:
@@ -299,6 +303,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(native_toy_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
         assert_equal(native_toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(native_toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
+        assert_equal(native_toy_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(native_toy_supported["verifier_artifact_name"], "native_blst_groth16_toy_batch_transition_v1")
         assert_equal(native_toy_supported["verifier_assets"]["required"], True)
         assert_equal(native_toy_supported["verifier_assets"]["available"], True)
@@ -323,6 +328,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
         assert_equal(real_supported["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
         assert_equal(real_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
+        assert_equal(real_supported["force_exit_request_mode"], "disabled_pending_real_queue_entry_proof")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], True)
@@ -742,6 +748,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
         assert_equal(real_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
         assert_equal(real_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
+        assert_equal(real_sidechain["force_exit_request_mode"], "disabled_pending_real_queue_entry_proof")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
         assert_equal(real_sidechain["verifier_assets"]["available"], True)
         assert_equal(real_sidechain["verifier_assets"]["prover_assets_present"], real_proving_key_present)
@@ -869,38 +876,25 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         )
         node.sendvaliditysidechainregister(real_force_exit_sidechain_id, real_force_exit_config)
         node.generate(1)
-        node.sendforceexitrequest(
+        real_force_exit_sidechain = get_sidechain_info(node, real_force_exit_sidechain_id)
+        assert_equal(
+            real_force_exit_sidechain["force_exit_request_mode"],
+            "disabled_pending_real_queue_entry_proof",
+        )
+        assert_equal(
+            real_force_exit_sidechain["batch_queue_binding_mode"],
+            "local_prefix_consensus_single_deposit_entry_experimental",
+        )
+        assert_raises_rpc_error(
+            -8,
+            "force-exit requests are not implemented for this profile",
+            node.sendforceexitrequest,
             real_force_exit_sidechain_id,
             "77" * 32,
             "88" * 32,
             Decimal("0.25"),
             {"address": node.getnewaddress()},
             1,
-        )
-        node.generate(1)
-        real_force_exit_sidechain = get_sidechain_info(node, real_force_exit_sidechain_id)
-        assert_equal(
-            real_force_exit_sidechain["batch_queue_binding_mode"],
-            "local_prefix_consensus_single_deposit_entry_experimental",
-        )
-        assert_equal(real_force_exit_sidechain["queue_state"]["pending_force_exit_count"], 1)
-        assert_raises_rpc_error(
-            -8,
-            "experimental real profile currently supports consumed deposit queue entries only",
-            node.sendvaliditybatch,
-            real_force_exit_sidechain_id,
-            {
-                "batch_number": 1,
-                "prior_state_root": real_force_exit_sidechain["current_state_root"],
-                "new_state_root": real_force_exit_sidechain["current_state_root"],
-                "l1_message_root_before": real_force_exit_sidechain["queue_state"]["root"],
-                "l1_message_root_after": real_force_exit_sidechain["queue_state"]["root"],
-                "consumed_queue_messages": 1,
-                "withdrawal_root": real_force_exit_sidechain["current_withdrawal_root"],
-                "data_root": real_force_exit_sidechain["current_data_root"],
-                "data_size": 0,
-            },
-            "00",
         )
         if real_valid_vector.get("withdrawal_leaves", []):
             assert_raises_rpc_error(

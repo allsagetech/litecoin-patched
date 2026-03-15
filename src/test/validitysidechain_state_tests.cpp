@@ -852,7 +852,7 @@ BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_more_than_one_consumed_queue_mes
     BOOST_CHECK_EQUAL(error, "experimental real profile currently supports at most one consumed queue message");
 }
 
-BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_consumed_force_exit_queue_entry)
+BOOST_AUTO_TEST_CASE(real_profile_rejects_force_exit_requests)
 {
     ValiditySidechainState state;
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
@@ -863,22 +863,10 @@ BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_consumed_force_exit_queue_entry)
         uint256S("3131313131313131313131313131313131313131313131313131313131313131"),
         destination_script,
         COIN);
-    BOOST_REQUIRE(state.AddForceExitRequest(/* sidechain_id= */ 31, /* request_height= */ 711, request));
-
-    const ValiditySidechain* sidechain = state.GetSidechain(31);
-    BOOST_REQUIRE(sidechain != nullptr);
-    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
-    public_inputs.consumed_queue_messages = 1;
 
     std::string error;
-    BOOST_CHECK(!state.AcceptBatch(
-        /* sidechain_id= */ 31,
-        /* accepted_height= */ 712,
-        public_inputs,
-        std::vector<unsigned char>{0x01},
-        {},
-        &error));
-    BOOST_CHECK_EQUAL(error, "experimental real profile currently supports consumed deposit queue entries only");
+    BOOST_CHECK(!state.AddForceExitRequest(/* sidechain_id= */ 31, /* request_height= */ 711, request, &error));
+    BOOST_CHECK_EQUAL(error, "force-exit requests are not implemented for this profile");
 }
 
 BOOST_AUTO_TEST_CASE(real_profile_withdrawal_execution_rejects_more_than_one_leaf)

@@ -1774,6 +1774,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("max_deposit_reclaim_delay", static_cast<int64_t>(supported.max_deposit_reclaim_delay));
     result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
+    result.pushKV("force_exit_request_mode", GetValiditySidechainForceExitRequestMode(config));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(config));
@@ -1893,6 +1894,7 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("latest_batch_number", static_cast<int64_t>(sidechain.latest_batch_number));
     result.pushKV("executed_withdrawal_count", static_cast<int64_t>(sidechain.executed_withdrawal_count));
     result.pushKV("executed_escape_exit_count", static_cast<int64_t>(sidechain.executed_escape_exit_count));
+    result.pushKV("force_exit_request_mode", GetValiditySidechainForceExitRequestMode(sidechain.config));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(sidechain.config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(sidechain.config));
@@ -1973,6 +1975,7 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("state_persistence_enabled", true);
     result.pushKV("registration_validation_available", true);
     result.pushKV("force_exit_request_available", true);
+    result.pushKV("force_exit_request_mode", "profile_specific");
     result.pushKV("batch_validation_available", true);
     result.pushKV("batch_validation_mode", "profile_specific");
     result.pushKV("batch_queue_binding_mode", "profile_specific");
