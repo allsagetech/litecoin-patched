@@ -592,6 +592,11 @@ jobs:
             python3 -m pip install litecoin_scrypt
           fi
 
+      - name: Run validity-sidechain zk demo Go tests
+        run: |
+          cd contrib/validitysidechain-zk-demo
+          go test ./...
+
       - name: Materialize experimental real Groth16 proving assets
         run: |
           cd contrib/validitysidechain-zk-demo

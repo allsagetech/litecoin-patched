@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/toybatch"
@@ -20,6 +21,8 @@ import (
 )
 
 const ProfileName = "groth16_bls12_381_poseidon_v1"
+const ExperimentalPublicInputVersion uint8 = 2
+const FinalPublicInputVersion uint8 = 5
 
 var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
 var queuePrefixCommitmentMagic = []uint8{'V', 'S', 'C', 'Q', 'P', 0x01}
@@ -227,6 +230,144 @@ func BuildPublicAssignment(request toybatch.CommandRequest) (PoseidonBatchTransi
 		DataRoot:              dataRoot,
 		DataSize:              dataSize,
 	}, nil
+}
+
+func ManifestPublicInputs(publicInputVersion uint8) ([]string, error) {
+	switch publicInputVersion {
+	case ExperimentalPublicInputVersion:
+		return []string{
+			"sidechain_id",
+			"batch_number",
+			"prior_state_root",
+			"new_state_root",
+			"l1_message_root_before",
+			"l1_message_root_after",
+			"consumed_queue_messages",
+			"queue_prefix_commitment",
+			"withdrawal_root",
+			"data_root",
+			"data_size",
+		}, nil
+	case FinalPublicInputVersion:
+		return []string{
+			"sidechain_id",
+			"batch_number",
+			"prior_state_root",
+			"new_state_root",
+			"l1_message_root_before_lo",
+			"l1_message_root_before_hi",
+			"l1_message_root_after_lo",
+			"l1_message_root_after_hi",
+			"consumed_queue_messages",
+			"queue_prefix_commitment_lo",
+			"queue_prefix_commitment_hi",
+			"withdrawal_root_lo",
+			"withdrawal_root_hi",
+			"data_root_lo",
+			"data_root_hi",
+			"data_size",
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported public_input_version %d", publicInputVersion)
+	}
+}
+
+func PublicInputsMap(request toybatch.CommandRequest, publicInputVersion uint8) (map[string]string, error) {
+	inputNames, err := ManifestPublicInputs(publicInputVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]string, len(inputNames))
+	for _, inputName := range inputNames {
+		value, err := publicInputValue(request, inputName)
+		if err != nil {
+			return nil, err
+		}
+		out[inputName] = value
+	}
+	return out, nil
+}
+
+func publicInputValue(request toybatch.CommandRequest, inputName string) (string, error) {
+	switch inputName {
+	case "sidechain_id":
+		return strconv.FormatUint(uint64(request.SidechainID), 10), nil
+	case "batch_number":
+		return strconv.FormatUint(uint64(request.PublicInputs.BatchNumber), 10), nil
+	case "consumed_queue_messages":
+		return strconv.FormatUint(uint64(request.PublicInputs.ConsumedQueueMessages), 10), nil
+	case "data_size":
+		return strconv.FormatUint(uint64(request.PublicInputs.DataSize), 10), nil
+	}
+
+	if value, ok := appendUint256ManifestValue(inputName, "prior_state_root", request.PublicInputs.PriorStateRoot); ok {
+		return value, nil
+	}
+	if value, ok := appendUint256ManifestValue(inputName, "new_state_root", request.PublicInputs.NewStateRoot); ok {
+		return value, nil
+	}
+	if value, ok := appendUint256ManifestValue(inputName, "l1_message_root_before", request.PublicInputs.L1MessageRootBefore); ok {
+		return value, nil
+	}
+	if value, ok := appendUint256ManifestValue(inputName, "l1_message_root_after", request.PublicInputs.L1MessageRootAfter); ok {
+		return value, nil
+	}
+	if value, ok := appendUint256ManifestValue(inputName, "queue_prefix_commitment", request.PublicInputs.QueuePrefixCommitment); ok {
+		return value, nil
+	}
+	if value, ok := appendUint256ManifestValue(inputName, "withdrawal_root", request.PublicInputs.WithdrawalRoot); ok {
+		return value, nil
+	}
+	if value, ok := appendUint256ManifestValue(inputName, "data_root", request.PublicInputs.DataRoot); ok {
+		return value, nil
+	}
+
+	return "", fmt.Errorf("unsupported public input name %q", inputName)
+}
+
+func appendUint256ManifestValue(inputName string, baseName string, raw string) (string, bool) {
+	normalized := normalizeUint256Hex(raw)
+	if inputName == baseName {
+		return normalized, true
+	}
+	if inputName == baseName+"_lo" {
+		low, _ := decomposeUint256HexTo128BitLimbs(normalized)
+		return low, true
+	}
+	if inputName == baseName+"_hi" {
+		_, high := decomposeUint256HexTo128BitLimbs(normalized)
+		return high, true
+	}
+	return "", false
+}
+
+func normalizeUint256Hex(raw string) string {
+	normalized := normalizeHex(raw)
+	if normalized == "0" {
+		return normalized
+	}
+	if len(normalized) > 64 {
+		panic("uint256 hex longer than 32 bytes")
+	}
+	return normalized
+}
+
+func decomposeUint256HexTo128BitLimbs(raw string) (string, string) {
+	normalized := raw
+	if normalized == "" {
+		normalized = "0"
+	}
+	for len(normalized) < 64 {
+		normalized = "0" + normalized
+	}
+	if len(normalized) > 64 {
+		panic("uint256 hex longer than 32 bytes")
+	}
+
+	high := normalizeHex(normalized[:32])
+	low := normalizeHex(normalized[32:])
+	return low, high
 }
 
 func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, error) {

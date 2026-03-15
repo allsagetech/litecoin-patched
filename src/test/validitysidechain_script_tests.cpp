@@ -266,6 +266,154 @@ BOOST_AUTO_TEST_CASE(force_exit_script_roundtrip)
     BOOST_CHECK(info.payload == ComputeValiditySidechainForceExitHash(sidechain_id, request));
 }
 
+BOOST_AUTO_TEST_CASE(escape_exit_state_proof_roundtrip)
+{
+    ValiditySidechainEscapeExitStateProof proof;
+    proof.exit_id = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    proof.exit_asset_id = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    proof.amount = 3 * COIN;
+    proof.destination_commitment = uint256S("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
+    proof.account_proof.account.account_id = uint256S("0101010101010101010101010101010101010101010101010101010101010101");
+    proof.account_proof.account.spend_key_commitment = uint256S("0202020202020202020202020202020202020202020202020202020202020202");
+    proof.account_proof.account.balance_root = uint256S("0303030303030303030303030303030303030303030303030303030303030303");
+    proof.account_proof.account.account_nonce = 17;
+    proof.account_proof.account.last_forced_exit_nonce = 9;
+    proof.account_proof.leaf_index = 1;
+    proof.account_proof.leaf_count = 2;
+    proof.account_proof.sibling_hashes = {
+        uint256S("0404040404040404040404040404040404040404040404040404040404040404"),
+    };
+    proof.balance_proof.balance.asset_id = uint256S("0505050505050505050505050505050505050505050505050505050505050505");
+    proof.balance_proof.balance.balance = 12 * COIN;
+    proof.balance_proof.leaf_index = 0;
+    proof.balance_proof.leaf_count = 1;
+    proof.required_account_nonce = 18;
+    proof.required_last_forced_exit_nonce = 10;
+
+    const std::vector<unsigned char> encoded = EncodeValiditySidechainEscapeExitStateProof(proof);
+
+    ValiditySidechainEscapeExitStateProof decoded;
+    BOOST_REQUIRE(DecodeValiditySidechainEscapeExitStateProof(encoded, decoded));
+    BOOST_CHECK(decoded.exit_id == proof.exit_id);
+    BOOST_CHECK(decoded.exit_asset_id == proof.exit_asset_id);
+    BOOST_CHECK_EQUAL(decoded.amount, proof.amount);
+    BOOST_CHECK(decoded.destination_commitment == proof.destination_commitment);
+    BOOST_CHECK(decoded.account_proof.account.account_id == proof.account_proof.account.account_id);
+    BOOST_CHECK(decoded.account_proof.account.spend_key_commitment == proof.account_proof.account.spend_key_commitment);
+    BOOST_CHECK(decoded.account_proof.account.balance_root == proof.account_proof.account.balance_root);
+    BOOST_CHECK_EQUAL(decoded.account_proof.account.account_nonce, proof.account_proof.account.account_nonce);
+    BOOST_CHECK_EQUAL(decoded.account_proof.account.last_forced_exit_nonce, proof.account_proof.account.last_forced_exit_nonce);
+    BOOST_CHECK_EQUAL(decoded.account_proof.leaf_index, proof.account_proof.leaf_index);
+    BOOST_CHECK_EQUAL(decoded.account_proof.leaf_count, proof.account_proof.leaf_count);
+    BOOST_REQUIRE_EQUAL(decoded.account_proof.sibling_hashes.size(), proof.account_proof.sibling_hashes.size());
+    BOOST_CHECK(decoded.account_proof.sibling_hashes[0] == proof.account_proof.sibling_hashes[0]);
+    BOOST_CHECK(decoded.balance_proof.balance.asset_id == proof.balance_proof.balance.asset_id);
+    BOOST_CHECK_EQUAL(decoded.balance_proof.balance.balance, proof.balance_proof.balance.balance);
+    BOOST_CHECK_EQUAL(decoded.balance_proof.leaf_index, proof.balance_proof.leaf_index);
+    BOOST_CHECK_EQUAL(decoded.balance_proof.leaf_count, proof.balance_proof.leaf_count);
+    BOOST_CHECK_EQUAL(decoded.required_account_nonce, proof.required_account_nonce);
+    BOOST_CHECK_EQUAL(decoded.required_last_forced_exit_nonce, proof.required_last_forced_exit_nonce);
+}
+
+BOOST_AUTO_TEST_CASE(escape_exit_state_script_roundtrip)
+{
+    const uint8_t sidechain_id = 19;
+    const uint256 state_root_reference = uint256S("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+    ValiditySidechainEscapeExitStateProof first_proof;
+    first_proof.exit_id = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
+    first_proof.exit_asset_id = uint256S("1212121212121212121212121212121212121212121212121212121212121212");
+    first_proof.amount = 1 * COIN;
+    first_proof.destination_commitment = uint256S("1313131313131313131313131313131313131313131313131313131313131313");
+    first_proof.account_proof.account.account_id = uint256S("1414141414141414141414141414141414141414141414141414141414141414");
+    first_proof.account_proof.account.spend_key_commitment = uint256S("1515151515151515151515151515151515151515151515151515151515151515");
+    first_proof.account_proof.account.balance_root = uint256S("1616161616161616161616161616161616161616161616161616161616161616");
+    first_proof.account_proof.account.account_nonce = 2;
+    first_proof.account_proof.account.last_forced_exit_nonce = 1;
+    first_proof.account_proof.leaf_index = 0;
+    first_proof.account_proof.leaf_count = 1;
+    first_proof.balance_proof.balance.asset_id = uint256S("1717171717171717171717171717171717171717171717171717171717171717");
+    first_proof.balance_proof.balance.balance = 5 * COIN;
+    first_proof.balance_proof.leaf_index = 0;
+    first_proof.balance_proof.leaf_count = 1;
+    first_proof.required_account_nonce = 3;
+    first_proof.required_last_forced_exit_nonce = 2;
+
+    ValiditySidechainEscapeExitStateProof second_proof;
+    second_proof.exit_id = uint256S("1818181818181818181818181818181818181818181818181818181818181818");
+    second_proof.exit_asset_id = uint256S("1919191919191919191919191919191919191919191919191919191919191919");
+    second_proof.amount = 2 * COIN;
+    second_proof.destination_commitment = uint256S("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a");
+    second_proof.account_proof.account.account_id = uint256S("1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b");
+    second_proof.account_proof.account.spend_key_commitment = uint256S("1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c");
+    second_proof.account_proof.account.balance_root = uint256S("1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d");
+    second_proof.account_proof.account.account_nonce = 6;
+    second_proof.account_proof.account.last_forced_exit_nonce = 4;
+    second_proof.account_proof.leaf_index = 1;
+    second_proof.account_proof.leaf_count = 2;
+    second_proof.account_proof.sibling_hashes = {
+        uint256S("1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e"),
+    };
+    second_proof.balance_proof.balance.asset_id = uint256S("1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f");
+    second_proof.balance_proof.balance.balance = 8 * COIN;
+    second_proof.balance_proof.leaf_index = 0;
+    second_proof.balance_proof.leaf_count = 1;
+    second_proof.required_account_nonce = 7;
+    second_proof.required_last_forced_exit_nonce = 5;
+
+    const std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs{
+        first_proof,
+        second_proof,
+    };
+
+    ValiditySidechainScriptInfo info;
+    BOOST_REQUIRE(DecodeValiditySidechainScript(
+        BuildValiditySidechainEscapeExitStateScript(sidechain_id, state_root_reference, exit_state_proofs),
+        info));
+    BOOST_CHECK(info.kind == ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT);
+    BOOST_CHECK(info.payload == state_root_reference);
+    BOOST_REQUIRE_EQUAL(info.metadata_pushes.size(), exit_state_proofs.size());
+
+    std::vector<ValiditySidechainEscapeExitStateProof> decoded;
+    BOOST_REQUIRE(DecodeValiditySidechainEscapeExitStateMetadata(info, decoded));
+    BOOST_REQUIRE_EQUAL(decoded.size(), exit_state_proofs.size());
+    BOOST_CHECK(decoded[0].exit_id == exit_state_proofs[0].exit_id);
+    BOOST_CHECK(decoded[0].account_proof.account.account_id == exit_state_proofs[0].account_proof.account.account_id);
+    BOOST_CHECK(decoded[0].balance_proof.balance.asset_id == exit_state_proofs[0].balance_proof.balance.asset_id);
+    BOOST_CHECK_EQUAL(decoded[1].amount, exit_state_proofs[1].amount);
+    BOOST_CHECK(decoded[1].destination_commitment == exit_state_proofs[1].destination_commitment);
+    BOOST_CHECK_EQUAL(decoded[1].required_account_nonce, exit_state_proofs[1].required_account_nonce);
+    BOOST_CHECK_EQUAL(decoded[1].required_last_forced_exit_nonce, exit_state_proofs[1].required_last_forced_exit_nonce);
+    BOOST_REQUIRE_EQUAL(decoded[1].account_proof.sibling_hashes.size(), 1U);
+    BOOST_CHECK(decoded[1].account_proof.sibling_hashes[0] == exit_state_proofs[1].account_proof.sibling_hashes[0]);
+}
+
+BOOST_AUTO_TEST_CASE(escape_exit_state_proof_rejects_bad_length_prefix)
+{
+    ValiditySidechainEscapeExitStateProof proof;
+    proof.exit_id = uint256S("2020202020202020202020202020202020202020202020202020202020202020");
+    proof.exit_asset_id = uint256S("2121212121212121212121212121212121212121212121212121212121212121");
+    proof.amount = 1 * COIN;
+    proof.destination_commitment = uint256S("2222222222222222222222222222222222222222222222222222222222222222");
+    proof.account_proof.account.account_id = uint256S("2323232323232323232323232323232323232323232323232323232323232323");
+    proof.account_proof.account.spend_key_commitment = uint256S("2424242424242424242424242424242424242424242424242424242424242424");
+    proof.account_proof.account.balance_root = uint256S("2525252525252525252525252525252525252525252525252525252525252525");
+    proof.account_proof.account.account_nonce = 1;
+    proof.account_proof.account.last_forced_exit_nonce = 0;
+    proof.account_proof.leaf_index = 0;
+    proof.account_proof.leaf_count = 1;
+    proof.balance_proof.balance.asset_id = uint256S("2626262626262626262626262626262626262626262626262626262626262626");
+    proof.balance_proof.balance.balance = 1 * COIN;
+    proof.balance_proof.leaf_index = 0;
+    proof.balance_proof.leaf_count = 1;
+
+    std::vector<unsigned char> encoded = EncodeValiditySidechainEscapeExitStateProof(proof);
+    BOOST_REQUIRE(encoded.size() >= 124U);
+    encoded[120] ^= 0x01;
+
+    ValiditySidechainEscapeExitStateProof decoded;
+    BOOST_CHECK(!DecodeValiditySidechainEscapeExitStateProof(encoded, decoded));
+}
+
 BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
 {
     const uint8_t sidechain_id = 12;

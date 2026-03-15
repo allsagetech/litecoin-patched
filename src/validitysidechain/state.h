@@ -147,6 +147,55 @@ struct ValiditySidechainWithdrawalProof
     std::vector<uint256> sibling_hashes;
 };
 
+// These types mirror the intended non-scaffold user-state proof model from
+// PROPOSED_ZK_SYSTEM.md. The current branch still executes scaffold-style exit
+// proofs, but the final path needs explicit account and balance witnesses.
+struct ValiditySidechainBalanceLeaf
+{
+    uint256 asset_id;
+    CAmount balance{0};
+
+    SERIALIZE_METHODS(ValiditySidechainBalanceLeaf, obj)
+    {
+        READWRITE(obj.asset_id,
+                  obj.balance);
+    }
+};
+
+struct ValiditySidechainBalanceProof
+{
+    ValiditySidechainBalanceLeaf balance;
+    uint32_t leaf_index{0};
+    uint32_t leaf_count{0};
+    std::vector<uint256> sibling_hashes;
+};
+
+struct ValiditySidechainAccountStateLeaf
+{
+    uint256 account_id;
+    uint256 spend_key_commitment;
+    uint256 balance_root;
+    uint64_t account_nonce{0};
+    uint64_t last_forced_exit_nonce{0};
+
+    SERIALIZE_METHODS(ValiditySidechainAccountStateLeaf, obj)
+    {
+        READWRITE(obj.account_id,
+                  obj.spend_key_commitment,
+                  obj.balance_root,
+                  obj.account_nonce,
+                  obj.last_forced_exit_nonce);
+    }
+};
+
+struct ValiditySidechainAccountStateProof
+{
+    ValiditySidechainAccountStateLeaf account;
+    uint32_t leaf_index{0};
+    uint32_t leaf_count{0};
+    std::vector<uint256> sibling_hashes;
+};
+
 struct ValiditySidechainEscapeExitLeaf
 {
     uint256 exit_id;
@@ -167,6 +216,18 @@ struct ValiditySidechainEscapeExitProof
     uint32_t leaf_index{0};
     uint32_t leaf_count{0};
     std::vector<uint256> sibling_hashes;
+};
+
+struct ValiditySidechainEscapeExitStateProof
+{
+    uint256 exit_id;
+    uint256 exit_asset_id;
+    CAmount amount{0};
+    uint256 destination_commitment;
+    ValiditySidechainAccountStateProof account_proof;
+    ValiditySidechainBalanceProof balance_proof;
+    uint64_t required_account_nonce{0};
+    uint64_t required_last_forced_exit_nonce{0};
 };
 
 struct ValiditySidechainAcceptedBatch

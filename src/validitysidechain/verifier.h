@@ -8,6 +8,7 @@
 #include <uint256.h>
 #include <validitysidechain/state.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -81,6 +82,12 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawal_leaves,
     const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,
+    std::string* error = nullptr);
+bool BuildValiditySidechainGroth16PublicInputs(
+    const std::vector<std::string>& public_input_names,
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    std::vector<std::array<unsigned char, 32>>& out_public_inputs_le,
     std::string* error = nullptr);
 bool VerifyValiditySidechainBatch(
     const ValiditySidechainConfig& config,

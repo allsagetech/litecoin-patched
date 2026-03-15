@@ -6,6 +6,7 @@
 #include <uint256.h>
 #include <util/strencodings.h>
 #include <validitysidechain/groth16.h>
+#include <validitysidechain/verifier.h>
 
 #include <univalue.h>
 
@@ -216,6 +217,22 @@ std::array<unsigned char, 32> ScalarLEFromHex(const std::string& value)
     return out;
 }
 
+std::array<unsigned char, 32> ScalarLE128LimbFromHex(const std::string& value, size_t limb_index)
+{
+    std::string normalized = value;
+    if (normalized.empty()) {
+        normalized = "0";
+    }
+    while (normalized.size() < 64) {
+        normalized = "0" + normalized;
+    }
+
+    const std::string limb_hex = limb_index == 0
+        ? normalized.substr(32)
+        : normalized.substr(0, 32);
+    return ScalarLEFromHex(limb_hex);
+}
+
 uint64_t ParseUintString(const UniValue& value)
 {
     const std::string raw = value.get_str();
@@ -224,21 +241,42 @@ uint64_t ParseUintString(const UniValue& value)
     return parsed;
 }
 
-std::vector<std::array<unsigned char, 32>> BuildRealProfilePublicInputs(const UniValue& public_inputs)
+std::vector<std::string> ReadManifestPublicInputNames(const UniValue& manifest_json)
+{
+    const UniValue& public_inputs = find_value(manifest_json, "public_inputs");
+    BOOST_REQUIRE(public_inputs.isArray());
+
+    std::vector<std::string> names;
+    names.reserve(public_inputs.size());
+    for (size_t i = 0; i < public_inputs.size(); ++i) {
+        BOOST_REQUIRE(public_inputs[i].isStr());
+        names.push_back(public_inputs[i].get_str());
+    }
+    return names;
+}
+
+std::vector<std::array<unsigned char, 32>> BuildManifestPublicInputs(
+    const std::vector<std::string>& input_names,
+    const UniValue& public_inputs)
 {
     std::vector<std::array<unsigned char, 32>> encoded;
-    encoded.reserve(11);
-    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "sidechain_id"))));
-    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "batch_number"))));
-    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "prior_state_root").get_str()));
-    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "new_state_root").get_str()));
-    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "l1_message_root_before").get_str()));
-    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "l1_message_root_after").get_str()));
-    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "consumed_queue_messages"))));
-    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "queue_prefix_commitment").get_str()));
-    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "withdrawal_root").get_str()));
-    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "data_root").get_str()));
-    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "data_size"))));
+    encoded.reserve(input_names.size());
+
+    for (const auto& input_name : input_names) {
+        const UniValue& value = find_value(public_inputs, input_name);
+        BOOST_REQUIRE_MESSAGE(!value.isNull(), "missing public input " + input_name);
+
+        if (input_name == "sidechain_id" ||
+            input_name == "batch_number" ||
+            input_name == "consumed_queue_messages" ||
+            input_name == "data_size") {
+            encoded.push_back(ScalarLEFromUint(ParseUintString(value)));
+            continue;
+        }
+
+        encoded.push_back(ScalarLEFromHex(value.get_str()));
+    }
+
     return encoded;
 }
 
@@ -391,10 +429,109 @@ BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_accepts_zero_public_inputs)
     BOOST_CHECK(error.empty());
 }
 
+BOOST_AUTO_TEST_CASE(groth16_public_input_builder_supports_current_poseidon_layout)
+{
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.batch_number = 7;
+    public_inputs.prior_state_root = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
+    public_inputs.new_state_root = uint256S("2222222222222222222222222222222222222222222222222222222222222222");
+    public_inputs.l1_message_root_before = uint256S("3333333333333333333333333333333333333333333333333333333333333333");
+    public_inputs.l1_message_root_after = uint256S("4444444444444444444444444444444444444444444444444444444444444444");
+    public_inputs.consumed_queue_messages = 3;
+    public_inputs.queue_prefix_commitment = uint256S("5555555555555555555555555555555555555555555555555555555555555555");
+    public_inputs.withdrawal_root = uint256S("6666666666666666666666666666666666666666666666666666666666666666");
+    public_inputs.data_root = uint256S("7777777777777777777777777777777777777777777777777777777777777777");
+    public_inputs.data_size = 123;
+
+    const std::vector<std::string> names{
+        "sidechain_id",
+        "batch_number",
+        "prior_state_root",
+        "new_state_root",
+        "l1_message_root_before",
+        "l1_message_root_after",
+        "consumed_queue_messages",
+        "queue_prefix_commitment",
+        "withdrawal_root",
+        "data_root",
+        "data_size",
+    };
+
+    std::vector<std::array<unsigned char, 32>> encoded;
+    std::string error;
+    BOOST_REQUIRE(BuildValiditySidechainGroth16PublicInputs(names, /* sidechain_id= */ 9, public_inputs, encoded, &error));
+    BOOST_CHECK(error.empty());
+    BOOST_REQUIRE_EQUAL(encoded.size(), names.size());
+    BOOST_CHECK(encoded[0] == ScalarLEFromUint(9));
+    BOOST_CHECK(encoded[1] == ScalarLEFromUint(7));
+    BOOST_CHECK(encoded[2] == ScalarLEFromHex("1111111111111111111111111111111111111111111111111111111111111111"));
+    BOOST_CHECK(encoded[8] == ScalarLEFromHex("6666666666666666666666666666666666666666666666666666666666666666"));
+    BOOST_CHECK(encoded[10] == ScalarLEFromUint(123));
+}
+
+BOOST_AUTO_TEST_CASE(groth16_public_input_builder_supports_decomposed_poseidon_layout)
+{
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.batch_number = 11;
+    public_inputs.prior_state_root = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
+    public_inputs.new_state_root = uint256S("2222222222222222222222222222222222222222222222222222222222222222");
+    public_inputs.l1_message_root_before = uint256S("0123456789abcdeffedcba987654321000112233445566778899aabbccddeeff");
+    public_inputs.l1_message_root_after = uint256S("89abcdef01234567fedcba9876543210112233445566778899aabbccddeeff00");
+    public_inputs.consumed_queue_messages = 2;
+    public_inputs.queue_prefix_commitment = uint256S("aabbccddeeff001122334455667788990123456789abcdeffedcba9876543210");
+    public_inputs.withdrawal_root = uint256S("00112233445566778899aabbccddeeffffeeddccbbaa99887766554433221100");
+    public_inputs.data_root = uint256S("ffeeddccbbaa9988776655443322110000112233445566778899aabbccddeeff");
+    public_inputs.data_size = 64;
+
+    const std::vector<std::string> names{
+        "sidechain_id",
+        "batch_number",
+        "prior_state_root",
+        "new_state_root",
+        "l1_message_root_before_lo",
+        "l1_message_root_before_hi",
+        "l1_message_root_after_lo",
+        "l1_message_root_after_hi",
+        "consumed_queue_messages",
+        "queue_prefix_commitment_lo",
+        "queue_prefix_commitment_hi",
+        "withdrawal_root_lo",
+        "withdrawal_root_hi",
+        "data_root_lo",
+        "data_root_hi",
+        "data_size",
+    };
+
+    std::vector<std::array<unsigned char, 32>> encoded;
+    std::string error;
+    BOOST_REQUIRE(BuildValiditySidechainGroth16PublicInputs(names, /* sidechain_id= */ 5, public_inputs, encoded, &error));
+    BOOST_CHECK(error.empty());
+    BOOST_REQUIRE_EQUAL(encoded.size(), names.size());
+    BOOST_CHECK(encoded[0] == ScalarLEFromUint(5));
+    BOOST_CHECK(encoded[4] == ScalarLE128LimbFromHex("0123456789abcdeffedcba987654321000112233445566778899aabbccddeeff", /* limb_index= */ 0));
+    BOOST_CHECK(encoded[5] == ScalarLE128LimbFromHex("0123456789abcdeffedcba987654321000112233445566778899aabbccddeeff", /* limb_index= */ 1));
+    BOOST_CHECK(encoded[9] == ScalarLE128LimbFromHex("aabbccddeeff001122334455667788990123456789abcdeffedcba9876543210", /* limb_index= */ 0));
+    BOOST_CHECK(encoded[10] == ScalarLE128LimbFromHex("aabbccddeeff001122334455667788990123456789abcdeffedcba9876543210", /* limb_index= */ 1));
+    BOOST_CHECK(encoded[15] == ScalarLEFromUint(64));
+}
+
+BOOST_AUTO_TEST_CASE(groth16_public_input_builder_rejects_unknown_name)
+{
+    const std::vector<std::string> names{"sidechain_id", "unknown_input"};
+    const ValiditySidechainBatchPublicInputs public_inputs{};
+    std::vector<std::array<unsigned char, 32>> encoded;
+    std::string error;
+    BOOST_CHECK(!BuildValiditySidechainGroth16PublicInputs(names, /* sidechain_id= */ 1, public_inputs, encoded, &error));
+    BOOST_CHECK_EQUAL(error, "unsupported Groth16 public input name: unknown_input");
+    BOOST_CHECK(encoded.empty());
+}
+
 BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_accepts_committed_valid_vector)
 {
     const fs::path artifact_dir =
         FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v1");
+    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
+    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
 
     ValiditySidechainGroth16VerificationKey verifying_key;
     std::string error;
@@ -407,7 +544,9 @@ BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_accepts_committed_valid_vector)
     BOOST_CHECK_EQUAL(verifying_key.public_input_count, 11U);
 
     const UniValue valid_vector = ReadJSONFile(artifact_dir / "valid" / "valid_proof.json");
-    const auto public_inputs = BuildRealProfilePublicInputs(find_value(valid_vector, "public_inputs"));
+    const auto public_inputs = BuildManifestPublicInputs(
+        manifest_public_inputs,
+        find_value(valid_vector, "public_inputs"));
     const ValiditySidechainGroth16Proof proof = ParseProofFromVector(valid_vector);
 
     BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
@@ -418,6 +557,8 @@ BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_rejects_committed_invalid_vecto
 {
     const fs::path artifact_dir =
         FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v1");
+    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
+    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
 
     ValiditySidechainGroth16VerificationKey verifying_key;
     std::string error;
@@ -434,7 +575,9 @@ BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_rejects_committed_invalid_vecto
              "invalid/withdrawal_root_mismatch.json",
          }) {
         const UniValue vector_json = ReadJSONFile(artifact_dir / path);
-        const auto public_inputs = BuildRealProfilePublicInputs(find_value(vector_json, "public_inputs"));
+        const auto public_inputs = BuildManifestPublicInputs(
+            manifest_public_inputs,
+            find_value(vector_json, "public_inputs"));
         const ValiditySidechainGroth16Proof proof = ParseProofFromVector(vector_json);
 
         BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
@@ -446,7 +589,9 @@ BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_rejects_committed_invalid_vecto
     ValiditySidechainGroth16Proof corrupt_proof;
     const bool parsed = ParseValiditySidechainGroth16Proof(corrupt_bytes, corrupt_proof, &error);
     if (parsed) {
-        const auto public_inputs = BuildRealProfilePublicInputs(find_value(corrupt_vector, "public_inputs"));
+        const auto public_inputs = BuildManifestPublicInputs(
+            manifest_public_inputs,
+            find_value(corrupt_vector, "public_inputs"));
         BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, corrupt_proof, public_inputs, &error));
         BOOST_CHECK(!error.empty());
     } else {

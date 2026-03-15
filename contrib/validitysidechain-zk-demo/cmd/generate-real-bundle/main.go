@@ -11,7 +11,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/nativegroth16"
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/realbatch"
@@ -149,10 +148,18 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	experimentalPublicInputs, err := realbatch.ManifestPublicInputs(realbatch.ExperimentalPublicInputVersion)
+	if err != nil {
+		panic(err)
+	}
 	if err := realbatch.ValidateDerivedRequest(derivedRequest); err != nil {
 		panic(err)
 	}
 	assignment, err := realbatch.BuildAssignment(derivedRequest)
+	if err != nil {
+		panic(err)
+	}
+	validPublicInputs, err := realbatch.PublicInputsMap(derivedRequest, realbatch.ExperimentalPublicInputVersion)
 	if err != nil {
 		panic(err)
 	}
@@ -208,7 +215,7 @@ func main() {
 		Circuit:              "poseidon_batch_transition_v1",
 		Curve:                "bls12_381",
 		ExpectedResult:       "accept_in_native_verifier",
-		PublicInputs:         publicInputsMap(derivedRequest),
+		PublicInputs:         validPublicInputs,
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -231,7 +238,7 @@ func main() {
 		Circuit:              "poseidon_batch_transition_v1",
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
-		PublicInputs:         publicInputsMap(mismatchRequest),
+		PublicInputs:         mustPublicInputsMap(mismatchRequest),
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -248,7 +255,7 @@ func main() {
 		Circuit:              "poseidon_batch_transition_v1",
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
-		PublicInputs:         publicInputsMap(withdrawalRootMismatchRequest),
+		PublicInputs:         mustPublicInputsMap(withdrawalRootMismatchRequest),
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -265,7 +272,7 @@ func main() {
 		Circuit:              "poseidon_batch_transition_v1",
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
-		PublicInputs:         publicInputsMap(queuePrefixMismatchRequest),
+		PublicInputs:         mustPublicInputsMap(queuePrefixMismatchRequest),
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -280,7 +287,7 @@ func main() {
 		Circuit:              "poseidon_batch_transition_v1",
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
-		PublicInputs:         publicInputsMap(derivedRequest),
+		PublicInputs:         validPublicInputs,
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -302,26 +309,14 @@ func main() {
 			ProofSystemID:        2,
 			CircuitFamilyID:      1,
 			VerifierID:           1,
-			PublicInputVersion:   2,
+			PublicInputVersion:   realbatch.ExperimentalPublicInputVersion,
 			StateRootFormat:      2,
 			DepositMessageFormat: 1,
 			WithdrawalLeafFormat: 2,
 			BalanceLeafFormat:    2,
 			DataAvailabilityMode: 1,
 		},
-		PublicInputs: []string{
-			"sidechain_id",
-			"batch_number",
-			"prior_state_root",
-			"new_state_root",
-			"l1_message_root_before",
-			"l1_message_root_after",
-			"consumed_queue_messages",
-			"queue_prefix_commitment",
-			"withdrawal_root",
-			"data_root",
-			"data_size",
-		},
+		PublicInputs:     experimentalPublicInputs,
 		VerifyingKeyFile: "batch_vk.bin",
 		ProvingKeyFile:   "batch_pk.bin",
 		ProofVectors: proofVectors{
@@ -418,24 +413,12 @@ func findFieldSizedWithdrawalSetup() (withdrawalSetup, string) {
 	panic("failed to find field-sized withdrawal root for experimental real profile")
 }
 
-func publicInputsMap(request toybatch.CommandRequest) map[string]string {
-	return map[string]string{
-		"sidechain_id":            itoa(uint64(request.SidechainID)),
-		"batch_number":            itoa(uint64(request.PublicInputs.BatchNumber)),
-		"prior_state_root":        request.PublicInputs.PriorStateRoot,
-		"new_state_root":          request.PublicInputs.NewStateRoot,
-		"l1_message_root_before":  request.PublicInputs.L1MessageRootBefore,
-		"l1_message_root_after":   request.PublicInputs.L1MessageRootAfter,
-		"consumed_queue_messages": itoa(uint64(request.PublicInputs.ConsumedQueueMessages)),
-		"queue_prefix_commitment": request.PublicInputs.QueuePrefixCommitment,
-		"withdrawal_root":         request.PublicInputs.WithdrawalRoot,
-		"data_root":               request.PublicInputs.DataRoot,
-		"data_size":               itoa(uint64(request.PublicInputs.DataSize)),
+func mustPublicInputsMap(request toybatch.CommandRequest) map[string]string {
+	values, err := realbatch.PublicInputsMap(request, realbatch.ExperimentalPublicInputVersion)
+	if err != nil {
+		panic(err)
 	}
-}
-
-func itoa(value uint64) string {
-	return strconv.FormatUint(value, 10)
+	return values
 }
 
 func computeDepositMessageHash(sidechainID uint8, deposit depositSetup) string {

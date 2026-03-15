@@ -32,8 +32,13 @@ static constexpr size_t VALIDITY_SIDECHAIN_BATCH_PUBLIC_INPUT_BYTES = 236;
 static constexpr size_t VALIDITY_SIDECHAIN_BATCH_DATA_CHUNK_HEADER_BYTES = 8;
 static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_LEAF_BYTES = 72;
 static constexpr size_t VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES = 80;
+static constexpr size_t VALIDITY_SIDECHAIN_BALANCE_LEAF_BYTES = 40;
+static constexpr size_t VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES = 48;
+static constexpr size_t VALIDITY_SIDECHAIN_ACCOUNT_STATE_LEAF_BYTES = 112;
+static constexpr size_t VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES = 120;
 static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_LEAF_BYTES = 72;
 static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_PROOF_BASE_BYTES = 80;
+static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_STATE_PROOF_HEADER_BYTES = 128;
 static constexpr size_t VALIDITY_SIDECHAIN_FORCE_EXIT_BYTES = 112;
 
 static void AppendLE32(std::vector<unsigned char>& out, uint32_t v)
@@ -79,6 +84,21 @@ static bool ReadAmount64(Span<const unsigned char> bytes, size_t offset, CAmount
 
     const uint64_t raw_amount = ReadLE64(bytes.data() + offset);
     if (raw_amount == 0 || raw_amount > std::numeric_limits<CAmount>::max()) {
+        return false;
+    }
+
+    out_amount = static_cast<CAmount>(raw_amount);
+    return MoneyRange(out_amount);
+}
+
+static bool ReadAmount64AllowZero(Span<const unsigned char> bytes, size_t offset, CAmount& out_amount)
+{
+    if (bytes.size() < offset + sizeof(uint64_t)) {
+        return false;
+    }
+
+    const uint64_t raw_amount = ReadLE64(bytes.data() + offset);
+    if (raw_amount > static_cast<uint64_t>(std::numeric_limits<CAmount>::max())) {
         return false;
     }
 
@@ -389,6 +409,24 @@ CScript BuildValiditySidechainEscapeExitScript(
     metadata_pushes.reserve(exit_proofs.size());
     for (const auto& proof : exit_proofs) {
         metadata_pushes.push_back(EncodeValiditySidechainEscapeExitProof(proof));
+    }
+
+    return BuildValiditySidechainScript(
+        ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT,
+        scid,
+        state_root_reference,
+        metadata_pushes);
+}
+
+CScript BuildValiditySidechainEscapeExitStateScript(
+    uint8_t scid,
+    const uint256& state_root_reference,
+    const std::vector<ValiditySidechainEscapeExitStateProof>& exit_state_proofs)
+{
+    std::vector<std::vector<unsigned char>> metadata_pushes;
+    metadata_pushes.reserve(exit_state_proofs.size());
+    for (const auto& proof : exit_state_proofs) {
+        metadata_pushes.push_back(EncodeValiditySidechainEscapeExitStateProof(proof));
     }
 
     return BuildValiditySidechainScript(
@@ -824,6 +862,176 @@ uint256 ComputeValiditySidechainWithdrawalRoot(const std::vector<ValiditySidecha
     return FinalizeWithdrawalRoot(static_cast<uint32_t>(withdrawals.size()), level_hashes.front());
 }
 
+std::vector<unsigned char> EncodeValiditySidechainBalanceLeaf(const ValiditySidechainBalanceLeaf& balance)
+{
+    std::vector<unsigned char> out;
+    out.reserve(VALIDITY_SIDECHAIN_BALANCE_LEAF_BYTES);
+
+    AppendUint256(out, balance.asset_id);
+    AppendLE64(out, static_cast<uint64_t>(balance.balance));
+
+    return out;
+}
+
+bool DecodeValiditySidechainBalanceLeaf(
+    Span<const unsigned char> balance_bytes,
+    ValiditySidechainBalanceLeaf& out_balance)
+{
+    if (balance_bytes.size() != VALIDITY_SIDECHAIN_BALANCE_LEAF_BYTES) {
+        return false;
+    }
+
+    ValiditySidechainBalanceLeaf balance;
+    if (!ReadUint256At(balance_bytes, 0, balance.asset_id) ||
+        !ReadAmount64AllowZero(balance_bytes, 32, balance.balance)) {
+        return false;
+    }
+
+    out_balance = balance;
+    return true;
+}
+
+std::vector<unsigned char> EncodeValiditySidechainBalanceProof(const ValiditySidechainBalanceProof& proof)
+{
+    std::vector<unsigned char> out;
+    out.reserve(VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES + (proof.sibling_hashes.size() * UINT256_BYTES));
+
+    AppendLE32(out, proof.leaf_index);
+    AppendLE32(out, proof.leaf_count);
+    const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainBalanceLeaf(proof.balance);
+    out.insert(out.end(), encoded_leaf.begin(), encoded_leaf.end());
+    for (const auto& sibling_hash : proof.sibling_hashes) {
+        AppendUint256(out, sibling_hash);
+    }
+
+    return out;
+}
+
+bool DecodeValiditySidechainBalanceProof(
+    Span<const unsigned char> proof_bytes,
+    ValiditySidechainBalanceProof& out_proof)
+{
+    if (proof_bytes.size() < VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES ||
+        ((proof_bytes.size() - VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES) % UINT256_BYTES) != 0) {
+        return false;
+    }
+
+    ValiditySidechainBalanceProof proof;
+    proof.leaf_index = ReadLE32(proof_bytes.data());
+    proof.leaf_count = ReadLE32(proof_bytes.data() + sizeof(uint32_t));
+    if (proof.leaf_count == 0 || proof.leaf_index >= proof.leaf_count) {
+        return false;
+    }
+    if (!DecodeValiditySidechainBalanceLeaf(
+            proof_bytes.subspan(sizeof(uint32_t) * 2, VALIDITY_SIDECHAIN_BALANCE_LEAF_BYTES),
+            proof.balance)) {
+        return false;
+    }
+
+    const size_t sibling_count = (proof_bytes.size() - VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES) / UINT256_BYTES;
+    proof.sibling_hashes.reserve(sibling_count);
+    size_t offset = VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES;
+    for (size_t i = 0; i < sibling_count; ++i) {
+        uint256 sibling_hash;
+        if (!ReadUint256At(proof_bytes, offset, sibling_hash)) {
+            return false;
+        }
+        proof.sibling_hashes.push_back(sibling_hash);
+        offset += UINT256_BYTES;
+    }
+
+    out_proof = std::move(proof);
+    return true;
+}
+
+std::vector<unsigned char> EncodeValiditySidechainAccountStateLeaf(const ValiditySidechainAccountStateLeaf& account)
+{
+    std::vector<unsigned char> out;
+    out.reserve(VALIDITY_SIDECHAIN_ACCOUNT_STATE_LEAF_BYTES);
+
+    AppendUint256(out, account.account_id);
+    AppendUint256(out, account.spend_key_commitment);
+    AppendUint256(out, account.balance_root);
+    AppendLE64(out, account.account_nonce);
+    AppendLE64(out, account.last_forced_exit_nonce);
+
+    return out;
+}
+
+bool DecodeValiditySidechainAccountStateLeaf(
+    Span<const unsigned char> account_bytes,
+    ValiditySidechainAccountStateLeaf& out_account)
+{
+    if (account_bytes.size() != VALIDITY_SIDECHAIN_ACCOUNT_STATE_LEAF_BYTES) {
+        return false;
+    }
+
+    ValiditySidechainAccountStateLeaf account;
+    if (!ReadUint256At(account_bytes, 0, account.account_id) ||
+        !ReadUint256At(account_bytes, 32, account.spend_key_commitment) ||
+        !ReadUint256At(account_bytes, 64, account.balance_root)) {
+        return false;
+    }
+    account.account_nonce = ReadLE64(account_bytes.data() + 96);
+    account.last_forced_exit_nonce = ReadLE64(account_bytes.data() + 104);
+
+    out_account = account;
+    return true;
+}
+
+std::vector<unsigned char> EncodeValiditySidechainAccountStateProof(const ValiditySidechainAccountStateProof& proof)
+{
+    std::vector<unsigned char> out;
+    out.reserve(VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES + (proof.sibling_hashes.size() * UINT256_BYTES));
+
+    AppendLE32(out, proof.leaf_index);
+    AppendLE32(out, proof.leaf_count);
+    const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainAccountStateLeaf(proof.account);
+    out.insert(out.end(), encoded_leaf.begin(), encoded_leaf.end());
+    for (const auto& sibling_hash : proof.sibling_hashes) {
+        AppendUint256(out, sibling_hash);
+    }
+
+    return out;
+}
+
+bool DecodeValiditySidechainAccountStateProof(
+    Span<const unsigned char> proof_bytes,
+    ValiditySidechainAccountStateProof& out_proof)
+{
+    if (proof_bytes.size() < VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES ||
+        ((proof_bytes.size() - VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES) % UINT256_BYTES) != 0) {
+        return false;
+    }
+
+    ValiditySidechainAccountStateProof proof;
+    proof.leaf_index = ReadLE32(proof_bytes.data());
+    proof.leaf_count = ReadLE32(proof_bytes.data() + sizeof(uint32_t));
+    if (proof.leaf_count == 0 || proof.leaf_index >= proof.leaf_count) {
+        return false;
+    }
+    if (!DecodeValiditySidechainAccountStateLeaf(
+            proof_bytes.subspan(sizeof(uint32_t) * 2, VALIDITY_SIDECHAIN_ACCOUNT_STATE_LEAF_BYTES),
+            proof.account)) {
+        return false;
+    }
+
+    const size_t sibling_count = (proof_bytes.size() - VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES) / UINT256_BYTES;
+    proof.sibling_hashes.reserve(sibling_count);
+    size_t offset = VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES;
+    for (size_t i = 0; i < sibling_count; ++i) {
+        uint256 sibling_hash;
+        if (!ReadUint256At(proof_bytes, offset, sibling_hash)) {
+            return false;
+        }
+        proof.sibling_hashes.push_back(sibling_hash);
+        offset += UINT256_BYTES;
+    }
+
+    out_proof = std::move(proof);
+    return true;
+}
+
 std::vector<unsigned char> EncodeValiditySidechainEscapeExitLeaf(const ValiditySidechainEscapeExitLeaf& exit)
 {
     std::vector<unsigned char> out;
@@ -908,6 +1116,80 @@ bool DecodeValiditySidechainEscapeExitProof(
     return true;
 }
 
+std::vector<unsigned char> EncodeValiditySidechainEscapeExitStateProof(const ValiditySidechainEscapeExitStateProof& proof)
+{
+    const std::vector<unsigned char> encoded_account_proof =
+        EncodeValiditySidechainAccountStateProof(proof.account_proof);
+    const std::vector<unsigned char> encoded_balance_proof =
+        EncodeValiditySidechainBalanceProof(proof.balance_proof);
+
+    std::vector<unsigned char> out;
+    out.reserve(
+        VALIDITY_SIDECHAIN_ESCAPE_EXIT_STATE_PROOF_HEADER_BYTES +
+        encoded_account_proof.size() +
+        encoded_balance_proof.size());
+
+    AppendUint256(out, proof.exit_id);
+    AppendUint256(out, proof.exit_asset_id);
+    AppendLE64(out, static_cast<uint64_t>(proof.amount));
+    AppendUint256(out, proof.destination_commitment);
+    AppendLE64(out, proof.required_account_nonce);
+    AppendLE64(out, proof.required_last_forced_exit_nonce);
+    AppendLE32(out, static_cast<uint32_t>(encoded_account_proof.size()));
+    AppendLE32(out, static_cast<uint32_t>(encoded_balance_proof.size()));
+    out.insert(out.end(), encoded_account_proof.begin(), encoded_account_proof.end());
+    out.insert(out.end(), encoded_balance_proof.begin(), encoded_balance_proof.end());
+
+    return out;
+}
+
+bool DecodeValiditySidechainEscapeExitStateProof(
+    Span<const unsigned char> proof_bytes,
+    ValiditySidechainEscapeExitStateProof& out_proof)
+{
+    if (proof_bytes.size() < VALIDITY_SIDECHAIN_ESCAPE_EXIT_STATE_PROOF_HEADER_BYTES) {
+        return false;
+    }
+
+    ValiditySidechainEscapeExitStateProof proof;
+    if (!ReadUint256At(proof_bytes, 0, proof.exit_id) ||
+        !ReadUint256At(proof_bytes, 32, proof.exit_asset_id) ||
+        !ReadAmount64(proof_bytes, 64, proof.amount) ||
+        !ReadUint256At(proof_bytes, 72, proof.destination_commitment)) {
+        return false;
+    }
+    proof.required_account_nonce = ReadLE64(proof_bytes.data() + 104);
+    proof.required_last_forced_exit_nonce = ReadLE64(proof_bytes.data() + 112);
+
+    const uint32_t account_proof_size = ReadLE32(proof_bytes.data() + 120);
+    const uint32_t balance_proof_size = ReadLE32(proof_bytes.data() + 124);
+    const size_t total_size =
+        VALIDITY_SIDECHAIN_ESCAPE_EXIT_STATE_PROOF_HEADER_BYTES +
+        static_cast<size_t>(account_proof_size) +
+        static_cast<size_t>(balance_proof_size);
+    if (total_size != proof_bytes.size()) {
+        return false;
+    }
+
+    if (!DecodeValiditySidechainAccountStateProof(
+            proof_bytes.subspan(
+                VALIDITY_SIDECHAIN_ESCAPE_EXIT_STATE_PROOF_HEADER_BYTES,
+                account_proof_size),
+            proof.account_proof)) {
+        return false;
+    }
+    if (!DecodeValiditySidechainBalanceProof(
+            proof_bytes.subspan(
+                VALIDITY_SIDECHAIN_ESCAPE_EXIT_STATE_PROOF_HEADER_BYTES + account_proof_size,
+                balance_proof_size),
+            proof.balance_proof)) {
+        return false;
+    }
+
+    out_proof = std::move(proof);
+    return true;
+}
+
 bool DecodeValiditySidechainEscapeExitMetadata(
     const ValiditySidechainScriptInfo& info,
     std::vector<ValiditySidechainEscapeExitProof>& out_exit_proofs)
@@ -928,6 +1210,29 @@ bool DecodeValiditySidechainEscapeExitMetadata(
     }
 
     out_exit_proofs = std::move(exit_proofs);
+    return true;
+}
+
+bool DecodeValiditySidechainEscapeExitStateMetadata(
+    const ValiditySidechainScriptInfo& info,
+    std::vector<ValiditySidechainEscapeExitStateProof>& out_exit_state_proofs)
+{
+    if (info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT ||
+        info.metadata_pushes.empty()) {
+        return false;
+    }
+
+    std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs;
+    exit_state_proofs.reserve(info.metadata_pushes.size());
+    for (const auto& push : info.metadata_pushes) {
+        ValiditySidechainEscapeExitStateProof proof;
+        if (!DecodeValiditySidechainEscapeExitStateProof(push, proof)) {
+            return false;
+        }
+        exit_state_proofs.push_back(std::move(proof));
+    }
+
+    out_exit_state_proofs = std::move(exit_state_proofs);
     return true;
 }
 

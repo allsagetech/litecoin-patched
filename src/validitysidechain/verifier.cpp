@@ -37,6 +37,8 @@ static constexpr char PLACEHOLDER_SENTINEL[] = "PLACEHOLDER";
 static constexpr char TOY_PROFILE_NAME[] = "gnark_groth16_toy_batch_transition_v1";
 static constexpr char NATIVE_TOY_PROFILE_NAME[] = "native_blst_groth16_toy_batch_transition_v1";
 static constexpr char POSEIDON_PROFILE_NAME[] = "groth16_bls12_381_poseidon_v1";
+static constexpr uint8_t POSEIDON_FINAL_DECOMPOSED_PUBLIC_INPUT_VERSION = 5;
+static constexpr size_t GROTH16_DECOMPOSED_LIMB_BYTES = 16;
 
 struct ValiditySidechainScaffoldProofEnvelope
 {
@@ -301,6 +303,26 @@ static std::vector<std::string> ExpectedManifestPublicInputs(const SupportedVali
     }
     if (supported.profile_name != nullptr &&
         std::string(supported.profile_name) == POSEIDON_PROFILE_NAME) {
+        if (supported.public_input_version >= POSEIDON_FINAL_DECOMPOSED_PUBLIC_INPUT_VERSION) {
+            return {
+                "sidechain_id",
+                "batch_number",
+                "prior_state_root",
+                "new_state_root",
+                "l1_message_root_before_lo",
+                "l1_message_root_before_hi",
+                "l1_message_root_after_lo",
+                "l1_message_root_after_hi",
+                "consumed_queue_messages",
+                "queue_prefix_commitment_lo",
+                "queue_prefix_commitment_hi",
+                "withdrawal_root_lo",
+                "withdrawal_root_hi",
+                "data_root_lo",
+                "data_root_hi",
+                "data_size",
+            };
+        }
         return {
             "sidechain_id",
             "batch_number",
@@ -782,40 +804,47 @@ static std::array<unsigned char, 32> EncodeGroth16ScalarLE(const uint256& value)
     return encoded;
 }
 
-static std::vector<std::array<unsigned char, 32>> BuildPoseidonProfilePublicInputs(
-    uint8_t sidechain_id,
-    const ValiditySidechainBatchPublicInputs& public_inputs)
+static std::array<unsigned char, 32> EncodeGroth16ScalarLE128Limb(
+    const uint256& value,
+    size_t limb_index)
 {
-    std::vector<std::array<unsigned char, 32>> encoded;
-    encoded.reserve(11);
-    encoded.push_back(EncodeGroth16ScalarLE(static_cast<uint32_t>(sidechain_id)));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.batch_number));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.prior_state_root));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.new_state_root));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.l1_message_root_before));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.l1_message_root_after));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.consumed_queue_messages));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.queue_prefix_commitment));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.withdrawal_root));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.data_root));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.data_size));
-    return encoded;
+    std::array<unsigned char, 32> scalar{};
+    const size_t byte_offset = limb_index * GROTH16_DECOMPOSED_LIMB_BYTES;
+    if (byte_offset >= UINT256_SERIALIZED_SIZE) {
+        return scalar;
+    }
+
+    std::copy_n(
+        value.begin() + byte_offset,
+        GROTH16_DECOMPOSED_LIMB_BYTES,
+        scalar.begin());
+    return scalar;
 }
 
-static std::vector<std::array<unsigned char, 32>> BuildToyProfilePublicInputs(
-    uint8_t sidechain_id,
-    const ValiditySidechainBatchPublicInputs& public_inputs)
+static bool AppendUint256Groth16Input(
+    const std::string& input_name,
+    const char* base_name,
+    const uint256& value,
+    std::vector<std::array<unsigned char, 32>>& out_public_inputs_le)
 {
-    std::vector<std::array<unsigned char, 32>> encoded;
-    encoded.reserve(7);
-    encoded.push_back(EncodeGroth16ScalarLE(static_cast<uint32_t>(sidechain_id)));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.batch_number));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.prior_state_root));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.new_state_root));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.consumed_queue_messages));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.withdrawal_root));
-    encoded.push_back(EncodeGroth16ScalarLE(public_inputs.data_root));
-    return encoded;
+    if (input_name == base_name) {
+        out_public_inputs_le.push_back(EncodeGroth16ScalarLE(value));
+        return true;
+    }
+
+    const std::string low_name = std::string(base_name) + "_lo";
+    if (input_name == low_name) {
+        out_public_inputs_le.push_back(EncodeGroth16ScalarLE128Limb(value, /* limb_index= */ 0));
+        return true;
+    }
+
+    const std::string high_name = std::string(base_name) + "_hi";
+    if (input_name == high_name) {
+        out_public_inputs_le.push_back(EncodeGroth16ScalarLE128Limb(value, /* limb_index= */ 1));
+        return true;
+    }
+
+    return false;
 }
 
 } // namespace
@@ -1008,6 +1037,56 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
 #endif
 }
 
+bool BuildValiditySidechainGroth16PublicInputs(
+    const std::vector<std::string>& public_input_names,
+    uint8_t sidechain_id,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    std::vector<std::array<unsigned char, 32>>& out_public_inputs_le,
+    std::string* error)
+{
+    out_public_inputs_le.clear();
+    out_public_inputs_le.reserve(public_input_names.size());
+
+    for (const auto& input_name : public_input_names) {
+        if (input_name == "sidechain_id") {
+            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(static_cast<uint32_t>(sidechain_id)));
+            continue;
+        }
+        if (input_name == "batch_number") {
+            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(public_inputs.batch_number));
+            continue;
+        }
+        if (input_name == "consumed_queue_messages") {
+            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(public_inputs.consumed_queue_messages));
+            continue;
+        }
+        if (input_name == "data_size") {
+            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(public_inputs.data_size));
+            continue;
+        }
+        if (AppendUint256Groth16Input(input_name, "prior_state_root", public_inputs.prior_state_root, out_public_inputs_le) ||
+            AppendUint256Groth16Input(input_name, "new_state_root", public_inputs.new_state_root, out_public_inputs_le) ||
+            AppendUint256Groth16Input(input_name, "l1_message_root_before", public_inputs.l1_message_root_before, out_public_inputs_le) ||
+            AppendUint256Groth16Input(input_name, "l1_message_root_after", public_inputs.l1_message_root_after, out_public_inputs_le) ||
+            AppendUint256Groth16Input(input_name, "queue_prefix_commitment", public_inputs.queue_prefix_commitment, out_public_inputs_le) ||
+            AppendUint256Groth16Input(input_name, "withdrawal_root", public_inputs.withdrawal_root, out_public_inputs_le) ||
+            AppendUint256Groth16Input(input_name, "data_root", public_inputs.data_root, out_public_inputs_le)) {
+            continue;
+        }
+
+        if (error != nullptr) {
+            *error = "unsupported Groth16 public input name: " + input_name;
+        }
+        out_public_inputs_le.clear();
+        return false;
+    }
+
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
 bool VerifyValiditySidechainBatch(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,
@@ -1021,8 +1100,6 @@ bool VerifyValiditySidechainBatch(
     std::string* error,
     ValiditySidechainBatchVerifierMode* mode_out)
 {
-    (void)sidechain_id;
-
     const ValiditySidechainBatchVerifierMode mode = GetValiditySidechainBatchVerifierMode(config);
     if (mode_out != nullptr) {
         *mode_out = mode;
@@ -1094,10 +1171,19 @@ bool VerifyValiditySidechainBatch(
                 error)) {
             return false;
         }
+        std::vector<std::array<unsigned char, 32>> encoded_public_inputs;
+        if (!BuildValiditySidechainGroth16PublicInputs(
+                expected_public_inputs,
+                sidechain_id,
+                public_inputs,
+                encoded_public_inputs,
+                error)) {
+            return false;
+        }
         return VerifyValiditySidechainGroth16Proof(
             verifying_key,
             proof,
-            BuildPoseidonProfilePublicInputs(sidechain_id, public_inputs),
+            encoded_public_inputs,
             error);
     }
 
@@ -1126,10 +1212,19 @@ bool VerifyValiditySidechainBatch(
                 error)) {
             return false;
         }
+        std::vector<std::array<unsigned char, 32>> encoded_public_inputs;
+        if (!BuildValiditySidechainGroth16PublicInputs(
+                expected_public_inputs,
+                sidechain_id,
+                public_inputs,
+                encoded_public_inputs,
+                error)) {
+            return false;
+        }
         return VerifyValiditySidechainGroth16Proof(
             verifying_key,
             proof,
-            BuildToyProfilePublicInputs(sidechain_id, public_inputs),
+            encoded_public_inputs,
             error);
     }
 
