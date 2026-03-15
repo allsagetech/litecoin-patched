@@ -47,6 +47,9 @@ bool LoadValiditySidechainGroth16VerificationKey(
     uint32_t expected_public_input_count,
     ValiditySidechainGroth16VerificationKey& out_verifying_key,
     std::string* error = nullptr);
+bool ValidateValiditySidechainGroth16ScalarFieldElement(
+    const std::array<unsigned char, 32>& scalar_bytes_le,
+    std::string* error = nullptr);
 bool VerifyValiditySidechainGroth16Proof(
     const ValiditySidechainGroth16VerificationKey& verifying_key,
     const ValiditySidechainGroth16Proof& proof,

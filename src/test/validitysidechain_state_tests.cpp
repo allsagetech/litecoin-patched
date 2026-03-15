@@ -49,8 +49,13 @@ ValiditySidechainConfig MakeSupportedConfig(size_t supported_index = 0)
     config.force_inclusion_delay = supported.min_force_inclusion_delay;
     config.deposit_reclaim_delay = supported.min_deposit_reclaim_delay;
     config.escape_hatch_delay = supported.min_escape_hatch_delay;
-    config.initial_state_root = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    config.initial_withdrawal_root = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    if (supported_index == 4) {
+        config.initial_state_root = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
+        config.initial_withdrawal_root = uint256S("2222222222222222222222222222222222222222222222222222222222222222");
+    } else {
+        config.initial_state_root = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        config.initial_withdrawal_root = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    }
     return config;
 }
 
@@ -415,6 +420,24 @@ BOOST_AUTO_TEST_CASE(validation_rejects_invalid_profiles_and_limits)
         BOOST_CHECK(!ValidateValiditySidechainConfig(config, &error));
         BOOST_CHECK_EQUAL(error, "force_inclusion_delay outside supported range");
     }
+
+    {
+        ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+        config.initial_state_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+        std::string error;
+        BOOST_CHECK(!ValidateValiditySidechainConfig(config, &error));
+        BOOST_CHECK_EQUAL(error, "initial_state_root does not fit BLS12-381 scalar field");
+    }
+
+    {
+        ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+        config.initial_withdrawal_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+        std::string error;
+        BOOST_CHECK(!ValidateValiditySidechainConfig(config, &error));
+        BOOST_CHECK_EQUAL(error, "initial_withdrawal_root does not fit BLS12-381 scalar field");
+    }
 }
 
 BOOST_AUTO_TEST_CASE(register_sidechain_initializes_state_and_rejects_duplicates)
@@ -448,6 +471,17 @@ BOOST_AUTO_TEST_CASE(register_sidechain_rejects_invalid_height)
     std::string error;
     BOOST_CHECK(!state.RegisterSidechain(/* id= */ 2, /* registration_height= */ -1, config, &error));
     BOOST_CHECK_EQUAL(error, "registration height must be non-negative");
+}
+
+BOOST_AUTO_TEST_CASE(register_sidechain_rejects_real_profile_initial_root_outside_field)
+{
+    ValiditySidechainState state;
+    ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    config.initial_state_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+    std::string error;
+    BOOST_CHECK(!state.RegisterSidechain(/* id= */ 25, /* registration_height= */ 100, config, &error));
+    BOOST_CHECK_EQUAL(error, "initial_state_root does not fit BLS12-381 scalar field");
 }
 
 BOOST_AUTO_TEST_CASE(connect_block_registers_validity_sidechain)

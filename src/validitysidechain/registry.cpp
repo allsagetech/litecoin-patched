@@ -2,7 +2,10 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <validitysidechain/groth16.h>
 #include <validitysidechain/registry.h>
+
+#include <algorithm>
 
 namespace {
 
@@ -28,6 +31,19 @@ static bool MatchesProfileTuple(
            supported.withdrawal_leaf_format == config.withdrawal_leaf_format &&
            supported.balance_leaf_format == config.balance_leaf_format &&
            supported.data_availability_mode == config.data_availability_mode;
+}
+
+static bool IsRealGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
+{
+    return supported.profile_name != nullptr &&
+           std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v1";
+}
+
+static std::array<unsigned char, 32> Uint256ToLEBytes(const uint256& value)
+{
+    std::array<unsigned char, 32> bytes{};
+    std::copy(value.begin(), value.end(), bytes.begin());
+    return bytes;
 }
 
 } // namespace
@@ -211,6 +227,14 @@ bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std:
         config.escape_hatch_delay > supported->max_escape_hatch_delay) {
         return FailValidation(error, "escape_hatch_delay outside supported range");
     }
+    if (IsRealGroth16PoseidonProfile(*supported)) {
+        if (!ValidateValiditySidechainGroth16ScalarFieldElement(Uint256ToLEBytes(config.initial_state_root), nullptr)) {
+            return FailValidation(error, "initial_state_root does not fit BLS12-381 scalar field");
+        }
+        if (!ValidateValiditySidechainGroth16ScalarFieldElement(Uint256ToLEBytes(config.initial_withdrawal_root), nullptr)) {
+            return FailValidation(error, "initial_withdrawal_root does not fit BLS12-381 scalar field");
+        }
+    }
 
     return true;
 }
@@ -226,8 +250,7 @@ bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidech
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
     return supported != nullptr &&
            !supported->scaffolding_only &&
-           supported->profile_name != nullptr &&
-           std::string(supported->profile_name) == "groth16_bls12_381_poseidon_v1";
+           IsRealGroth16PoseidonProfile(*supported);
 }
 
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config)

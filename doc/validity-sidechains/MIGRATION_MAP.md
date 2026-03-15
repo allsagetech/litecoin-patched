@@ -477,6 +477,10 @@ Current branch status:
 - `getvaliditysidechaininfo` now also reconstructs accepted-batch publication
   metadata from the active chain, including proof size, DA chunk count, and
   the publishing transaction id
+- `groth16_bls12_381_poseidon_v1` registration now also rejects
+  `initial_state_root` and `initial_withdrawal_root` values that do not fit
+  the native BLS12-381 scalar field, so real-profile configs fail before the
+  verifier path ever sees an impossible public input
 - wallet send-path RPCs now exist for validity-sidechain registration,
   deposits, scaffold batches, force-exit requests, and stale-deposit reclaim
 - the legacy `getdrivechaininfo`, `senddrivechainbundle`, and

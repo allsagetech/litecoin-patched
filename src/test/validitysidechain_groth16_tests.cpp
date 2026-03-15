@@ -363,6 +363,20 @@ BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_rejects_scalar_outside_field)
     BOOST_CHECK_EQUAL(error, "Groth16 public input does not fit BLS12-381 scalar field");
 }
 
+BOOST_AUTO_TEST_CASE(groth16_scalar_field_element_helper_matches_bls12_381_threshold)
+{
+    std::string error;
+    BOOST_CHECK(ValidateValiditySidechainGroth16ScalarFieldElement(
+        ScalarLEFromHex("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000"),
+        &error));
+    BOOST_CHECK(error.empty());
+
+    BOOST_CHECK(!ValidateValiditySidechainGroth16ScalarFieldElement(
+        ScalarLEFromHex("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001"),
+        &error));
+    BOOST_CHECK_EQUAL(error, "Groth16 public input does not fit BLS12-381 scalar field");
+}
+
 BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_accepts_zero_public_inputs)
 {
     const ValiditySidechainGroth16VerificationKey verifying_key = MakeSyntheticZeroInputVerificationKey();

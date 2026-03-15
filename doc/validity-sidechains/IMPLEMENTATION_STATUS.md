@@ -217,6 +217,10 @@ This means:
 - the current native verifier path interprets each batch public input as a
   single BLS12-381 scalar, so the final real profile must either keep those
   roots / commitments field-sized or move to a decomposed public-input layout
+- real-profile registration now enforces that `initial_state_root` and
+  `initial_withdrawal_root` already fit that BLS12-381 scalar field, so the
+  node fails impossible `groth16_bls12_381_poseidon_v1` configs at
+  registration time instead of later during proof verification
 - the remaining trustless blocker is no longer the generic pairing equation;
   it is the absence of the final sidechain proof semantics for the intended
   profile
