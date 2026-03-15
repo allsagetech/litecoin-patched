@@ -274,6 +274,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(toy_supported["supports_external_prover"], True)
         assert_equal(toy_supported["verifier_backend"], "external_gnark_command")
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
+        assert_equal(toy_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
         assert_equal(toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(toy_supported["verifier_artifact_name"], "gnark_groth16_toy_batch_transition_v1")
@@ -291,6 +292,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(native_toy_supported["supports_external_prover"], False)
         assert_equal(native_toy_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(native_toy_supported["batch_verifier_mode"], "native_blst_groth16_toy_batch_transition_v1")
+        assert_equal(native_toy_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
         assert_equal(native_toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(native_toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(native_toy_supported["verifier_artifact_name"], "native_blst_groth16_toy_batch_transition_v1")
@@ -313,6 +315,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["supports_external_prover"], True)
         assert_equal(real_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_supported["batch_queue_binding_mode"], "local_prefix_consensus_single_entry_experimental")
         assert_equal(real_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
@@ -730,6 +733,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         real_sidechain = get_sidechain_info(node, real_sidechain_id)
         assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_sidechain["batch_queue_binding_mode"], "local_prefix_consensus_single_entry_experimental")
         assert_equal(real_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
@@ -833,6 +837,21 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
                 "queue_prefix_commitment": pad_field_hex(real_queue_prefix_mismatch_vector["public_inputs"]["queue_prefix_commitment"]),
             },
             real_queue_prefix_mismatch_vector["proof_bytes_hex"],
+            real_data_chunks,
+        )
+        assert_raises_rpc_error(
+            -26,
+            "experimental real profile currently supports at most one consumed queue message",
+            node.sendvaliditybatch,
+            real_sidechain_id,
+            {
+                **real_public_inputs,
+                "batch_number": 2,
+                "l1_message_root_before": real_sidechain["queue_state"]["root"],
+                "prior_state_root": real_sidechain["current_state_root"],
+                "consumed_queue_messages": 2,
+            },
+            real_valid_vector["proof_bytes_hex"],
             real_data_chunks,
         )
         assert_raises_rpc_error(

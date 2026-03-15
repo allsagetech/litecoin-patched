@@ -944,6 +944,13 @@ bool ValiditySidechainState::AcceptBatch(
         }
         return false;
     }
+    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain->config) &&
+        public_inputs.consumed_queue_messages > 1) {
+        if (error != nullptr) {
+            *error = "experimental real profile currently supports at most one consumed queue message";
+        }
+        return false;
+    }
 
     ValiditySidechainBatchVerifierMode verifier_mode;
     std::string verifier_error;

@@ -829,6 +829,29 @@ BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_invalid_native_proof_bytes)
     BOOST_CHECK_EQUAL(error, "Groth16 proof bytes have unexpected length");
 }
 
+BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_more_than_one_consumed_queue_message)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 28, /* registration_height= */ 710, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(28);
+    BOOST_REQUIRE(sidechain != nullptr);
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.new_state_root = uint256S("6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a");
+    public_inputs.consumed_queue_messages = 2;
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(
+        /* sidechain_id= */ 28,
+        /* accepted_height= */ 711,
+        public_inputs,
+        std::vector<unsigned char>{0x01},
+        {},
+        &error));
+    BOOST_CHECK_EQUAL(error, "experimental real profile currently supports at most one consumed queue message");
+}
+
 BOOST_AUTO_TEST_CASE(accept_batch_rejects_invalid_scaffold_proof_envelope)
 {
     ValiditySidechainState state;

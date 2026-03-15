@@ -221,6 +221,30 @@ bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& co
     return supported != nullptr && supported->scaffolding_only;
 }
 
+bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr &&
+           !supported->scaffolding_only &&
+           supported->profile_name != nullptr &&
+           std::string(supported->profile_name) == "groth16_bls12_381_poseidon_v1";
+}
+
+const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (supported->scaffolding_only) {
+        return "local_prefix_consensus_scaffold";
+    }
+    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
+        return "local_prefix_consensus_single_entry_experimental";
+    }
+    return "local_prefix_consensus_count_only";
+}
+
 const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);

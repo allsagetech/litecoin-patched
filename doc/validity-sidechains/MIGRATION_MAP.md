@@ -423,6 +423,9 @@ Current branch status:
   queue/withdrawal fixture relation, which now binds `withdrawal_root` into
   the transition commitment while keeping the single consumed queue witness
   plus single withdrawal witness host-validated outside the proof, along with
+  consensus rejection of `consumed_queue_messages > 1` for that profile so
+  the node no longer accepts broader queue-consumption semantics than the
+  current experimental bundle covers, along with
   committed invalid vectors for mismatched `new_state_root`,
   `queue_prefix_commitment`, and `withdrawal_root`, plus functional rejection
   of mismatched `withdrawal_leaves` witness data before auto-prover proof
