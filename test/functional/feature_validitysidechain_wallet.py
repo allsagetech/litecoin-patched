@@ -68,6 +68,14 @@ def compute_script_commitment(script_hex):
     return f"{hash256_uint256(bytes.fromhex(script_hex)):064x}"
 
 
+def get_destination_commitment(leaf):
+    if "destination_commitment" in leaf:
+        return leaf["destination_commitment"]
+    if "script" in leaf:
+        return compute_script_commitment(leaf["script"])
+    raise KeyError("destination_commitment")
+
+
 def pad_field_hex(raw_value):
     return raw_value.lower().rjust(64, "0")
 
@@ -94,7 +102,7 @@ def compute_withdrawal_root(withdrawals):
         encoded_leaves.append(
             ser_uint256(int(withdrawal["withdrawal_id"], 16)) +
             amount_to_sats(withdrawal["amount"]).to_bytes(8, "little") +
-            ser_uint256(int(withdrawal["destination_commitment"], 16))
+            ser_uint256(int(get_destination_commitment(withdrawal), 16))
         )
     return compute_merkle_root(encoded_leaves, b"VSCW\x02", b"VSCW\x03", b"VSCW\x01")
 
@@ -105,7 +113,7 @@ def compute_escape_exit_root(exits):
         encoded_leaves.append(
             ser_uint256(int(exit_leaf["exit_id"], 16)) +
             amount_to_sats(exit_leaf["amount"]).to_bytes(8, "little") +
-            ser_uint256(int(exit_leaf["destination_commitment"], 16))
+            ser_uint256(int(get_destination_commitment(exit_leaf), 16))
         )
     return compute_merkle_root(encoded_leaves, b"VSCE\x02", b"VSCE\x03", b"VSCE\x01")
 
@@ -718,6 +726,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         non_scaffold_escape_config = build_register_config(
             real_supported,
             initial_state_root=non_scaffold_escape_root,
+            initial_withdrawal_root="00" * 32,
         )
         node.sendvaliditysidechainregister(non_scaffold_escape_sidechain_id, non_scaffold_escape_config)
         node.generate(1)
