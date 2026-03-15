@@ -82,6 +82,10 @@ def compute_script_commitment(script_hex):
     return f"{hash256_uint256(bytes.fromhex(script_hex)):064x}"
 
 
+def hex_uint(value):
+    return f"{value:064x}"
+
+
 def get_destination_commitment(leaf):
     if "destination_commitment" in leaf:
         return leaf["destination_commitment"]
