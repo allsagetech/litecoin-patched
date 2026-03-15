@@ -43,6 +43,20 @@ def get_sidechain_info(node, sidechain_id):
     raise AssertionError(f"missing sidechain {sidechain_id} in getvaliditysidechaininfo")
 
 
+def get_unused_sidechain_id(node, preferred_id=None, minimum=0, reserved_ids=None):
+    used_ids = {sidechain["id"] for sidechain in node.getvaliditysidechaininfo()["sidechains"]}
+    if reserved_ids is not None:
+        used_ids.update(reserved_ids)
+
+    if preferred_id is not None and preferred_id >= minimum and preferred_id not in used_ids:
+        return preferred_id
+
+    candidate = minimum
+    while candidate in used_ids:
+        candidate += 1
+    return candidate
+
+
 def get_supported_profile(node, profile_name):
     info = node.getvaliditysidechaininfo()
     for supported in info["supported_proof_configs"]:
@@ -257,6 +271,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
         real_proving_key_present = (real_artifact_dir / "batch_pk.bin").exists()
         real_valid_vector = load_json(real_artifact_dir / "valid" / "valid_proof.json")
+        real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
         real_mismatch_vector = load_json(real_artifact_dir / "invalid" / "public_input_mismatch.json")
         real_queue_prefix_mismatch_vector = load_json(real_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json")
         real_withdrawal_root_mismatch_vector = load_json(real_artifact_dir / "invalid" / "withdrawal_root_mismatch.json")
@@ -709,7 +724,12 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(transition_sidechain["accepted_batches"][0]["data_root"], transition_public_inputs["data_root"])
 
         self.log.info("Rejecting escape exits on a non-scaffold profile before real state-root proofs exist.")
-        non_scaffold_escape_sidechain_id = 9
+        non_scaffold_escape_sidechain_id = get_unused_sidechain_id(
+            node,
+            preferred_id=10,
+            minimum=10,
+            reserved_ids={real_sidechain_id},
+        )
         non_scaffold_escape_exits = [
             {
                 "exit_id": "ab" * 32,
@@ -744,7 +764,6 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         )
 
         self.log.info("Registering the proposed Groth16 profile and replaying committed native proof vectors.")
-        real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
         real_config = build_register_config(
             real_supported,
             initial_state_root=pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"]),
@@ -890,7 +909,12 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             real_valid_vector["proof_bytes_hex"],
             real_data_chunks,
         )
-        real_force_exit_sidechain_id = 35
+        real_force_exit_sidechain_id = get_unused_sidechain_id(
+            node,
+            preferred_id=35,
+            minimum=10,
+            reserved_ids={real_sidechain_id},
+        )
         real_force_exit_initial_root = hex_uint(4200)
         real_force_exit_config = build_register_config(
             real_supported,
