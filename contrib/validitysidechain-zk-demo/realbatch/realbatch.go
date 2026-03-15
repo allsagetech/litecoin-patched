@@ -52,10 +52,6 @@ type PoseidonBatchTransitionCircuit struct {
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
-	if err := assertExperimentalQueueWitness(api, c); err != nil {
-		return err
-	}
-
 	transitionHasher, err := newPoseidonHasher(api)
 	if err != nil {
 		return err
@@ -79,10 +75,6 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 	}
 	stateHasher.Write(c.PriorStateRoot, transitionCommitment)
 	api.AssertIsEqual(c.NewStateRoot, stateHasher.Sum())
-
-	if err := assertExperimentalWithdrawalWitness(api, c); err != nil {
-		return err
-	}
 
 	return nil
 }

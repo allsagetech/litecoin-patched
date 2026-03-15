@@ -414,15 +414,13 @@ Current branch status:
   and `groth16_bls12_381_poseidon_v1` as a fixed non-scaffold tuple with
   committed experimental assets, non-empty DA proof vectors, external
   auto-prover support that now carries `data_chunks_hex` and
-  `consumed_queue_entries`, one deterministic consumed deposit queue entry
-  with a non-zero `queue_prefix_commitment`, one deterministic withdrawal leaf
-  bound through the actual Litecoin withdrawal-root hashing path, and native
-  in-process
-  verification that now derives the one-entry queue-after / prefix-commitment
-  transition from that private witness; the proving key now has to be
-  regenerated locally because the current SHA-heavy `batch_pk.bin` exceeds
-  GitHub's object-size limit, so the committed repo bundle remains
-  verifier-side only and still stops short of final trustless semantics
+  `consumed_queue_entries`, one deterministic consumed deposit queue-entry
+  fixture with a non-zero `queue_prefix_commitment`, one deterministic
+  withdrawal-leaf fixture through the actual Litecoin withdrawal-root hashing
+  path, and native in-process verification for the current experimental
+  public-input-only relation; the proving key still has to be regenerated
+  locally, so the committed repo bundle remains verifier-side only and still
+  stops short of final trustless semantics
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking

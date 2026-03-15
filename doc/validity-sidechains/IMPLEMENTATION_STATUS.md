@@ -135,24 +135,22 @@ This means:
   the prover validates `data_root` and `data_size` against the same chunk list
   the wallet publishes onchain
 - the committed real-profile vectors now also consume one deterministic deposit
-  queue entry and bind a non-zero `queue_prefix_commitment`, with the deposit
+  queue entry and carry a non-zero `queue_prefix_commitment`, with the deposit
   nonce chosen so the queue hashes fit the current one-scalar-per-input native
   verifier format
 - the experimental real-profile prover request now also carries
-  `consumed_queue_entries`, and the current circuit proves the one-entry
-  `l1_message_root_after` and `queue_prefix_commitment` transitions from that
-  private queue witness instead of treating those queue fields as public-input
-  placeholders
+  `consumed_queue_entries`, but the current circuit has been reduced back to a
+  public-input-only relation while the surrounding node state machine
+  continues to enforce queue-prefix consumption locally
 - the experimental real-profile vectors now also bind one deterministic
   withdrawal leaf through the actual Litecoin withdrawal-root hashing path, so
-  the committed valid vector can drive `EXECUTE_VERIFIED_WITHDRAWALS` against a
-  proof-backed accepted batch instead of only exposing a synthetic
-  `withdrawal_root`
+  the committed valid vector can still drive `EXECUTE_VERIFIED_WITHDRAWALS`
+  against a proof-backed accepted batch even though the current circuit does
+  not yet prove that withdrawal witness internally
 - the experimental real-profile proving key is now generator-produced but not
-  committed in-tree because the SHA-heavy circuit pushes `batch_pk.bin` past
-  GitHub's 100 MB object limit; committed artifacts remain verifier-side only,
-  while local real-profile auto-prover runs require regenerating that proving
-  key out of tree
+  committed in-tree; committed artifacts remain verifier-side only, while
+  local real-profile auto-prover runs require regenerating that proving key
+  out of tree
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
