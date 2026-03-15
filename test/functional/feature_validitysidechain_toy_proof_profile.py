@@ -744,7 +744,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_auto_queue_sidechain["deposit_admission_mode"], "single_pending_entry_scalar_field_experimental")
             assert_equal(real_auto_queue_sidechain["queue_state"]["pending_message_count"], 1)
             assert_raises_rpc_error(
-                -26,
+                -8,
                 "experimental real profile currently supports at most one pending deposit queue entry",
                 node.sendvaliditydeposit,
                 real_auto_queue_sidechain_id,
