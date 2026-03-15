@@ -928,10 +928,13 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
 
     ValiditySidechainVerifierAssetsStatus assets_status;
     GetValiditySidechainVerifierAssetsStatus(config, assets_status);
-    if (!assets_status.assets_present || !assets_status.prover_assets_present) {
+    if (!assets_status.assets_present) {
         return FailValidation(
             error,
             assets_status.status.empty() ? "proving key missing for supported profile" : assets_status.status.c_str());
+    }
+    if (!assets_status.prover_assets_present) {
+        return FailValidation(error, "proving key missing for supported profile");
     }
 
 #ifndef HAVE_BOOST_PROCESS

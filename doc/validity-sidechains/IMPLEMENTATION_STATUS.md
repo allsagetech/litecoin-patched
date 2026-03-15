@@ -143,6 +143,11 @@ This means:
   `l1_message_root_after` and `queue_prefix_commitment` transitions from that
   private queue witness instead of treating those queue fields as public-input
   placeholders
+- the experimental real-profile proving key is now generator-produced but not
+  committed in-tree because the SHA-heavy circuit pushes `batch_pk.bin` past
+  GitHub's 100 MB object limit; committed artifacts remain verifier-side only,
+  while local real-profile auto-prover runs require regenerating that proving
+  key out of tree
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient

@@ -261,7 +261,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_supported["supports_external_prover"], True)
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], True)
-        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], True)
+        assert_equal(real_supported["verifier_assets"]["prover_assets_present"], False)
         assert_equal(real_supported["verifier_assets"]["backend_ready"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_self_test_passed"], True)
@@ -646,7 +646,8 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_data_chunks,
         )
 
-        if toy_external_backend_ready:
+        real_auto_prover_ready = toy_external_backend_ready and real_supported["verifier_assets"]["prover_assets_present"]
+        if real_auto_prover_ready:
             self.log.info("Auto-building a native-verified real-profile proof through the external prover.")
             real_batch_res = node.sendvaliditybatch(
                 real_sidechain_id,
@@ -671,7 +672,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_data_chunks))
             assert_equal(real_sidechain["accepted_batches"][0]["published_data_bytes"], real_public_inputs["data_size"])
         else:
-            self.log.info("Skipping native real auto-prover coverage because boost::process support is not built.")
+            self.log.info("Skipping native real auto-prover coverage because the committed proving key is not available in-tree.")
 
 
 if __name__ == "__main__":

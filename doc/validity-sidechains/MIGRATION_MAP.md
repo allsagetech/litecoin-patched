@@ -417,8 +417,10 @@ Current branch status:
   `consumed_queue_entries`, one deterministic consumed deposit queue entry
   with a non-zero `queue_prefix_commitment`, and native in-process
   verification that now derives the one-entry queue-after / prefix-commitment
-  transition from that private witness but still stops short of final
-  trustless semantics
+  transition from that private witness; the proving key now has to be
+  regenerated locally because the current SHA-heavy `batch_pk.bin` exceeds
+  GitHub's object-size limit, so the committed repo bundle remains
+  verifier-side only and still stops short of final trustless semantics
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking
