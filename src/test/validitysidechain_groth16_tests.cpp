@@ -3,7 +3,11 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <test/util/setup_common.h>
+#include <uint256.h>
+#include <util/strencodings.h>
 #include <validitysidechain/groth16.h>
+
+#include <univalue.h>
 
 extern "C" {
 #include <blst.h>
@@ -13,6 +17,8 @@ extern "C" {
 
 #include <array>
 #include <cstdint>
+#include <fstream>
+#include <sstream>
 #include <vector>
 
 namespace {
@@ -145,6 +151,107 @@ ValiditySidechainGroth16VerificationKey MakeSyntheticZeroInputVerificationKey()
     return verifying_key;
 }
 
+fs::path FindRepoPath(const fs::path& relative)
+{
+    std::vector<fs::path> roots;
+    roots.push_back(fs::current_path());
+
+    fs::path source_path{__FILE__};
+    if (source_path.is_relative()) {
+        source_path = fs::current_path() / source_path;
+    }
+    roots.push_back(source_path.parent_path());
+
+    for (fs::path root : roots) {
+        for (;;) {
+            const fs::path candidate = root / relative;
+            if (fs::exists(candidate)) {
+                return candidate;
+            }
+            if (!root.has_parent_path() || root.parent_path() == root) {
+                break;
+            }
+            root = root.parent_path();
+        }
+    }
+
+    BOOST_FAIL("failed to locate repo path " + relative.string());
+    return {};
+}
+
+std::string ReadTextFile(const fs::path& path)
+{
+    std::ifstream file(path);
+    BOOST_REQUIRE_MESSAGE(file.is_open(), "failed to open " + path.string());
+    std::ostringstream contents;
+    contents << file.rdbuf();
+    return contents.str();
+}
+
+UniValue ReadJSONFile(const fs::path& path)
+{
+    UniValue json;
+    BOOST_REQUIRE_MESSAGE(json.read(ReadTextFile(path)), "failed to parse JSON " + path.string());
+    return json;
+}
+
+std::array<unsigned char, 32> ScalarLEFromUint(uint64_t value)
+{
+    return ScalarLE(value);
+}
+
+std::array<unsigned char, 32> ScalarLEFromHex(const std::string& value)
+{
+    std::string normalized = value;
+    if (normalized.empty()) {
+        normalized = "0";
+    }
+    while (normalized.size() < 64) {
+        normalized = "0" + normalized;
+    }
+
+    const uint256 parsed = uint256S(normalized);
+    std::array<unsigned char, 32> out{};
+    std::copy(parsed.begin(), parsed.end(), out.begin());
+    return out;
+}
+
+uint64_t ParseUintString(const UniValue& value)
+{
+    const std::string raw = value.get_str();
+    uint64_t parsed{0};
+    BOOST_REQUIRE_MESSAGE(ParseUInt64(raw, &parsed), "failed to parse uint64 from " + raw);
+    return parsed;
+}
+
+std::vector<std::array<unsigned char, 32>> BuildRealProfilePublicInputs(const UniValue& public_inputs)
+{
+    std::vector<std::array<unsigned char, 32>> encoded;
+    encoded.reserve(11);
+    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "sidechain_id"))));
+    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "batch_number"))));
+    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "prior_state_root").get_str()));
+    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "new_state_root").get_str()));
+    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "l1_message_root_before").get_str()));
+    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "l1_message_root_after").get_str()));
+    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "consumed_queue_messages"))));
+    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "queue_prefix_commitment").get_str()));
+    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "withdrawal_root").get_str()));
+    encoded.push_back(ScalarLEFromHex(find_value(public_inputs, "data_root").get_str()));
+    encoded.push_back(ScalarLEFromUint(ParseUintString(find_value(public_inputs, "data_size"))));
+    return encoded;
+}
+
+ValiditySidechainGroth16Proof ParseProofFromVector(const UniValue& vector_json)
+{
+    ValiditySidechainGroth16Proof proof;
+    std::string error;
+    const std::vector<unsigned char> proof_bytes = ParseHex(find_value(vector_json, "proof_bytes_hex").get_str());
+    BOOST_REQUIRE(ParseValiditySidechainGroth16Proof(proof_bytes, proof, &error));
+    BOOST_CHECK(error.empty());
+    return proof;
+}
+
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(validitysidechain_groth16_tests, BasicTestingSetup)
@@ -268,6 +375,69 @@ BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_accepts_zero_public_inputs)
     std::string error;
     BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
     BOOST_CHECK(error.empty());
+}
+
+BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_accepts_committed_valid_vector)
+{
+    const fs::path artifact_dir =
+        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v1");
+
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    std::string error;
+    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
+        artifact_dir / "batch_vk.bin",
+        /* expected_public_input_count= */ 11,
+        verifying_key,
+        &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(verifying_key.public_input_count, 11U);
+
+    const UniValue valid_vector = ReadJSONFile(artifact_dir / "valid" / "valid_proof.json");
+    const auto public_inputs = BuildRealProfilePublicInputs(find_value(valid_vector, "public_inputs"));
+    const ValiditySidechainGroth16Proof proof = ParseProofFromVector(valid_vector);
+
+    BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+    BOOST_CHECK(error.empty());
+}
+
+BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_rejects_committed_invalid_vectors)
+{
+    const fs::path artifact_dir =
+        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v1");
+
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    std::string error;
+    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
+        artifact_dir / "batch_vk.bin",
+        /* expected_public_input_count= */ 11,
+        verifying_key,
+        &error));
+    BOOST_CHECK(error.empty());
+
+    for (const char* path : {
+             "invalid/public_input_mismatch.json",
+             "invalid/queue_prefix_commitment_mismatch.json",
+             "invalid/withdrawal_root_mismatch.json",
+         }) {
+        const UniValue vector_json = ReadJSONFile(artifact_dir / path);
+        const auto public_inputs = BuildRealProfilePublicInputs(find_value(vector_json, "public_inputs"));
+        const ValiditySidechainGroth16Proof proof = ParseProofFromVector(vector_json);
+
+        BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+        BOOST_CHECK_EQUAL(error, "Groth16 pairing doesn't match");
+    }
+
+    const UniValue corrupt_vector = ReadJSONFile(artifact_dir / "invalid" / "corrupt_proof.json");
+    const std::vector<unsigned char> corrupt_bytes = ParseHex(find_value(corrupt_vector, "proof_bytes_hex").get_str());
+    ValiditySidechainGroth16Proof corrupt_proof;
+    const bool parsed = ParseValiditySidechainGroth16Proof(corrupt_bytes, corrupt_proof, &error);
+    if (parsed) {
+        const auto public_inputs = BuildRealProfilePublicInputs(find_value(corrupt_vector, "public_inputs"));
+        BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, corrupt_proof, public_inputs, &error));
+        BOOST_CHECK(!error.empty());
+    } else {
+        BOOST_CHECK(!error.empty());
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
