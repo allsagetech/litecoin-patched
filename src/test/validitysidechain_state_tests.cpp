@@ -886,6 +886,76 @@ BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_more_than_one_consumed_queue_mes
     BOOST_CHECK_EQUAL(error, "experimental real profile currently supports at most one consumed queue message");
 }
 
+BOOST_AUTO_TEST_CASE(real_profile_rejects_second_pending_deposit_queue_entry)
+{
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    const CScript refund_script = CScript() << OP_TRUE;
+    uint64_t accepted_nonce = 0;
+    for (uint64_t nonce = 1; nonce <= 512; ++nonce) {
+        ValiditySidechainState attempt_state;
+        BOOST_REQUIRE(attempt_state.RegisterSidechain(/* id= */ 32, /* registration_height= */ 710, config));
+
+        ValiditySidechainDepositData attempt_deposit = MakeDeposit(
+            uint256S("3232323232323232323232323232323232323232323232323232323232323232"),
+            refund_script,
+            COIN);
+        attempt_deposit.nonce = nonce;
+        std::string attempt_error;
+        if (attempt_state.AddDeposit(/* sidechain_id= */ 32, /* deposit_height= */ 711, attempt_deposit, &attempt_error)) {
+            accepted_nonce = nonce;
+            break;
+        }
+    }
+    BOOST_REQUIRE_NE(accepted_nonce, 0U);
+
+    ValiditySidechainState state;
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 32, /* registration_height= */ 710, config));
+
+    ValiditySidechainDepositData deposit_a = MakeDeposit(
+        uint256S("3232323232323232323232323232323232323232323232323232323232323232"),
+        refund_script,
+        COIN);
+    deposit_a.nonce = accepted_nonce;
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 32, /* deposit_height= */ 711, deposit_a));
+
+    ValiditySidechainDepositData deposit_b = MakeDeposit(
+        uint256S("3333333333333333333333333333333333333333333333333333333333333333"),
+        refund_script,
+        COIN);
+    deposit_b.nonce = 85;
+
+    std::string error;
+    BOOST_CHECK(!state.AddDeposit(/* sidechain_id= */ 32, /* deposit_height= */ 712, deposit_b, &error));
+    BOOST_CHECK_EQUAL(error, "experimental real profile currently supports at most one pending deposit queue entry");
+}
+
+BOOST_AUTO_TEST_CASE(real_profile_rejects_deposit_queue_transition_outside_scalar_field)
+{
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    const CScript refund_script = CScript() << OP_TRUE;
+    bool found_reject = false;
+
+    for (uint64_t nonce = 1; nonce <= 512; ++nonce) {
+        ValiditySidechainState attempt_state;
+        BOOST_REQUIRE(attempt_state.RegisterSidechain(/* id= */ 33, /* registration_height= */ 710, config));
+
+        ValiditySidechainDepositData deposit = MakeDeposit(
+            uint256S("4444444444444444444444444444444444444444444444444444444444444444"),
+            refund_script,
+            COIN);
+        deposit.nonce = nonce;
+
+        std::string error;
+        if (!attempt_state.AddDeposit(/* sidechain_id= */ 33, /* deposit_height= */ 711, deposit, &error)) {
+            BOOST_CHECK_EQUAL(error, "experimental real profile deposit queue transition does not fit BLS12-381 scalar field");
+            found_reject = true;
+            break;
+        }
+    }
+
+    BOOST_CHECK(found_reject);
+}
+
 BOOST_AUTO_TEST_CASE(real_profile_rejects_force_exit_requests)
 {
     ValiditySidechainState state;

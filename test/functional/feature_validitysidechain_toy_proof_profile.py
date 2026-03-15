@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 
+from test_framework.authproxy import JSONRPCException
 from test_framework.messages import hash256, ser_uint256
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
@@ -731,17 +732,36 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             )
             node.sendvaliditysidechainregister(real_auto_queue_sidechain_id, real_auto_queue_config)
             node.generate(1)
-            for nonce in range(2):
-                node.sendvaliditydeposit(
-                    real_auto_queue_sidechain_id,
-                    hex_uint(0x5000 + nonce),
-                    {"address": refund_address},
-                    Decimal("0.25"),
-                    nonce + 1,
-                )
+            accepted_real_auto_queue_nonce = None
+            for nonce in range(1, 257):
+                try:
+                    node.sendvaliditydeposit(
+                        real_auto_queue_sidechain_id,
+                        hex_uint(0x5000),
+                        {"address": refund_address},
+                        Decimal("0.25"),
+                        nonce,
+                    )
+                    accepted_real_auto_queue_nonce = nonce
+                    break
+                except JSONRPCException as exc:
+                    if "experimental real profile deposit queue transition does not fit BLS12-381 scalar field" not in exc.error["message"]:
+                        raise
+            if accepted_real_auto_queue_nonce is None:
+                raise AssertionError("failed to find supported real-profile deposit nonce for auto-prover queue coverage")
             node.generate(1)
             real_auto_queue_sidechain = get_sidechain_info(node, real_auto_queue_sidechain_id)
-            assert_equal(real_auto_queue_sidechain["queue_state"]["pending_message_count"], 2)
+            assert_equal(real_auto_queue_sidechain["queue_state"]["pending_message_count"], 1)
+            assert_raises_rpc_error(
+                -26,
+                "experimental real profile currently supports at most one pending deposit queue entry",
+                node.sendvaliditydeposit,
+                real_auto_queue_sidechain_id,
+                hex_uint(0x5001),
+                {"address": refund_address},
+                Decimal("0.25"),
+                2,
+            )
             unsupported_queue_public_inputs = {
                 "batch_number": 1,
                 "prior_state_root": real_auto_queue_initial_root,

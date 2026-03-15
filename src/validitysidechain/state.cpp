@@ -7,12 +7,15 @@
 #include <chain.h>
 #include <drivechain/script.h>
 #include <hash.h>
+#include <validitysidechain/groth16.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
 #include <validitysidechain/verifier.h>
 
 #include <consensus/validation.h>
 #include <primitives/block.h>
+
+#include <algorithm>
 
 namespace {
 
@@ -105,6 +108,77 @@ static uint256 ComputeQueuePrefixCommitmentStep(
 static uint256 ComputeScriptCommitment(const CScript& script)
 {
     return Hash(script);
+}
+
+static bool ValidateFieldSizedGroth16Uint256(
+    const uint256& value,
+    const char* message,
+    std::string* error)
+{
+    std::array<unsigned char, 32> value_bytes{};
+    std::copy(value.begin(), value.end(), value_bytes.begin());
+    if (!ValidateValiditySidechainGroth16ScalarFieldElement(value_bytes, nullptr)) {
+        if (error != nullptr) {
+            *error = message;
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool ValidateExperimentalRealProfilePendingDepositTransition(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    const ValiditySidechainQueueEntry& entry,
+    std::string* error)
+{
+    if (!IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)) {
+        return true;
+    }
+    if (sidechain.queue_state.pending_message_count != 0) {
+        if (error != nullptr) {
+            *error = "experimental real profile currently supports at most one pending deposit queue entry";
+        }
+        return false;
+    }
+
+    const uint256 root_after_append = ComputeQueueAppendRoot(sidechain_id, sidechain.queue_state.root, entry);
+    const uint256 root_after_consume = ComputeQueueConsumeRoot(sidechain_id, root_after_append, entry);
+    const uint256 queue_prefix_commitment = ComputeQueuePrefixCommitmentStep(sidechain_id, uint256(), entry);
+    const uint256 root_after_tombstone = ComputeQueueTombstoneRoot(sidechain_id, root_after_append, entry);
+
+    return ValidateFieldSizedGroth16Uint256(
+               root_after_append,
+               "experimental real profile deposit queue transition does not fit BLS12-381 scalar field",
+               error) &&
+           ValidateFieldSizedGroth16Uint256(
+               root_after_consume,
+               "experimental real profile deposit queue transition does not fit BLS12-381 scalar field",
+               error) &&
+           ValidateFieldSizedGroth16Uint256(
+               queue_prefix_commitment,
+               "experimental real profile deposit queue transition does not fit BLS12-381 scalar field",
+               error) &&
+           ValidateFieldSizedGroth16Uint256(
+               root_after_tombstone,
+               "experimental real profile deposit queue transition does not fit BLS12-381 scalar field",
+               error);
+}
+
+static bool ValidateExperimentalRealProfileReclaimTransition(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    const ValiditySidechainQueueEntry& entry,
+    std::string* error)
+{
+    if (!IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)) {
+        return true;
+    }
+
+    return ValidateFieldSizedGroth16Uint256(
+        ComputeQueueTombstoneRoot(sidechain_id, sidechain.queue_state.root, entry),
+        "experimental real profile reclaim queue root does not fit BLS12-381 scalar field",
+        error);
 }
 
 static void RefreshQueueState(ValiditySidechain& sidechain, int height)
@@ -760,6 +834,10 @@ bool ValiditySidechainState::AddDeposit(
     pending_deposit.queue_index = entry.queue_index;
     pending_deposit.message_hash = entry.message_hash;
 
+    if (!ValidateExperimentalRealProfilePendingDepositTransition(*sidechain, sidechain_id, entry, error)) {
+        return false;
+    }
+
     sidechain->queue_state.root = ComputeQueueAppendRoot(sidechain_id, sidechain->queue_state.root, entry);
     sidechain->queue_entries.emplace(entry.queue_index, entry);
     sidechain->pending_deposits.emplace(deposit.deposit_id, pending_deposit);
@@ -889,6 +967,9 @@ bool ValiditySidechainState::ReclaimDeposit(
         if (error != nullptr) {
             *error = "pending deposit queue entry already finalized";
         }
+        return false;
+    }
+    if (!ValidateExperimentalRealProfileReclaimTransition(*sidechain, sidechain_id, queue_it->second, error)) {
         return false;
     }
 

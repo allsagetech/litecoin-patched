@@ -221,6 +221,11 @@ This means:
   `initial_withdrawal_root` already fit that BLS12-381 scalar field, so the
   node fails impossible `groth16_bls12_381_poseidon_v1` configs at
   registration time instead of later during proof verification
+- the experimental real profile now also rejects a second pending deposit
+  queue entry, and deposit admission checks the append, single-entry consume,
+  prefix-commitment, and reclaim queue hashes against that same scalar field,
+  so the node no longer accepts pending deposit states the current 11-input
+  native verifier layout cannot represent
 - the remaining trustless blocker is no longer the generic pairing equation;
   it is the absence of the final sidechain proof semantics for the intended
   profile

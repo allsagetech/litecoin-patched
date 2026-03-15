@@ -481,6 +481,10 @@ Current branch status:
   `initial_state_root` and `initial_withdrawal_root` values that do not fit
   the native BLS12-381 scalar field, so real-profile configs fail before the
   verifier path ever sees an impossible public input
+- that same experimental real profile now also admits at most one pending
+  deposit queue entry at a time and rejects deposits whose append, consume,
+  prefix-commitment, or reclaim queue hashes would leave the current 11-input
+  native verifier layout outside the BLS12-381 scalar field
 - wallet send-path RPCs now exist for validity-sidechain registration,
   deposits, scaffold batches, force-exit requests, and stale-deposit reclaim
 - the legacy `getdrivechaininfo`, `senddrivechainbundle`, and

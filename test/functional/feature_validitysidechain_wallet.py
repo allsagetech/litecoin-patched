@@ -801,6 +801,17 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
                 compute_queue_prefix_commitment(real_sidechain_id, real_queue_entries),
                 pad_field_hex(real_valid_vector["public_inputs"]["queue_prefix_commitment"]),
             )
+            assert_raises_rpc_error(
+                -26,
+                "experimental real profile currently supports at most one pending deposit queue entry",
+                node.sendvaliditydeposit,
+                real_sidechain_id,
+                hex_uint(0x5100),
+                {"address": node.getnewaddress()},
+                Decimal("0.25"),
+                99,
+                "51" * 32,
+            )
 
         real_public_inputs = {
             "batch_number": int(real_valid_vector["public_inputs"]["batch_number"]),
