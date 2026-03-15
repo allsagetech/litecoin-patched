@@ -7,6 +7,7 @@
 #include <fs.h>
 #include <hash.h>
 #include <univalue.h>
+#include <util/moneystr.h>
 #include <util/strencodings.h>
 #include <util/system.h>
 #include <validitysidechain/blst_backend.h>
@@ -751,6 +752,19 @@ static UniValue ConsumedQueueEntriesToJSON(const std::vector<ValiditySidechainQu
     return entries;
 }
 
+static UniValue WithdrawalLeavesToJSON(const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawal_leaves)
+{
+    UniValue leaves(UniValue::VARR);
+    for (const auto& leaf : withdrawal_leaves) {
+        UniValue encoded(UniValue::VOBJ);
+        encoded.pushKV("withdrawal_id", leaf.withdrawal_id.GetHex());
+        encoded.pushKV("amount", ValueFromAmount(leaf.amount).getValStr());
+        encoded.pushKV("destination_commitment", leaf.destination_commitment.GetHex());
+        leaves.push_back(encoded);
+    }
+    return leaves;
+}
+
 static std::array<unsigned char, 32> EncodeGroth16ScalarLE(uint32_t value)
 {
     std::array<unsigned char, 32> encoded{};
@@ -912,6 +926,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     uint8_t sidechain_id,
     const ValiditySidechainBatchPublicInputs& public_inputs,
     const std::vector<ValiditySidechainQueueEntry>& consumed_queue_entries,
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawal_leaves,
     const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,
     std::string* error)
@@ -951,6 +966,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     request.pushKV("sidechain_id", static_cast<int64_t>(sidechain_id));
     request.pushKV("public_inputs", BatchPublicInputsToJSON(public_inputs));
     request.pushKV("consumed_queue_entries", ConsumedQueueEntriesToJSON(consumed_queue_entries));
+    request.pushKV("withdrawal_leaves", WithdrawalLeavesToJSON(withdrawal_leaves));
     request.pushKV("data_chunks_hex", DataChunksToJSON(data_chunks));
 
     try {

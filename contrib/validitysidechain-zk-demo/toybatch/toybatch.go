@@ -35,14 +35,22 @@ type ConsumedQueueEntry struct {
 	MessageHash string `json:"message_hash"`
 }
 
+type WithdrawalLeaf struct {
+	WithdrawalID          string `json:"withdrawal_id"`
+	Amount                string `json:"amount"`
+	DestinationCommitment string `json:"destination_commitment"`
+	Script                string `json:"script,omitempty"`
+}
+
 type CommandRequest struct {
-	ProfileName         string               `json:"profile_name"`
-	ArtifactDir         string               `json:"artifact_dir"`
-	SidechainID         uint64               `json:"sidechain_id"`
-	PublicInputs        BatchPublicInputs    `json:"public_inputs"`
+	ProfileName          string               `json:"profile_name"`
+	ArtifactDir          string               `json:"artifact_dir"`
+	SidechainID          uint64               `json:"sidechain_id"`
+	PublicInputs         BatchPublicInputs    `json:"public_inputs"`
 	ConsumedQueueEntries []ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
-	DataChunksHex       []string             `json:"data_chunks_hex,omitempty"`
-	ProofBytesHex       string               `json:"proof_bytes_hex,omitempty"`
+	WithdrawalLeaves     []WithdrawalLeaf     `json:"withdrawal_leaves,omitempty"`
+	DataChunksHex        []string             `json:"data_chunks_hex,omitempty"`
+	ProofBytesHex        string               `json:"proof_bytes_hex,omitempty"`
 }
 
 type CommandResult struct {

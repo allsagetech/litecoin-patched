@@ -2072,6 +2072,17 @@ static RPCHelpMan sendvaliditybatch()
                     {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Withdrawal root"},
                     {"data_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Data-availability root"},
                     {"data_size", RPCArg::Type::NUM, RPCArg::Optional::NO, "Published data size in bytes"},
+                    {"withdrawal_leaves", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional experimental prover witness for the real profile. Ignored by consensus encoding.",
+                        {
+                            {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
+                                {
+                                    {"withdrawal_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte withdrawal id"},
+                                    {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Destination address (exactly one of address/script)"},
+                                    {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw destination scriptPubKey hex (exactly one of address/script)"},
+                                    {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Withdrawal amount in " + CURRENCY_UNIT},
+                                }
+                            }
+                        }},
                 }},
             {"proof_bytes", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional proof bytes. Omit to auto-build the scaffold proof envelope when supported."},
             {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings",
@@ -2133,6 +2144,15 @@ static RPCHelpMan sendvaliditybatch()
                     &queue_entries_error)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, queue_entries_error);
             }
+            std::vector<ValiditySidechainWithdrawalLeaf> experimental_withdrawal_leaves;
+            std::vector<CRecipient> experimental_payout_recipients;
+            const UniValue& withdrawal_leaves = find_value(public_inputs_obj, "withdrawal_leaves");
+            if (!withdrawal_leaves.isNull()) {
+                ParseValidityWithdrawalLeaves(
+                    withdrawal_leaves,
+                    experimental_withdrawal_leaves,
+                    experimental_payout_recipients);
+            }
 
             std::vector<unsigned char> proof_bytes;
             bool auto_scaffold_proof = false;
@@ -2160,6 +2180,7 @@ static RPCHelpMan sendvaliditybatch()
                             sidechain_id,
                             public_inputs,
                             consumed_queue_entries,
+                            experimental_withdrawal_leaves,
                             data_chunks,
                             proof_bytes,
                             &proof_error)) {

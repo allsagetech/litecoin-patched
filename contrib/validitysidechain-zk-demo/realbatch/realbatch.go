@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/toybatch"
 	bls12381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
@@ -22,6 +23,8 @@ const ProfileName = "groth16_bls12_381_poseidon_v1"
 
 var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
 var queuePrefixCommitmentMagic = []uint8{'V', 'S', 'C', 'Q', 'P', 0x01}
+var withdrawalRootMagic = []uint8{'V', 'S', 'C', 'W', 0x01}
+var withdrawalLeafMagic = []uint8{'V', 'S', 'C', 'W', 0x02}
 
 type PoseidonBatchTransitionCircuit struct {
 	SidechainID           frontend.Variable `gnark:",public"`
@@ -41,6 +44,11 @@ type PoseidonBatchTransitionCircuit struct {
 	ConsumedEntryMessageKind frontend.Variable
 	ConsumedEntryMessageID   [32]uints.U8
 	ConsumedEntryMessageHash [32]uints.U8
+
+	WithdrawalLeafPresent               frontend.Variable
+	WithdrawalLeafID                    [32]uints.U8
+	WithdrawalLeafAmount                frontend.Variable
+	WithdrawalLeafDestinationCommitment [32]uints.U8
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
@@ -72,12 +80,9 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 	stateHasher.Write(c.PriorStateRoot, transitionCommitment)
 	api.AssertIsEqual(c.NewStateRoot, stateHasher.Sum())
 
-	withdrawalHasher, err := newPoseidonHasher(api)
-	if err != nil {
+	if err := assertExperimentalWithdrawalWitness(api, c); err != nil {
 		return err
 	}
-	withdrawalHasher.Write(c.NewStateRoot, transitionCommitment, c.DataRoot)
-	api.AssertIsEqual(c.WithdrawalRoot, withdrawalHasher.Sum())
 
 	return nil
 }
@@ -137,6 +142,11 @@ func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCi
 	if err != nil {
 		return PoseidonBatchTransitionCircuit{}, err
 	}
+	withdrawalLeafPresent, withdrawalLeafID, withdrawalLeafAmount, withdrawalLeafDestinationCommitment, err :=
+		buildWithdrawalWitness(request)
+	if err != nil {
+		return PoseidonBatchTransitionCircuit{}, err
+	}
 
 	return PoseidonBatchTransitionCircuit{
 		SidechainID:               sidechainID,
@@ -155,6 +165,10 @@ func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCi
 		ConsumedEntryMessageKind:  consumedEntryMessageKind,
 		ConsumedEntryMessageID:    consumedEntryMessageID,
 		ConsumedEntryMessageHash:  consumedEntryMessageHash,
+		WithdrawalLeafPresent:     withdrawalLeafPresent,
+		WithdrawalLeafID:          withdrawalLeafID,
+		WithdrawalLeafAmount:      withdrawalLeafAmount,
+		WithdrawalLeafDestinationCommitment: withdrawalLeafDestinationCommitment,
 	}, nil
 }
 
@@ -180,11 +194,7 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 	if err != nil {
 		return toybatch.CommandRequest{}, err
 	}
-	withdrawalRoot, err := poseidonHash(
-		newStateRoot,
-		mustTransitionCommitment(assignment),
-		assignment.DataRoot.(*big.Int),
-	)
+	withdrawalRoot, err := computeWithdrawalRootFromRequest(request)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
 	}
@@ -199,7 +209,7 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 		derived.PublicInputs.DataSize = uint32(computePublishedDataSize(chunks))
 	}
 	derived.PublicInputs.NewStateRoot = formatFieldHex(newStateRoot)
-	derived.PublicInputs.WithdrawalRoot = formatFieldHex(withdrawalRoot)
+	derived.PublicInputs.WithdrawalRoot = withdrawalRoot
 	return derived, nil
 }
 
@@ -321,6 +331,45 @@ func assertExperimentalQueueWitness(api frontend.API, circuit *PoseidonBatchTran
 	return nil
 }
 
+func assertExperimentalWithdrawalWitness(api frontend.API, circuit *PoseidonBatchTransitionCircuit) error {
+	bapi, err := uints.NewBytes(api)
+	if err != nil {
+		return err
+	}
+	u64api, err := uints.New[uints.U64](api)
+	if err != nil {
+		return err
+	}
+
+	api.AssertIsBoolean(circuit.WithdrawalLeafPresent)
+	withdrawalRoot := fieldToLittleEndianBytes(api, bapi, circuit.WithdrawalRoot)
+	zeroRoot := zeroByteArray32()
+
+	leafPreimage := make([]uints.U8, 0, len(withdrawalLeafMagic)+32+8+32)
+	leafPreimage = append(leafPreimage, uints.NewU8Array(withdrawalLeafMagic)...)
+	leafPreimage = append(leafPreimage, circuit.WithdrawalLeafID[:]...)
+	leafPreimage = append(leafPreimage, u64api.UnpackLSB(u64api.ValueOf(circuit.WithdrawalLeafAmount))...)
+	leafPreimage = append(leafPreimage, circuit.WithdrawalLeafDestinationCommitment[:]...)
+	leafHash, err := doubleSHA256(api, leafPreimage)
+	if err != nil {
+		return err
+	}
+
+	leafCount := api.Select(circuit.WithdrawalLeafPresent, 1, 0)
+	selectedMerkleRoot := selectByteArray32(bapi, circuit.WithdrawalLeafPresent, leafHash, zeroRoot)
+	rootPreimage := make([]uints.U8, 0, len(withdrawalRootMagic)+4+32)
+	rootPreimage = append(rootPreimage, uints.NewU8Array(withdrawalRootMagic)...)
+	rootPreimage = append(rootPreimage, packUint32LittleEndian(api, bapi, leafCount)...)
+	rootPreimage = append(rootPreimage, selectedMerkleRoot[:]...)
+	expectedRoot, err := doubleSHA256(api, rootPreimage)
+	if err != nil {
+		return err
+	}
+
+	assertByteArray32Equal(bapi, expectedRoot, withdrawalRoot)
+	return nil
+}
+
 func buildQueueStepPreimage(
 	bapi *uints.Bytes,
 	u64api *uints.BinaryField[uints.U64],
@@ -385,6 +434,15 @@ func zeroByteArray32() [32]uints.U8 {
 	return out
 }
 
+func packUint32LittleEndian(api frontend.API, bapi *uints.Bytes, value frontend.Variable) []uints.U8 {
+	encoded := make([]uints.U8, 4)
+	bitsLE := bits.ToBinary(api, value, bits.WithNbDigits(32))
+	for i := 0; i < 4; i++ {
+		encoded[i] = bapi.ValueOf(bits.FromBinary(api, bitsLE[i*8:(i+1)*8]))
+	}
+	return encoded
+}
+
 func fieldToLittleEndianBytes(api frontend.API, bapi *uints.Bytes, value frontend.Variable) [32]uints.U8 {
 	var out [32]uints.U8
 	bitsLE := bits.ToBinary(api, value, bits.WithNbDigits(256))
@@ -433,6 +491,104 @@ func buildConsumedQueueWitness(request toybatch.CommandRequest) (frontend.Variab
 	return new(big.Int).SetUint64(1), queueIndex, messageKind, messageID, messageHash, nil
 }
 
+func buildWithdrawalWitness(request toybatch.CommandRequest) (frontend.Variable, [32]uints.U8, frontend.Variable, [32]uints.U8, error) {
+	var withdrawalID [32]uints.U8
+	var destinationCommitment [32]uints.U8
+
+	if len(request.WithdrawalLeaves) > 1 {
+		return nil, withdrawalID, nil, destinationCommitment, fmt.Errorf("experimental real profile supports at most one withdrawal leaf")
+	}
+	if len(request.WithdrawalLeaves) == 0 {
+		return new(big.Int), withdrawalID, new(big.Int), destinationCommitment, nil
+	}
+
+	leaf := request.WithdrawalLeaves[0]
+	withdrawalID, err := parseUint256LittleEndianBytes(leaf.WithdrawalID, "withdrawal_leaves[0].withdrawal_id")
+	if err != nil {
+		return nil, withdrawalID, nil, destinationCommitment, err
+	}
+	destinationCommitment, err = parseUint256LittleEndianBytes(
+		leaf.DestinationCommitment,
+		"withdrawal_leaves[0].destination_commitment")
+	if err != nil {
+		return nil, withdrawalID, nil, destinationCommitment, err
+	}
+	amount, err := parseAmountSatsField(leaf.Amount, "withdrawal_leaves[0].amount")
+	if err != nil {
+		return nil, withdrawalID, nil, destinationCommitment, err
+	}
+
+	return new(big.Int).SetUint64(1), withdrawalID, amount, destinationCommitment, nil
+}
+
+func computeWithdrawalRootFromRequest(request toybatch.CommandRequest) (string, error) {
+	if len(request.WithdrawalLeaves) == 0 {
+		return hashPayloadDisplayHex(buildWithdrawalRootPayload(0, make([]byte, 32))), nil
+	}
+	if len(request.WithdrawalLeaves) > 1 {
+		return "", fmt.Errorf("experimental real profile supports at most one withdrawal leaf")
+	}
+
+	leaf := request.WithdrawalLeaves[0]
+	amount, err := parseAmountSatsField(leaf.Amount, "withdrawal_leaves[0].amount")
+	if err != nil {
+		return "", err
+	}
+	leafPayload := make([]byte, 0, len(withdrawalLeafMagic)+32+8+32)
+	leafPayload = append(leafPayload, withdrawalLeafMagic...)
+	leafPayload = append(leafPayload, uint256HexToLEBytes(leaf.WithdrawalID)...)
+	var amountBytes [8]byte
+	binary.LittleEndian.PutUint64(amountBytes[:], amount.Uint64())
+	leafPayload = append(leafPayload, amountBytes[:]...)
+	leafPayload = append(leafPayload, uint256HexToLEBytes(leaf.DestinationCommitment)...)
+	leafHash := hashPayloadBytes(leafPayload)
+	return hashPayloadDisplayHex(buildWithdrawalRootPayload(1, leafHash)), nil
+}
+
+func buildWithdrawalRootPayload(leafCount uint32, merkleRoot []byte) []byte {
+	payload := make([]byte, 0, len(withdrawalRootMagic)+4+32)
+	payload = append(payload, withdrawalRootMagic...)
+	var count [4]byte
+	binary.LittleEndian.PutUint32(count[:], leafCount)
+	payload = append(payload, count[:]...)
+	payload = append(payload, merkleRoot...)
+	return payload
+}
+
+func uint256HexToLEBytes(raw string) []byte {
+	normalized := raw
+	if normalized == "" {
+		normalized = "0"
+	}
+	for len(normalized) < 64 {
+		normalized = "0" + normalized
+	}
+	decoded, err := hex.DecodeString(normalized)
+	if err != nil {
+		panic(err)
+	}
+	reversed := make([]byte, len(decoded))
+	for i := range decoded {
+		reversed[i] = decoded[len(decoded)-1-i]
+	}
+	return reversed
+}
+
+func hashPayloadBytes(payload []byte) []byte {
+	first := sha256.Sum256(payload)
+	second := sha256.Sum256(first[:])
+	return append([]byte{}, second[:]...)
+}
+
+func hashPayloadDisplayHex(payload []byte) string {
+	raw := hashPayloadBytes(payload)
+	reversed := make([]byte, len(raw))
+	for i := range raw {
+		reversed[i] = raw[len(raw)-1-i]
+	}
+	return hex.EncodeToString(reversed)
+}
+
 func newPoseidonHasher(api frontend.API) (gnarkhash.FieldHasher, error) {
 	perm, err := poseidon2circuit.NewPoseidon2FromParameters(api, 2, 6, 50)
 	if err != nil {
@@ -472,6 +628,49 @@ func parseFieldHex(raw string, fieldName string) (*big.Int, error) {
 		return nil, fmt.Errorf("%s does not fit BLS12-381 scalar field", fieldName)
 	}
 	return value, nil
+}
+
+func parseAmountSatsField(raw string, fieldName string) (*big.Int, error) {
+	if raw == "" {
+		return nil, fmt.Errorf("%s is required", fieldName)
+	}
+	parts := strings.SplitN(raw, ".", 2)
+	if len(parts) > 2 {
+		return nil, fmt.Errorf("%s is not a valid amount", fieldName)
+	}
+	wholePart := parts[0]
+	if wholePart == "" {
+		wholePart = "0"
+	}
+	whole, ok := new(big.Int).SetString(wholePart, 10)
+	if !ok || whole.Sign() < 0 {
+		return nil, fmt.Errorf("%s is not a valid amount", fieldName)
+	}
+	fractional := "0"
+	if len(parts) == 2 {
+		fractional = parts[1]
+		if len(fractional) > 8 {
+			return nil, fmt.Errorf("%s has more than 8 decimal places", fieldName)
+		}
+		for len(fractional) < 8 {
+			fractional += "0"
+		}
+	} else {
+		fractional = "00000000"
+	}
+	fractionalValue, ok := new(big.Int).SetString(fractional, 10)
+	if !ok {
+		return nil, fmt.Errorf("%s is not a valid amount", fieldName)
+	}
+	sats := new(big.Int).Mul(whole, big.NewInt(100000000))
+	sats.Add(sats, fractionalValue)
+	if sats.Sign() <= 0 || sats.BitLen() > 63 {
+		return nil, fmt.Errorf("%s is out of range", fieldName)
+	}
+	if sats.Cmp(bls12381fr.Modulus()) >= 0 {
+		return nil, fmt.Errorf("%s does not fit BLS12-381 scalar field", fieldName)
+	}
+	return sats, nil
 }
 
 func parseUint256LittleEndianBytes(raw string, fieldName string) ([32]uints.U8, error) {

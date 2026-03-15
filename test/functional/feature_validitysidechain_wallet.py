@@ -787,6 +787,28 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["queue_state"]["head_index"], len(real_queue_entries))
         assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
 
+        real_withdrawals = real_valid_vector.get("withdrawal_leaves", [])
+        if real_withdrawals:
+            verified_withdrawal_res = node.sendverifiedwithdrawals(
+                real_sidechain_id,
+                real_public_inputs["batch_number"],
+                [
+                    {
+                        "withdrawal_id": leaf["withdrawal_id"],
+                        "script": leaf["script"],
+                        "amount": Decimal(leaf["amount"]),
+                    }
+                    for leaf in real_withdrawals
+                ],
+            )
+            assert_equal(verified_withdrawal_res["withdrawal_root"], real_public_inputs["withdrawal_root"])
+            assert_equal(verified_withdrawal_res["withdrawal_count"], len(real_withdrawals))
+            node.generate(1)
+
+            real_sidechain = get_sidechain_info(node, real_sidechain_id)
+            assert_equal(real_sidechain["executed_withdrawal_count"], len(real_withdrawals))
+            assert_equal(real_sidechain["escrow_balance"], amount_to_sats(Decimal("1.0") - Decimal(real_withdrawals[0]["amount"])))
+
 
 if __name__ == "__main__":
     ValiditySidechainWalletTest().main()

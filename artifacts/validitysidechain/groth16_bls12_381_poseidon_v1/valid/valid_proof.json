@@ -14,7 +14,7 @@
     "prior_state_root": "1",
     "queue_prefix_commitment": "0ada18d0e921053acbff1737ac51763b6e91457d7bafff7511c037e2765cfda2",
     "sidechain_id": "9",
-    "withdrawal_root": "44858d92d8a57e8b2c40dd5184cbbf20d72e57b56c399ce66c163d2c8c9ab9ae"
+    "withdrawal_root": "0c0ec66808e467179ad7a8fcda5c702342e17b415f0d8f310e238af2c4ecc2c9"
   },
   "setup_deposits": [
     {
@@ -33,14 +33,23 @@
       "message_hash": "53a42fd5ca7ee9bfd11d40bb80299e593c83b400eda0271549724fda360a2e8d"
     }
   ],
+  "withdrawal_leaves": [
+    {
+      "withdrawal_id": "0000000000000000000000000000000000000000000000000000000000000001",
+      "amount": "0.25",
+      "destination_commitment": "cb96d487e7f0848b320f565aff95eaf266bb36921ea9882ea9daaee82895eb0e",
+      "script": "00142222222222222222222222222222222222222222"
+    }
+  ],
   "data_chunks_hex": [
     "7265616c2d6261746368",
     "2d6461"
   ],
-  "proof_bytes_hex": "5653475001a40bef1500553ca7f655b8664e8ba198347aba4d0f326d4a68a6062bc1cabf9ed5982d64ced52f054ba6288962f959f0ab3112d435ed8620f66b62dc68bdf90a9d77642d1991451e35364328fc7d7c74acb81cf3b8650ba0bffa37512122177908ddc31d4a2f7cb85c2a7350db77c53699cb099cba9a96c3b4bb606aaaf152761ba99ef57296fe351212aee0aea7213297760ee70b22f588d1180b48dacc94fddafe41db5ab98a2b091e6cc980b0a86980d612600146a2004ca1fced267aa5af",
+  "proof_bytes_hex": "5653475001a974a4195ed9279bbc06b27ed8032fcb1aed735cea21b6d2dbbc57fcd5aa09e134a3d88079181b8d59e9dcbfbd54d719a8ae03dd5eaf6a3e1437024f856da4f79681571b705f0ad12431288a16b8e06c6246c910dbe61076eff75deaa2b9b83f07036b99f4e05e99d83068da668129578543e904ef71aedbbfe13936242cbf87dac918df78f57cd63028408d2b32c27eab13f7e2e03fb7a37ffccf379f6caa83bc0b2d3635bde8a6f9301171477ee81c641a86f20b602e6b2c591a9e4da4e022",
   "notes": [
     "real Groth16 proof for the experimental poseidon batch transition circuit",
     "consumes one deterministic deposit queue entry and binds its queue prefix commitment",
+    "binds one deterministic withdrawal leaf through the real Litecoin withdrawal-root hashing path",
     "the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
     "binds a non-empty published DA payload through data_root and data_size",
     "verified in-process by the node native blst Groth16 path"

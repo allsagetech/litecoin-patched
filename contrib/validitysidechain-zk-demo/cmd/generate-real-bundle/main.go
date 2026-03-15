@@ -77,6 +77,7 @@ type vectorFile struct {
 	PublicInputs        map[string]string          `json:"public_inputs"`
 	SetupDeposits       []depositSetup             `json:"setup_deposits,omitempty"`
 	ConsumedQueueEntries []toybatch.ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
+	WithdrawalLeaves    []toybatch.WithdrawalLeaf  `json:"withdrawal_leaves,omitempty"`
 	DataChunksHex       []string                   `json:"data_chunks_hex,omitempty"`
 	ProofBytesHex       string                     `json:"proof_bytes_hex"`
 	Notes               []string                   `json:"notes,omitempty"`
@@ -88,6 +89,13 @@ type depositSetup struct {
 	Amount                string `json:"amount"`
 	Nonce                 uint64 `json:"nonce"`
 	DepositID             string `json:"deposit_id"`
+}
+
+type withdrawalSetup struct {
+	WithdrawalID          string `json:"withdrawal_id"`
+	Amount                string `json:"amount"`
+	Script                string `json:"script"`
+	DestinationCommitment string `json:"destination_commitment"`
 }
 
 func main() {
@@ -103,6 +111,7 @@ func main() {
 	if depositMessageHash == "" {
 		panic("deposit message hash unexpectedly empty")
 	}
+	withdrawal, withdrawalRoot := findFieldSizedWithdrawalSetup()
 
 	request := toybatch.CommandRequest{
 		ProfileName: realbatch.ProfileName,
@@ -115,7 +124,7 @@ func main() {
 			L1MessageRootAfter:    queueRootAfter,
 			ConsumedQueueMessages: 1,
 			QueuePrefixCommitment: queuePrefixCommitment,
-			WithdrawalRoot:        "0",
+			WithdrawalRoot:        withdrawalRoot,
 			DataRoot:              "0",
 			DataSize:              0,
 		},
@@ -128,6 +137,12 @@ func main() {
 			MessageKind: 1,
 			MessageID:   deposit.DepositID,
 			MessageHash: depositMessageHash,
+		}},
+		WithdrawalLeaves: []toybatch.WithdrawalLeaf{{
+			WithdrawalID:          withdrawal.WithdrawalID,
+			Amount:                withdrawal.Amount,
+			DestinationCommitment: withdrawal.DestinationCommitment,
+			Script:                withdrawal.Script,
 		}},
 	}
 	derivedRequest, err := realbatch.DeriveRequest(request)
@@ -193,11 +208,13 @@ func main() {
 		PublicInputs:   publicInputsMap(derivedRequest),
 		SetupDeposits:  []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
+		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
 		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(validProofBytes),
 		Notes: []string{
 			"real Groth16 proof for the experimental poseidon batch transition circuit",
 			"consumes one deterministic deposit queue entry and binds its queue prefix commitment",
+			"binds one deterministic withdrawal leaf through the real Litecoin withdrawal-root hashing path",
 			"the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
 			"binds a non-empty published DA payload through data_root and data_size",
 			"verified in-process by the node native blst Groth16 path",
@@ -213,6 +230,7 @@ func main() {
 		PublicInputs:   publicInputsMap(mismatchRequest),
 		SetupDeposits:  []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
+		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
 		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(validProofBytes),
 		Notes: []string{
@@ -227,6 +245,7 @@ func main() {
 		PublicInputs:   publicInputsMap(derivedRequest),
 		SetupDeposits:  []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
+		WithdrawalLeaves: append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
 		DataChunksHex:  append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:  hex.EncodeToString(corruptProofBytes),
 		Notes: []string{
@@ -239,7 +258,7 @@ func main() {
 		Curve:         "bls12_381",
 		Backend:       "native_blst_groth16",
 		ConsensusSafe: false,
-		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and non-empty queue/DA test vectors",
+		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and non-empty queue/withdrawal/DA test vectors",
 		ConsensusTuple: consensusTuple{
 			Version:              1,
 			ProofSystemID:        2,
@@ -337,6 +356,23 @@ func findFieldSizedDepositSetup(sidechainID uint8) (depositSetup, string, string
 	panic("failed to find field-sized queue roots for experimental real profile")
 }
 
+func findFieldSizedWithdrawalSetup() (withdrawalSetup, string) {
+	base := withdrawalSetup{
+		Amount: "0.25",
+		Script: "00142222222222222222222222222222222222222222",
+	}
+	base.DestinationCommitment = hashPayloadDisplayHex(mustHex(base.Script))
+	for suffix := uint64(1); suffix < 100000; suffix++ {
+		candidate := base
+		candidate.WithdrawalID = fmt.Sprintf("%064x", suffix)
+		root := computeWithdrawalRoot([]withdrawalSetup{candidate})
+		if fitsField(root) {
+			return candidate, root
+		}
+	}
+	panic("failed to find field-sized withdrawal root for experimental real profile")
+}
+
 func publicInputsMap(request toybatch.CommandRequest) map[string]string {
 	return map[string]string{
 		"sidechain_id":            itoa(uint64(request.SidechainID)),
@@ -395,6 +431,31 @@ func computeQueueTransitionRoot(
 	return hashPayloadDisplayHex(payload)
 }
 
+func computeWithdrawalRoot(withdrawals []withdrawalSetup) string {
+	if len(withdrawals) == 0 {
+		payload := make([]byte, 0, 5+4+32)
+		payload = append(payload, []byte{'V', 'S', 'C', 'W', 0x01}...)
+		payload = append(payload, 0, 0, 0, 0)
+		payload = append(payload, make([]byte, 32)...)
+		return hashPayloadDisplayHex(payload)
+	}
+
+	leafPayload := make([]byte, 0, 5+32+8+32)
+	leafPayload = append(leafPayload, []byte{'V', 'S', 'C', 'W', 0x02}...)
+	leafPayload = append(leafPayload, uint256HexToLEBytes(withdrawals[0].WithdrawalID)...)
+	var amount [8]byte
+	binary.LittleEndian.PutUint64(amount[:], 25_000_000)
+	leafPayload = append(leafPayload, amount[:]...)
+	leafPayload = append(leafPayload, uint256HexToLEBytes(withdrawals[0].DestinationCommitment)...)
+	leafHash := hashPayloadBytes(leafPayload)
+
+	rootPayload := make([]byte, 0, 5+4+32)
+	rootPayload = append(rootPayload, []byte{'V', 'S', 'C', 'W', 0x01}...)
+	rootPayload = append(rootPayload, 1, 0, 0, 0)
+	rootPayload = append(rootPayload, leafHash...)
+	return hashPayloadDisplayHex(rootPayload)
+}
+
 func uint256HexToLEBytes(raw string) []byte {
 	normalized := raw
 	if normalized == "" {
@@ -412,13 +473,18 @@ func uint256HexToLEBytes(raw string) []byte {
 }
 
 func hashPayloadDisplayHex(payload []byte) string {
-	first := sha256.Sum256(payload)
-	second := sha256.Sum256(first[:])
-	reversed := make([]byte, len(second))
-	for i := range second {
-		reversed[i] = second[len(second)-1-i]
+	raw := hashPayloadBytes(payload)
+	reversed := make([]byte, len(raw))
+	for i := range raw {
+		reversed[i] = raw[len(raw)-1-i]
 	}
 	return hex.EncodeToString(reversed)
+}
+
+func hashPayloadBytes(payload []byte) []byte {
+	first := sha256.Sum256(payload)
+	second := sha256.Sum256(first[:])
+	return append([]byte{}, second[:]...)
 }
 
 func mustHex(raw string) []byte {

@@ -143,6 +143,11 @@ This means:
   `l1_message_root_after` and `queue_prefix_commitment` transitions from that
   private queue witness instead of treating those queue fields as public-input
   placeholders
+- the experimental real-profile vectors now also bind one deterministic
+  withdrawal leaf through the actual Litecoin withdrawal-root hashing path, so
+  the committed valid vector can drive `EXECUTE_VERIFIED_WITHDRAWALS` against a
+  proof-backed accepted batch instead of only exposing a synthetic
+  `withdrawal_root`
 - the experimental real-profile proving key is now generator-produced but not
   committed in-tree because the SHA-heavy circuit pushes `batch_pk.bin` past
   GitHub's 100 MB object limit; committed artifacts remain verifier-side only,

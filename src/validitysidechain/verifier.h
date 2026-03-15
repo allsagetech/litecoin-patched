@@ -78,6 +78,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     uint8_t sidechain_id,
     const ValiditySidechainBatchPublicInputs& public_inputs,
     const std::vector<ValiditySidechainQueueEntry>& consumed_queue_entries,
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawal_leaves,
     const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,
     std::string* error = nullptr);
