@@ -758,7 +758,7 @@ static UniValue WithdrawalLeavesToJSON(const std::vector<ValiditySidechainWithdr
     for (const auto& leaf : withdrawal_leaves) {
         UniValue encoded(UniValue::VOBJ);
         encoded.pushKV("withdrawal_id", leaf.withdrawal_id.GetHex());
-        encoded.pushKV("amount", ValueFromAmount(leaf.amount).getValStr());
+        encoded.pushKV("amount", FormatMoney(leaf.amount));
         encoded.pushKV("destination_commitment", leaf.destination_commitment.GetHex());
         leaves.push_back(encoded);
     }
