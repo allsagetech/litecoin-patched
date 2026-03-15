@@ -44,6 +44,8 @@ bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std:
 bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config);
+bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config);
 

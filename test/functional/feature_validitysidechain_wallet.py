@@ -275,6 +275,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(toy_supported["verifier_backend"], "external_gnark_command")
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
+        assert_equal(toy_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
         assert_equal(toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(toy_supported["verifier_artifact_name"], "gnark_groth16_toy_batch_transition_v1")
@@ -293,6 +294,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(native_toy_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(native_toy_supported["batch_verifier_mode"], "native_blst_groth16_toy_batch_transition_v1")
         assert_equal(native_toy_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
+        assert_equal(native_toy_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
         assert_equal(native_toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(native_toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(native_toy_supported["verifier_artifact_name"], "native_blst_groth16_toy_batch_transition_v1")
@@ -316,6 +318,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["batch_queue_binding_mode"], "local_prefix_consensus_single_entry_experimental")
+        assert_equal(real_supported["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
         assert_equal(real_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
@@ -734,6 +737,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_sidechain = get_sidechain_info(node, real_sidechain_id)
         assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_sidechain["batch_queue_binding_mode"], "local_prefix_consensus_single_entry_experimental")
+        assert_equal(real_sidechain["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
         assert_equal(real_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
@@ -887,6 +891,26 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         real_withdrawals = real_valid_vector.get("withdrawal_leaves", [])
         if real_withdrawals:
+            multi_leaf_real_withdrawals = [
+                {
+                    "withdrawal_id": real_withdrawals[0]["withdrawal_id"],
+                    "script": real_withdrawals[0]["script"],
+                    "amount": Decimal(real_withdrawals[0]["amount"]),
+                },
+                {
+                    "withdrawal_id": "ef" * 32,
+                    "script": build_script_destination(node),
+                    "amount": Decimal("0.01"),
+                },
+            ]
+            assert_raises_rpc_error(
+                -8,
+                "experimental real profile currently supports at most one executed withdrawal leaf",
+                node.sendverifiedwithdrawals,
+                real_sidechain_id,
+                real_public_inputs["batch_number"],
+                multi_leaf_real_withdrawals,
+            )
             verified_withdrawal_res = node.sendverifiedwithdrawals(
                 real_sidechain_id,
                 real_public_inputs["batch_number"],

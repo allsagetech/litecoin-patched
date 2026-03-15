@@ -1066,6 +1066,13 @@ bool ValiditySidechainState::ExecuteWithdrawals(
         }
         return false;
     }
+    if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain->config) &&
+        withdrawal_proofs.size() > 1) {
+        if (error != nullptr) {
+            *error = "experimental real profile currently supports at most one executed withdrawal leaf";
+        }
+        return false;
+    }
 
     const ValiditySidechainAcceptedBatch* accepted_batch = GetAcceptedBatchById(sidechain_id, accepted_batch_id);
     if (accepted_batch == nullptr) {

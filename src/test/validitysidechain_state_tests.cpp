@@ -852,6 +852,36 @@ BOOST_AUTO_TEST_CASE(real_profile_batch_rejects_more_than_one_consumed_queue_mes
     BOOST_CHECK_EQUAL(error, "experimental real profile currently supports at most one consumed queue message");
 }
 
+BOOST_AUTO_TEST_CASE(real_profile_withdrawal_execution_rejects_more_than_one_leaf)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 29, /* registration_height= */ 710, config));
+
+    ValiditySidechainAcceptedBatch batch;
+    batch.batch_number = 1;
+    batch.withdrawal_root = uint256S("7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b");
+    batch.accepted_height = 711;
+    ValiditySidechain* sidechain = state.GetSidechain(29);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->accepted_batches.emplace(batch.batch_number, batch);
+
+    ValiditySidechainWithdrawalProof proof_a;
+    proof_a.withdrawal.withdrawal_id = uint256S("0101010101010101010101010101010101010101010101010101010101010101");
+    proof_a.withdrawal.amount = COIN;
+    ValiditySidechainWithdrawalProof proof_b;
+    proof_b.withdrawal.withdrawal_id = uint256S("0202020202020202020202020202020202020202020202020202020202020202");
+    proof_b.withdrawal.amount = COIN;
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteWithdrawals(
+        /* sidechain_id= */ 29,
+        ComputeValiditySidechainAcceptedBatchId(/* sidechain_id= */ 29, batch.batch_number, batch.withdrawal_root),
+        {proof_a, proof_b},
+        &error));
+    BOOST_CHECK_EQUAL(error, "experimental real profile currently supports at most one executed withdrawal leaf");
+}
+
 BOOST_AUTO_TEST_CASE(accept_batch_rejects_invalid_scaffold_proof_envelope)
 {
     ValiditySidechainState state;

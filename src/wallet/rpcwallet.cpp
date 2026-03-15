@@ -2276,6 +2276,12 @@ static RPCHelpMan sendverifiedwithdrawals()
             std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
             std::vector<CRecipient> payout_recipients;
             ParseValidityWithdrawalLeaves(request.params[2], withdrawals, payout_recipients);
+            if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config) &&
+                withdrawals.size() > 1) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "experimental real profile currently supports at most one executed withdrawal leaf");
+            }
 
             const uint256 computed_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
             if (computed_root != accepted_batch->withdrawal_root) {

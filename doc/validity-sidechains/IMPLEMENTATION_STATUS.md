@@ -176,6 +176,10 @@ This means:
   `consumed_queue_messages > 1`, matching the current experimental
   single-entry queue-fixture coverage instead of silently accepting broader
   queue consumption semantics than that profile actually models
+- consensus and wallet RPCs now also hard-reject more than one executed
+  withdrawal leaf for `groth16_bls12_381_poseidon_v1`, matching the current
+  single-leaf experimental withdrawal binding instead of pretending broader
+  withdrawal execution coverage exists
 - the current native verifier path interprets each batch public input as a
   single BLS12-381 scalar, so the final real profile must either keep those
   roots / commitments field-sized or move to a decomposed public-input layout

@@ -425,7 +425,9 @@ Current branch status:
   plus single withdrawal witness host-validated outside the proof, along with
   consensus rejection of `consumed_queue_messages > 1` for that profile so
   the node no longer accepts broader queue-consumption semantics than the
-  current experimental bundle covers, along with
+  current experimental bundle covers, plus consensus and wallet rejection of
+  more than one executed withdrawal leaf for that profile so withdrawal
+  execution does not overstate the current experimental semantics, along with
   committed invalid vectors for mismatched `new_state_root`,
   `queue_prefix_commitment`, and `withdrawal_root`, plus functional rejection
   of mismatched `withdrawal_leaves` witness data before auto-prover proof

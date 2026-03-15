@@ -245,6 +245,26 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
     return "local_prefix_consensus_count_only";
 }
 
+bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config)
+{
+    return IsValiditySidechainSingleEntryExperimentalQueueProfile(config);
+}
+
+const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (supported->scaffolding_only) {
+        return "local_merkle_consensus_scaffold";
+    }
+    if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
+        return "accepted_root_single_leaf_experimental";
+    }
+    return "accepted_root_generic";
+}
+
 const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);

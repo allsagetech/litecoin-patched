@@ -1776,6 +1776,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(config));
+    result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(config));
     result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(config));
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(config));
     result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
@@ -1894,6 +1895,7 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("executed_escape_exit_count", static_cast<int64_t>(sidechain.executed_escape_exit_count));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(sidechain.config));
+    result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(sidechain.config));
     result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(sidechain.config));
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(sidechain.config));
     result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
