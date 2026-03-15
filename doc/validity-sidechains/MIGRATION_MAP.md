@@ -485,6 +485,10 @@ Current branch status:
   deposit queue entry at a time and rejects deposits whose append, consume,
   prefix-commitment, or reclaim queue hashes would leave the current 11-input
   native verifier layout outside the BLS12-381 scalar field
+- `getvaliditysidechaininfo` and `sendvaliditydeposit` now expose that as
+  `deposit_admission_mode = "single_pending_entry_scalar_field_experimental"`,
+  and the wallet auto-selects a compatible nonce for that profile when one is
+  omitted
 - wallet send-path RPCs now exist for validity-sidechain registration,
   deposits, scaffold batches, force-exit requests, and stale-deposit reclaim
 - the legacy `getdrivechaininfo`, `senddrivechainbundle`, and

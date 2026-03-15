@@ -382,5 +382,10 @@ bool GetValiditySidechainConsumedQueueEntries(
     uint32_t consumed_queue_messages,
     std::vector<ValiditySidechainQueueEntry>& out_entries,
     std::string* error = nullptr);
+bool ValidateValiditySidechainExperimentalDepositCandidate(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    const ValiditySidechainDepositData& deposit,
+    std::string* error = nullptr);
 
 #endif // BITCOIN_VALIDITYSIDECHAIN_STATE_H

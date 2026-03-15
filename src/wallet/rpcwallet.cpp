@@ -1829,7 +1829,8 @@ static RPCHelpMan sendvaliditydeposit()
     return RPCHelpMan{
         "sendvaliditydeposit",
         "Create, fund, sign and broadcast a validity-sidechain DEPOSIT transaction.\n"
-        "If deposit_id or nonce are omitted, wallet-side randomness is used.\n",
+        "If deposit_id or nonce are omitted, wallet-side randomness is used.\n"
+        "For the current experimental real profile, the wallet auto-picks a nonce that keeps the single pending deposit queue transition inside the native BLS12-381 scalar field.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"destination_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte sidechain destination commitment"},
@@ -1863,7 +1864,8 @@ static RPCHelpMan sendvaliditydeposit()
             const uint256 destination_commitment = ParseHashV(request.params[1], "destination_commitment");
             const CScript refund_script = ParseRpcScriptObject(request.params[2], "refund_destination");
 
-            if (!HasValiditySidechainInChain(*pwallet, sidechain_id)) {
+            ValiditySidechain sidechain;
+            if (!GetValiditySidechainFromChain(*pwallet, sidechain_id, sidechain)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
             }
 
@@ -1871,12 +1873,49 @@ static RPCHelpMan sendvaliditydeposit()
             deposit.amount = AmountFromValue(request.params[3]);
             deposit.destination_commitment = destination_commitment;
             deposit.refund_script_commitment = ComputeRpcScriptCommitment(refund_script);
-            deposit.nonce = (request.params.size() > 4 && !request.params[4].isNull())
+            const bool nonce_provided = request.params.size() > 4 && !request.params[4].isNull();
+            deposit.nonce = nonce_provided
                 ? ParseUint64Value(request.params[4], "nonce")
                 : FastRandomContext().rand64();
             deposit.deposit_id = (request.params.size() > 5 && !request.params[5].isNull())
                 ? ParseHashV(request.params[5], "deposit_id")
                 : GetRandHash();
+            if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)) {
+                std::string deposit_validation_error;
+                if (nonce_provided) {
+                    if (!ValidateValiditySidechainExperimentalDepositCandidate(
+                            sidechain,
+                            sidechain_id,
+                            deposit,
+                            &deposit_validation_error)) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, deposit_validation_error);
+                    }
+                } else {
+                    bool found_supported_nonce = false;
+                    FastRandomContext rng;
+                    for (int attempt = 0; attempt < 1024; ++attempt) {
+                        deposit.nonce = rng.rand64();
+                        if (ValidateValiditySidechainExperimentalDepositCandidate(
+                                sidechain,
+                                sidechain_id,
+                                deposit,
+                                &deposit_validation_error)) {
+                            found_supported_nonce = true;
+                            break;
+                        }
+                        if (deposit_validation_error == "experimental real profile currently supports at most one pending deposit queue entry") {
+                            throw JSONRPCError(RPC_INVALID_PARAMETER, deposit_validation_error);
+                        }
+                    }
+                    if (!found_supported_nonce) {
+                        throw JSONRPCError(
+                            RPC_INVALID_PARAMETER,
+                            deposit_validation_error.empty()
+                                ? "unable to find supported deposit nonce for experimental real profile"
+                                : deposit_validation_error);
+                    }
+                }
+            }
 
             bool subtract_fee_from_amount = false;
             if (request.params.size() > 6 && !request.params[6].isNull()) {

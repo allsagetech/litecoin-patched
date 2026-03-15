@@ -226,6 +226,10 @@ This means:
   prefix-commitment, and reclaim queue hashes against that same scalar field,
   so the node no longer accepts pending deposit states the current 11-input
   native verifier layout cannot represent
+- the wallet `sendvaliditydeposit` RPC now mirrors that profile limit too:
+  it reports `deposit_admission_mode = "single_pending_entry_scalar_field_experimental"`
+  and auto-picks a compatible nonce when callers omit one, instead of leaving
+  operators to trial-and-error random nonces against mempool rejection
 - the remaining trustless blocker is no longer the generic pairing equation;
   it is the absence of the final sidechain proof semantics for the intended
   profile

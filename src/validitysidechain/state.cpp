@@ -780,6 +780,21 @@ bool ValiditySidechainState::RegisterSidechain(
     return true;
 }
 
+bool ValidateValiditySidechainExperimentalDepositCandidate(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    const ValiditySidechainDepositData& deposit,
+    std::string* error)
+{
+    ValiditySidechainQueueEntry entry;
+    entry.queue_index = NextQueueIndex(sidechain);
+    entry.message_kind = ValiditySidechainQueueEntry::MESSAGE_DEPOSIT;
+    entry.status = ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING;
+    entry.message_id = deposit.deposit_id;
+    entry.message_hash = ComputeValiditySidechainDepositMessageHash(sidechain_id, deposit);
+    return ValidateExperimentalRealProfilePendingDepositTransition(sidechain, sidechain_id, entry, error);
+}
+
 bool ValiditySidechainState::AddDeposit(
     uint8_t sidechain_id,
     int deposit_height,

@@ -245,6 +245,18 @@ bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& co
     return supported != nullptr && supported->scaffolding_only;
 }
 
+const char* GetValiditySidechainDepositAdmissionMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (IsRealGroth16PoseidonProfile(*supported)) {
+        return "single_pending_entry_scalar_field_experimental";
+    }
+    return "enabled_local_queue_consensus";
+}
+
 bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
