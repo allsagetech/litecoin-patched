@@ -180,6 +180,10 @@ This means:
   withdrawal leaf for `groth16_bls12_381_poseidon_v1`, matching the current
   single-leaf experimental withdrawal binding instead of pretending broader
   withdrawal execution coverage exists
+- consensus now also requires the executed withdrawal proof itself to be a
+  literal single-leaf proof for `groth16_bls12_381_poseidon_v1`, so a
+  hand-crafted Merkle proof for one leaf out of a larger withdrawal tree no
+  longer slips past the current experimental single-leaf semantics
 - the current native verifier path interprets each batch public input as a
   single BLS12-381 scalar, so the final real profile must either keep those
   roots / commitments field-sized or move to a decomposed public-input layout

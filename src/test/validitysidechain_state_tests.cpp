@@ -882,6 +882,38 @@ BOOST_AUTO_TEST_CASE(real_profile_withdrawal_execution_rejects_more_than_one_lea
     BOOST_CHECK_EQUAL(error, "experimental real profile currently supports at most one executed withdrawal leaf");
 }
 
+BOOST_AUTO_TEST_CASE(real_profile_withdrawal_execution_rejects_non_single_leaf_proof_shape)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 30, /* registration_height= */ 710, config));
+
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawals = {
+        {uint256S("1111111111111111111111111111111111111111111111111111111111111111"), COIN, uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+        {uint256S("2222222222222222222222222222222222222222222222222222222222222222"), COIN, uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")},
+    };
+    ValiditySidechainAcceptedBatch batch;
+    batch.batch_number = 1;
+    batch.withdrawal_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
+    batch.accepted_height = 711;
+    ValiditySidechain* sidechain = state.GetSidechain(30);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->accepted_batches.emplace(batch.batch_number, batch);
+
+    ValiditySidechainWithdrawalProof proof;
+    BOOST_REQUIRE(BuildValiditySidechainWithdrawalProof(withdrawals, /* withdrawal_index= */ 0, proof));
+    BOOST_CHECK_EQUAL(proof.leaf_count, 2U);
+    BOOST_REQUIRE(!proof.sibling_hashes.empty());
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteWithdrawals(
+        /* sidechain_id= */ 30,
+        ComputeValiditySidechainAcceptedBatchId(/* sidechain_id= */ 30, batch.batch_number, batch.withdrawal_root),
+        {proof},
+        &error));
+    BOOST_CHECK_EQUAL(error, "experimental real profile requires single-leaf withdrawal proofs");
+}
+
 BOOST_AUTO_TEST_CASE(accept_batch_rejects_invalid_scaffold_proof_envelope)
 {
     ValiditySidechainState state;

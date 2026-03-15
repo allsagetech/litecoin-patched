@@ -1086,6 +1086,13 @@ bool ValiditySidechainState::ExecuteWithdrawals(
     std::set<uint256> new_ids;
     for (const auto& proof : withdrawal_proofs) {
         const ValiditySidechainWithdrawalLeaf& withdrawal = proof.withdrawal;
+        if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain->config) &&
+            (proof.leaf_count != 1 || proof.leaf_index != 0 || !proof.sibling_hashes.empty())) {
+            if (error != nullptr) {
+                *error = "experimental real profile requires single-leaf withdrawal proofs";
+            }
+            return false;
+        }
         if (!VerifyValiditySidechainWithdrawalProof(proof, accepted_batch->withdrawal_root)) {
             if (error != nullptr) {
                 *error = "withdrawal proof does not match accepted withdrawal root";

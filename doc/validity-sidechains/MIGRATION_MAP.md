@@ -427,7 +427,10 @@ Current branch status:
   the node no longer accepts broader queue-consumption semantics than the
   current experimental bundle covers, plus consensus and wallet rejection of
   more than one executed withdrawal leaf for that profile so withdrawal
-  execution does not overstate the current experimental semantics, along with
+  execution does not overstate the current experimental semantics, plus
+  consensus rejection of non-single-leaf withdrawal proof shapes for that
+  profile so a hand-crafted proof of one leaf out of a larger withdrawal tree
+  is no longer accepted under the current experimental mode, along with
   committed invalid vectors for mismatched `new_state_root`,
   `queue_prefix_commitment`, and `withdrawal_root`, plus functional rejection
   of mismatched `withdrawal_leaves` witness data before auto-prover proof
