@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <fs.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
 #include <util/strencodings.h>
@@ -182,7 +183,7 @@ fs::path FindRepoPath(const fs::path& relative)
 
 std::string ReadTextFile(const fs::path& path)
 {
-    std::ifstream file(path);
+    fsbridge::ifstream file(path);
     BOOST_REQUIRE_MESSAGE(file.is_open(), "failed to open " + path.string());
     std::ostringstream contents;
     contents << file.rdbuf();
