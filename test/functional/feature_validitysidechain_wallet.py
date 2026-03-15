@@ -258,6 +258,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         info = node.getvaliditysidechaininfo()
         assert_equal(info["batch_validation_mode"], "profile_specific")
+        assert_equal(info["batch_queue_binding_mode"], "profile_specific")
+        assert_equal(info["batch_withdrawal_binding_mode"], "profile_specific")
         assert_equal(info["verified_withdrawal_execution_mode"], "profile_specific")
         assert_equal(info["escape_exit_mode"], "profile_specific")
         supported = get_supported_profile(node, "scaffold_onchain_da_v1")
@@ -844,7 +846,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             real_data_chunks,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "experimental real profile currently supports at most one consumed queue message",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -858,6 +860,26 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             real_valid_vector["proof_bytes_hex"],
             real_data_chunks,
         )
+        if real_valid_vector.get("withdrawal_leaves", []):
+            assert_raises_rpc_error(
+                -8,
+                "experimental real profile currently supports at most one withdrawal leaf witness",
+                node.sendvaliditybatch,
+                real_sidechain_id,
+                {
+                    **real_public_inputs,
+                    "withdrawal_leaves": [
+                        real_valid_vector["withdrawal_leaves"][0],
+                        {
+                            "withdrawal_id": "ef" * 32,
+                            "script": build_script_destination(node),
+                            "amount": "0.01",
+                        },
+                    ],
+                },
+                real_valid_vector["proof_bytes_hex"],
+                real_data_chunks,
+            )
         assert_raises_rpc_error(
             -26,
             "Groth16",

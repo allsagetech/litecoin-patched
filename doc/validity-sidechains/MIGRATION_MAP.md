@@ -434,7 +434,8 @@ Current branch status:
   reporting of `withdrawal_root_single_leaf_experimental` for that profile,
   plus early auto-prover rejection of unsupported multi-entry queue or
   multi-leaf withdrawal witness shapes for that profile before invoking the
-  external prover,
+  external prover, plus the same early shape rejection in
+  `sendvaliditybatch` even when manual `proof_bytes` are supplied,
   along with
   committed invalid vectors for mismatched `new_state_root`,
   `queue_prefix_commitment`, and `withdrawal_root`, plus functional rejection
@@ -457,7 +458,10 @@ Current branch status:
   proofs are not yet backed by the final user-state circuit
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration, force-exit, batch-validation, withdrawal, and escape-exit
-  plumbing availability
+  plumbing availability, and its top-level status summary now reports
+  `batch_queue_binding_mode = "profile_specific"` and
+  `batch_withdrawal_binding_mode = "profile_specific"` alongside the existing
+  profile-specific batch and exit mode summary fields
 - `getvaliditysidechaininfo` now also reconstructs accepted-batch publication
   metadata from the active chain, including proof size, DA chunk count, and
   the publishing transaction id

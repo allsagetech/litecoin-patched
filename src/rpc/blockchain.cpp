@@ -1975,6 +1975,8 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("force_exit_request_available", true);
     result.pushKV("batch_validation_available", true);
     result.pushKV("batch_validation_mode", "profile_specific");
+    result.pushKV("batch_queue_binding_mode", "profile_specific");
+    result.pushKV("batch_withdrawal_binding_mode", "profile_specific");
     result.pushKV("verified_withdrawal_execution_available", true);
     result.pushKV("verified_withdrawal_execution_mode", "profile_specific");
     result.pushKV("escape_exit_available", true);

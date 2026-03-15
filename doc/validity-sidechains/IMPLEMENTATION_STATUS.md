@@ -152,6 +152,11 @@ This means:
 - the functional real auto-prover coverage now also rejects mismatched
   `withdrawal_leaves` witness metadata before proof generation, so the wallet
   no longer treats that experimental witness as best-effort input
+- the wallet `sendvaliditybatch` RPC now applies the same experimental
+  real-profile shape limits even when callers supply manual `proof_bytes`,
+  rejecting `consumed_queue_messages > 1` and more than one
+  `withdrawal_leaves` witness up front instead of falling through to later
+  consensus or ignored-metadata behavior
 - the Go `verify-batch` helper now also understands the committed native real
   `groth16_bls12_381_poseidon_v1` bundle, giving the branch an external
   verifier-tool cross-check in addition to the in-process native verifier
@@ -184,6 +189,10 @@ This means:
   `withdrawal_root_single_leaf_experimental` rather than the generic
   `withdrawal_root_merkle_inclusion` mode, so node observability no longer
   overstates the current withdrawal execution capability
+- the top-level `getvaliditysidechaininfo` RPC now also reports
+  `batch_queue_binding_mode = "profile_specific"` and
+  `batch_withdrawal_binding_mode = "profile_specific"` alongside the existing
+  profile-specific batch and withdrawal execution mode summaries
 - the auto-prover path now also fails early on unsupported experimental real
   witness shapes, rejecting more than one consumed queue entry or more than
   one withdrawal witness leaf before invoking the external prover command

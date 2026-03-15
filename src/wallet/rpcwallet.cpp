@@ -2120,6 +2120,27 @@ static RPCHelpMan sendvaliditybatch()
             const UniValue& public_inputs_obj = request.params[1].get_obj();
             ValiditySidechainBatchPublicInputs public_inputs =
                 ParseValiditySidechainBatchPublicInputsObject(public_inputs_obj);
+            std::vector<ValiditySidechainWithdrawalLeaf> experimental_withdrawal_leaves;
+            std::vector<CRecipient> experimental_payout_recipients;
+            const UniValue& withdrawal_leaves = find_value(public_inputs_obj, "withdrawal_leaves");
+            if (!withdrawal_leaves.isNull()) {
+                ParseValidityWithdrawalLeaves(
+                    withdrawal_leaves,
+                    experimental_withdrawal_leaves,
+                    experimental_payout_recipients);
+            }
+            if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config) &&
+                public_inputs.consumed_queue_messages > 1) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "experimental real profile currently supports at most one consumed queue message");
+            }
+            if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config) &&
+                experimental_withdrawal_leaves.size() > 1) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "experimental real profile currently supports at most one withdrawal leaf witness");
+            }
             if (find_value(public_inputs_obj, "queue_prefix_commitment").isNull()) {
                 std::string queue_error;
                 if (!ComputeValiditySidechainQueuePrefixCommitment(
@@ -2143,15 +2164,6 @@ static RPCHelpMan sendvaliditybatch()
                     consumed_queue_entries,
                     &queue_entries_error)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, queue_entries_error);
-            }
-            std::vector<ValiditySidechainWithdrawalLeaf> experimental_withdrawal_leaves;
-            std::vector<CRecipient> experimental_payout_recipients;
-            const UniValue& withdrawal_leaves = find_value(public_inputs_obj, "withdrawal_leaves");
-            if (!withdrawal_leaves.isNull()) {
-                ParseValidityWithdrawalLeaves(
-                    withdrawal_leaves,
-                    experimental_withdrawal_leaves,
-                    experimental_payout_recipients);
             }
 
             std::vector<unsigned char> proof_bytes;
