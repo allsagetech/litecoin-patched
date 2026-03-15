@@ -319,7 +319,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["batch_queue_binding_mode"], "local_prefix_consensus_single_entry_experimental")
         assert_equal(real_supported["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
-        assert_equal(real_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_supported["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
         assert_equal(real_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["required"], True)
@@ -713,7 +713,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         node.generate(1)
 
         non_scaffold_escape_sidechain = get_sidechain_info(node, non_scaffold_escape_sidechain_id)
-        assert_equal(non_scaffold_escape_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(non_scaffold_escape_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
         assert_equal(non_scaffold_escape_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_raises_rpc_error(
             -26,
@@ -738,7 +738,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_sidechain["batch_queue_binding_mode"], "local_prefix_consensus_single_entry_experimental")
         assert_equal(real_sidechain["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
-        assert_equal(real_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
         assert_equal(real_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
         assert_equal(real_sidechain["verifier_assets"]["available"], True)

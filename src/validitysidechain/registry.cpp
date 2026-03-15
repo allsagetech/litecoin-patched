@@ -274,6 +274,9 @@ const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySi
     if (supported->scaffolding_only) {
         return "merkle_inclusion_scaffold";
     }
+    if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
+        return "withdrawal_root_single_leaf_experimental";
+    }
     return "withdrawal_root_merkle_inclusion";
 }
 

@@ -2224,7 +2224,8 @@ static RPCHelpMan sendverifiedwithdrawals()
     return RPCHelpMan{
         "sendverifiedwithdrawals",
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_VERIFIED_WITHDRAWALS transaction.\n"
-        "The wallet deterministically builds Merkle proofs from the ordered withdrawal list and requires the resulting withdrawal root to match the accepted batch tracked by this node.\n",
+        "The wallet deterministically builds Merkle proofs from the ordered withdrawal list and requires the resulting withdrawal root to match the accepted batch tracked by this node.\n"
+        "For the current experimental real profile, only a single executed withdrawal leaf is supported.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"batch_number", RPCArg::Type::NUM, RPCArg::Optional::NO, "Accepted batch number"},

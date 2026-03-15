@@ -180,6 +180,10 @@ This means:
   withdrawal leaf for `groth16_bls12_381_poseidon_v1`, matching the current
   single-leaf experimental withdrawal binding instead of pretending broader
   withdrawal execution coverage exists
+- RPC status now reports that same profile as
+  `withdrawal_root_single_leaf_experimental` rather than the generic
+  `withdrawal_root_merkle_inclusion` mode, so node observability no longer
+  overstates the current withdrawal execution capability
 - consensus now also requires the executed withdrawal proof itself to be a
   literal single-leaf proof for `groth16_bls12_381_poseidon_v1`, so a
   hand-crafted Merkle proof for one leaf out of a larger withdrawal tree no
