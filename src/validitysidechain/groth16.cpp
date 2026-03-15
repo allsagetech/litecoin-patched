@@ -120,6 +120,14 @@ static bool ParseScalarLE(
     return true;
 }
 
+static bool IsZeroScalarLE(const std::array<unsigned char, GROTH16_SCALAR_BYTES>& scalar_bytes)
+{
+    return std::all_of(
+        scalar_bytes.begin(),
+        scalar_bytes.end(),
+        [](unsigned char byte) { return byte == 0; });
+}
+
 static bool ComputeGammaABCCombination(
     const ValiditySidechainGroth16VerificationKey& verifying_key,
     const std::vector<std::array<unsigned char, GROTH16_SCALAR_BYTES>>& public_inputs_le,
@@ -139,17 +147,26 @@ static bool ComputeGammaABCCombination(
     }
 
     blst_p1 accumulator;
-    blst_p1_from_affine(&accumulator, &gamma_abc_0_affine);
+    bool have_accumulator = !blst_p1_affine_is_inf(&gamma_abc_0_affine);
+    if (have_accumulator) {
+        blst_p1_from_affine(&accumulator, &gamma_abc_0_affine);
+    }
 
     for (size_t i = 0; i < public_inputs_le.size(); ++i) {
         blst_scalar scalar;
         if (!ParseScalarLE(public_inputs_le[i], scalar, error)) {
             return false;
         }
+        if (IsZeroScalarLE(public_inputs_le[i])) {
+            continue;
+        }
 
         blst_p1_affine gamma_abc_affine;
         if (!UncompressG1(verifying_key.gamma_abc_g1[i + 1], gamma_abc_affine, error)) {
             return false;
+        }
+        if (blst_p1_affine_is_inf(&gamma_abc_affine)) {
+            continue;
         }
 
         blst_p1 gamma_abc;
@@ -157,10 +174,19 @@ static bool ComputeGammaABCCombination(
 
         blst_p1 scaled_term;
         blst_p1_mult(&scaled_term, &gamma_abc, scalar.b, 255);
+        if (!have_accumulator) {
+            accumulator = scaled_term;
+            have_accumulator = true;
+            continue;
+        }
         blst_p1_add_or_double(&accumulator, &accumulator, &scaled_term);
     }
 
-    blst_p1_to_affine(&out_point, &accumulator);
+    if (!have_accumulator) {
+        out_point = blst_p1_affine{};
+    } else {
+        blst_p1_to_affine(&out_point, &accumulator);
+    }
     if (!blst_p1_affine_in_g1(&out_point)) {
         return FailValidation(error, "Groth16 public-input linear combination left G1");
     }

@@ -147,8 +147,8 @@ ValiditySidechainGroth16VerificationKey MakeSyntheticZeroInputVerificationKey()
     verifying_key.delta_g2 = CompressedG2Multiple(1);
     verifying_key.gamma_abc_g1 = {
         CompressedG1Multiple(70),
-        CompressedG1Multiple(0),
-        CompressedG1Multiple(0),
+        CompressedG1Multiple(7),
+        CompressedG1Multiple(11),
     };
     return verifying_key;
 }
