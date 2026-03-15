@@ -1775,6 +1775,8 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("min_escape_hatch_delay", static_cast<int64_t>(supported.min_escape_hatch_delay));
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
+    result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(config));
+    result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(config));
     result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
     return result;
 }
@@ -1890,6 +1892,8 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("executed_withdrawal_count", static_cast<int64_t>(sidechain.executed_withdrawal_count));
     result.pushKV("executed_escape_exit_count", static_cast<int64_t>(sidechain.executed_escape_exit_count));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
+    result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(sidechain.config));
+    result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(sidechain.config));
     result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
     result.pushKV("config", ValiditySidechainConfigToJSON(sidechain.config));
     result.pushKV("queue_state", ValiditySidechainQueueStateToJSON(sidechain.queue_state));
@@ -1968,9 +1972,9 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("batch_validation_available", true);
     result.pushKV("batch_validation_mode", "profile_specific");
     result.pushKV("verified_withdrawal_execution_available", true);
-    result.pushKV("verified_withdrawal_execution_mode", "merkle_inclusion_scaffold");
+    result.pushKV("verified_withdrawal_execution_mode", "profile_specific");
     result.pushKV("escape_exit_available", true);
-    result.pushKV("escape_exit_mode", "merkle_inclusion_scaffold");
+    result.pushKV("escape_exit_mode", "profile_specific");
     const ValiditySidechainStateCacheStats cache_stats = GetValiditySidechainStateCacheStats();
     UniValue cache(UniValue::VOBJ);
     cache.pushKV("entries", static_cast<int64_t>(cache_stats.cache_entries));

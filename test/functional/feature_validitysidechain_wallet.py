@@ -257,16 +257,24 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         info = node.getvaliditysidechaininfo()
         assert_equal(info["batch_validation_mode"], "profile_specific")
+        assert_equal(info["verified_withdrawal_execution_mode"], "profile_specific")
+        assert_equal(info["escape_exit_mode"], "profile_specific")
         supported = get_supported_profile(node, "scaffold_onchain_da_v1")
         transition_supported = get_supported_profile(node, "scaffold_transition_da_v1")
         toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
         native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
         real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
+        assert_equal(supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(supported["escape_exit_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(toy_supported["scaffolding_only"], False)
         assert_equal(toy_supported["requires_external_verifier_assets"], True)
         assert_equal(toy_supported["supports_external_prover"], True)
         assert_equal(toy_supported["verifier_backend"], "external_gnark_command")
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
+        assert_equal(toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(toy_supported["verifier_artifact_name"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_assets"]["required"], True)
         if toy_supported["verifier_assets"]["profile_manifest_parsed"]:
@@ -282,6 +290,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(native_toy_supported["supports_external_prover"], False)
         assert_equal(native_toy_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(native_toy_supported["batch_verifier_mode"], "native_blst_groth16_toy_batch_transition_v1")
+        assert_equal(native_toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(native_toy_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(native_toy_supported["verifier_artifact_name"], "native_blst_groth16_toy_batch_transition_v1")
         assert_equal(native_toy_supported["verifier_assets"]["required"], True)
         assert_equal(native_toy_supported["verifier_assets"]["available"], True)
@@ -302,6 +312,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["supports_external_prover"], True)
         assert_equal(real_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["required"], True)
         assert_equal(real_supported["verifier_assets"]["available"], True)
@@ -362,6 +374,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         sidechain = get_sidechain_info(node, sidechain_id)
         assert_equal(register_res["sidechain_id"], sidechain_id)
+        assert_equal(sidechain["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(sidechain["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(sidechain["current_state_root"], config["initial_state_root"])
         assert_equal(sidechain["current_withdrawal_root"], config["initial_withdrawal_root"])
         assert_equal(sidechain["queue_state"]["pending_message_count"], 0)
@@ -629,6 +643,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         transition_sidechain = get_sidechain_info(node, transition_sidechain_id)
         assert_equal(transition_sidechain["batch_verifier_mode"], "scaffold_transition_commitment_v1")
+        assert_equal(transition_sidechain["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_sidechain["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(transition_sidechain["current_state_root"], transition_config["initial_state_root"])
         assert_equal(transition_sidechain["current_withdrawal_root"], transition_config["initial_withdrawal_root"])
 
@@ -667,6 +683,40 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(transition_sidechain["accepted_batches"][0]["withdrawal_root"], transition_public_inputs["withdrawal_root"])
         assert_equal(transition_sidechain["accepted_batches"][0]["data_root"], transition_public_inputs["data_root"])
 
+        self.log.info("Rejecting escape exits on a non-scaffold profile before real state-root proofs exist.")
+        non_scaffold_escape_sidechain_id = 9
+        non_scaffold_escape_exits = [
+            {
+                "exit_id": "ab" * 32,
+                "amount": Decimal("0.15"),
+                "script": build_script_destination(node),
+            },
+            {
+                "exit_id": "bc" * 32,
+                "amount": Decimal("0.10"),
+                "script": build_script_destination(node),
+            },
+        ]
+        non_scaffold_escape_root = compute_escape_exit_root(non_scaffold_escape_exits)
+        non_scaffold_escape_config = build_register_config(
+            real_supported,
+            initial_state_root=non_scaffold_escape_root,
+        )
+        node.sendvaliditysidechainregister(non_scaffold_escape_sidechain_id, non_scaffold_escape_config)
+        node.generate(1)
+
+        non_scaffold_escape_sidechain = get_sidechain_info(node, non_scaffold_escape_sidechain_id)
+        assert_equal(non_scaffold_escape_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(non_scaffold_escape_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
+        assert_raises_rpc_error(
+            -26,
+            "escape exits are not implemented for non-scaffold profiles",
+            node.sendescapeexit,
+            non_scaffold_escape_sidechain_id,
+            non_scaffold_escape_root,
+            non_scaffold_escape_exits,
+        )
+
         self.log.info("Registering the proposed Groth16 profile and replaying committed native proof vectors.")
         real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
         real_config = build_register_config(
@@ -679,6 +729,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         real_sidechain = get_sidechain_info(node, real_sidechain_id)
         assert_equal(real_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v1")
+        assert_equal(real_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
         assert_equal(real_sidechain["verifier_assets"]["available"], True)
         assert_equal(real_sidechain["verifier_assets"]["prover_assets_present"], False)

@@ -36,8 +36,8 @@ That RPC currently reports:
 - `activation_candidate = false`
 - `legacy_drivechain_withdrawal_path_active = true`
 - `batch_validation_mode = "profile_specific"`
-- `verified_withdrawal_execution_mode = "merkle_inclusion_scaffold"`
-- `escape_exit_mode = "merkle_inclusion_scaffold"`
+- `verified_withdrawal_execution_mode = "profile_specific"`
+- `escape_exit_mode = "profile_specific"`
 
 ## 2. What Is Implemented
 
@@ -221,7 +221,8 @@ Currently available wallet/RPC send-paths:
 
 So far, the new path can exercise registration, queue insertion, scaffold batch
 submission, verified-withdrawal execution, stale-deposit recovery, and
-escape-exit execution from the wallet.
+scaffold-profile escape-exit execution from the wallet. Non-scaffold profiles
+now hard-fail `EXECUTE_ESCAPE_EXIT` pending real state-root proof semantics.
 
 ## 6. Testing Status
 

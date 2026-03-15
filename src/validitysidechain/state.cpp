@@ -1141,6 +1141,12 @@ bool ValiditySidechainState::ExecuteEscapeExits(
         }
         return false;
     }
+    if (!IsValiditySidechainScaffoldingOnlyProfile(sidechain->config)) {
+        if (error != nullptr) {
+            *error = "escape exits are not implemented for non-scaffold profiles";
+        }
+        return false;
+    }
     if (exit_proofs.empty()) {
         if (error != nullptr) {
             *error = "escape-exit metadata is empty";

@@ -214,3 +214,33 @@ bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std:
 
     return true;
 }
+
+bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr && supported->scaffolding_only;
+}
+
+const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (supported->scaffolding_only) {
+        return "merkle_inclusion_scaffold";
+    }
+    return "withdrawal_root_merkle_inclusion";
+}
+
+const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (supported->scaffolding_only) {
+        return "merkle_inclusion_scaffold";
+    }
+    return "disabled_pending_real_state_proof";
+}

@@ -230,8 +230,10 @@ Current branch status:
 - `sendvaliditysidechainregister`, `sendvaliditydeposit`,
   `sendvaliditybatch`, `sendforceexitrequest`, and
   `sendstaledepositreclaim` now exist for the scaffold path
-- `sendverifiedwithdrawals` and `sendescapeexit` now also exist for the
-  current scaffold proof-execution path
+- `sendverifiedwithdrawals` now executes against accepted batch
+  `withdrawal_root` values across the current profiles
+- `sendescapeexit` remains scaffold-only today, and non-scaffold profiles
+  hard-fail pending real state-root proof semantics
 
 ### `src/rpc/blockchain.cpp`
 

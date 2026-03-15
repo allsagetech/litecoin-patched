@@ -1276,4 +1276,28 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_invalid_merkle_proof)
     BOOST_CHECK_EQUAL(error, "escape-exit proof does not match referenced state root");
 }
 
+BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_non_scaffold_profiles)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 18, /* registration_height= */ 620, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(18);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 4 * COIN;
+
+    const CScript payout = CScript() << OP_16;
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        MakeEscapeExitLeaf(uint256S("4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e"), payout, 1 * COIN),
+    };
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    const std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
+    sidechain->current_state_root = escape_root;
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 18, /* execution_height= */ 620 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
+    BOOST_CHECK_EQUAL(error, "escape exits are not implemented for non-scaffold profiles");
+    BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 0U);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -41,5 +41,8 @@ struct SupportedValiditySidechainConfig
 const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidechainConfigs();
 const SupportedValiditySidechainConfig* FindSupportedValiditySidechainConfig(const ValiditySidechainConfig& config);
 bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std::string* error = nullptr);
+bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config);
 
 #endif // BITCOIN_VALIDITYSIDECHAIN_REGISTRY_H

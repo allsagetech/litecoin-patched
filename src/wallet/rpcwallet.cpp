@@ -2339,7 +2339,8 @@ static RPCHelpMan sendescapeexit()
     return RPCHelpMan{
         "sendescapeexit",
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_ESCAPE_EXIT transaction.\n"
-        "The wallet deterministically builds Merkle proofs from the ordered exit list and requires the resulting state root to match the current state root tracked by this node.\n",
+        "The wallet deterministically builds Merkle proofs from the ordered exit list and requires the resulting state root to match the current state root tracked by this node.\n"
+        "This execution path is currently scaffold-only; non-scaffold profiles hard-fail pending real state-root proof semantics.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"state_root_reference", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Current finalized state root reference"},
