@@ -149,6 +149,9 @@ This means:
   against a proof-backed accepted batch, and `withdrawal_root` is now bound
   directly into the experimental Poseidon transition commitment while the
   experimental circuit now also constrains that single withdrawal witness
+- the functional real auto-prover coverage now also rejects mismatched
+  `withdrawal_leaves` witness metadata before proof generation, so the wallet
+  no longer treats that experimental witness as best-effort input
 - the committed real-profile invalid vectors now cover corrupted proofs,
   `new_state_root` mismatch, `queue_prefix_commitment` mismatch, and
   `withdrawal_root` mismatch against the same accepted public-input tuple

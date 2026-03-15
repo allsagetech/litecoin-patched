@@ -683,6 +683,26 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
 
         real_auto_prover_ready = toy_external_backend_ready and real_supported["verifier_assets"]["prover_assets_present"]
         if real_auto_prover_ready:
+            self.log.info("Rejecting mismatched withdrawal witness data before real auto-prover proof generation.")
+            bad_real_withdrawal_public_inputs = dict(real_public_inputs)
+            bad_real_withdrawal_public_inputs["withdrawal_leaves"] = [
+                {
+                    "withdrawal_id": leaf["withdrawal_id"],
+                    "script": leaf["script"],
+                    "amount": Decimal(leaf["amount"]) + Decimal("0.01") if index == 0 else Decimal(leaf["amount"]),
+                }
+                for index, leaf in enumerate(real_valid_vector.get("withdrawal_leaves", []))
+            ]
+            assert_raises_rpc_error(
+                -8,
+                "withdrawal_root does not match withdrawal_leaves witness",
+                node.sendvaliditybatch,
+                real_sidechain_id,
+                bad_real_withdrawal_public_inputs,
+                None,
+                real_data_chunks,
+            )
+
             self.log.info("Auto-building a native-verified real-profile proof through the external prover.")
             real_batch_res = node.sendvaliditybatch(
                 real_sidechain_id,
