@@ -3,7 +3,7 @@
   "curve": "bls12_381",
   "backend": "native_blst_groth16",
   "consensus_safe": false,
-  "status": "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and non-empty DA-binding test vectors",
+  "status": "experimental real Groth16 profile with deterministic Poseidon2 transition semantics and non-empty queue/DA test vectors",
   "consensus_tuple": {
     "version": 1,
     "proof_system_id": 2,

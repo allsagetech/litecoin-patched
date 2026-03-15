@@ -4,6 +4,7 @@
 
 from pathlib import Path
 from unittest import SkipTest
+from decimal import Decimal
 import json
 import os
 import shlex
@@ -90,6 +91,31 @@ def compute_consumed_queue_root(sidechain_id, prior_root, entries):
             entry["message_hash"],
         )
     return root
+
+
+def compute_queue_prefix_commitment_step(sidechain_id, prior_commitment, queue_index, message_kind, message_id, message_hash):
+    payload = b"VSCQP\x01"
+    payload += sidechain_id.to_bytes(1, "little")
+    payload += ser_uint256(int(prior_commitment, 16))
+    payload += queue_index.to_bytes(8, "little")
+    payload += message_kind.to_bytes(1, "little")
+    payload += ser_uint256(int(message_id, 16))
+    payload += ser_uint256(int(message_hash, 16))
+    return hash256(payload)[::-1].hex()
+
+
+def compute_queue_prefix_commitment(sidechain_id, entries):
+    commitment = "00" * 32
+    for entry in entries:
+        commitment = compute_queue_prefix_commitment_step(
+            sidechain_id,
+            commitment,
+            entry["queue_index"],
+            entry["message_kind"],
+            entry["message_id"],
+            entry["message_hash"],
+        )
+    return commitment
 
 
 def shell_join(argv):
@@ -546,6 +572,45 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         node.sendvaliditysidechainregister(real_sidechain_id, real_config)
         node.generate(1)
 
+        real_queue_entries = []
+        for index, deposit in enumerate(real_valid_vector.get("setup_deposits", [])):
+            deposit_res = node.sendvaliditydeposit(
+                real_sidechain_id,
+                deposit["destination_commitment"],
+                {"script": deposit["refund_script"]},
+                Decimal(deposit["amount"]),
+                deposit["nonce"],
+                deposit["deposit_id"],
+            )
+            real_queue_entries.append({
+                "queue_index": index,
+                "message_kind": 1,
+                "message_id": deposit_res["deposit_id"],
+                "message_hash": deposit_res["deposit_message_hash"],
+            })
+        if real_queue_entries:
+            node.generate(1)
+
+        real_sidechain = get_sidechain_info(node, real_sidechain_id)
+        if real_queue_entries:
+            assert_equal(real_sidechain["queue_state"]["pending_message_count"], len(real_queue_entries))
+            assert_equal(
+                real_sidechain["queue_state"]["root"],
+                pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_before"]),
+            )
+            assert_equal(
+                compute_consumed_queue_root(
+                    real_sidechain_id,
+                    real_sidechain["queue_state"]["root"],
+                    real_queue_entries,
+                ),
+                pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_after"]),
+            )
+            assert_equal(
+                compute_queue_prefix_commitment(real_sidechain_id, real_queue_entries),
+                pad_field_hex(real_valid_vector["public_inputs"]["queue_prefix_commitment"]),
+            )
+
         real_public_inputs = {
             "batch_number": int(real_valid_vector["public_inputs"]["batch_number"]),
             "prior_state_root": real_prior_state_root,
@@ -600,7 +665,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_sidechain["current_state_root"], real_public_inputs["new_state_root"])
             assert_equal(real_sidechain["current_withdrawal_root"], real_public_inputs["withdrawal_root"])
             assert_equal(real_sidechain["current_data_root"], real_public_inputs["data_root"])
-            assert_equal(real_sidechain["queue_state"]["head_index"], 0)
+            assert_equal(real_sidechain["queue_state"]["head_index"], len(real_queue_entries))
             assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
             assert real_sidechain["accepted_batches"][0]["proof_size"] > 0
             assert_equal(real_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_data_chunks))

@@ -119,6 +119,56 @@ def compute_data_root(chunks):
     return f"{hash256_uint256(bytes(payload)):064x}"
 
 
+def compute_queue_consume_root(sidechain_id, prior_root_hex, queue_index, message_kind, message_id_hex, message_hash_hex):
+    payload = bytearray(b"VSCQC\x01")
+    payload.append(sidechain_id)
+    payload.extend(ser_uint256(int(prior_root_hex, 16)))
+    payload.extend(struct.pack("<Q", queue_index))
+    payload.append(message_kind)
+    payload.extend(ser_uint256(int(message_id_hex, 16)))
+    payload.extend(ser_uint256(int(message_hash_hex, 16)))
+    return f"{hash256_uint256(bytes(payload)):064x}"
+
+
+def compute_consumed_queue_root(sidechain_id, prior_root_hex, entries):
+    root = prior_root_hex
+    for entry in entries:
+        root = compute_queue_consume_root(
+            sidechain_id,
+            root,
+            entry["queue_index"],
+            entry["message_kind"],
+            entry["message_id"],
+            entry["message_hash"],
+        )
+    return root
+
+
+def compute_queue_prefix_commitment_step(sidechain_id, prior_commitment_hex, queue_index, message_kind, message_id_hex, message_hash_hex):
+    payload = bytearray(b"VSCQP\x01")
+    payload.append(sidechain_id)
+    payload.extend(ser_uint256(int(prior_commitment_hex, 16)))
+    payload.extend(struct.pack("<Q", queue_index))
+    payload.append(message_kind)
+    payload.extend(ser_uint256(int(message_id_hex, 16)))
+    payload.extend(ser_uint256(int(message_hash_hex, 16)))
+    return f"{hash256_uint256(bytes(payload)):064x}"
+
+
+def compute_queue_prefix_commitment(sidechain_id, entries):
+    commitment = "00" * 32
+    for entry in entries:
+        commitment = compute_queue_prefix_commitment_step(
+            sidechain_id,
+            commitment,
+            entry["queue_index"],
+            entry["message_kind"],
+            entry["message_id"],
+            entry["message_hash"],
+        )
+    return commitment
+
+
 def encode_pushdata(payload):
     if len(payload) < 0x4C:
         return bytes([len(payload)]) + payload
@@ -641,6 +691,45 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_tuple_matches"], True)
             assert_equal(real_sidechain["verifier_assets"]["profile_manifest_public_inputs_match"], True)
 
+        real_queue_entries = []
+        for index, deposit in enumerate(real_valid_vector.get("setup_deposits", [])):
+            deposit_res = node.sendvaliditydeposit(
+                real_sidechain_id,
+                deposit["destination_commitment"],
+                {"script": deposit["refund_script"]},
+                Decimal(deposit["amount"]),
+                deposit["nonce"],
+                deposit["deposit_id"],
+            )
+            real_queue_entries.append({
+                "queue_index": index,
+                "message_kind": 1,
+                "message_id": deposit_res["deposit_id"],
+                "message_hash": deposit_res["deposit_message_hash"],
+            })
+        if real_queue_entries:
+            node.generate(1)
+
+        real_sidechain = get_sidechain_info(node, real_sidechain_id)
+        if real_queue_entries:
+            assert_equal(real_sidechain["queue_state"]["pending_message_count"], len(real_queue_entries))
+            assert_equal(
+                real_sidechain["queue_state"]["root"],
+                pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_before"]),
+            )
+            assert_equal(
+                compute_consumed_queue_root(
+                    real_sidechain_id,
+                    real_sidechain["queue_state"]["root"],
+                    real_queue_entries,
+                ),
+                pad_field_hex(real_valid_vector["public_inputs"]["l1_message_root_after"]),
+            )
+            assert_equal(
+                compute_queue_prefix_commitment(real_sidechain_id, real_queue_entries),
+                pad_field_hex(real_valid_vector["public_inputs"]["queue_prefix_commitment"]),
+            )
+
         real_public_inputs = {
             "batch_number": int(real_valid_vector["public_inputs"]["batch_number"]),
             "prior_state_root": pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"]),
@@ -695,6 +784,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["accepted_batches"][0]["proof_size"], len(bytes.fromhex(real_valid_vector["proof_bytes_hex"])))
         assert_equal(real_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_data_chunks))
         assert_equal(real_sidechain["accepted_batches"][0]["published_data_bytes"], real_public_inputs["data_size"])
+        assert_equal(real_sidechain["queue_state"]["head_index"], len(real_queue_entries))
+        assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
 
 
 if __name__ == "__main__":

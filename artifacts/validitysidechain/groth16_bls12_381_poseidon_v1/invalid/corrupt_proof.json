@@ -5,22 +5,31 @@
   "expected_result": "reject",
   "public_inputs": {
     "batch_number": "1",
-    "consumed_queue_messages": "0",
+    "consumed_queue_messages": "1",
     "data_root": "445b4cc30c0617c1b52654d33647a908c9e6aadc414dbbf2039b12878e978038",
     "data_size": "13",
-    "l1_message_root_after": "0",
-    "l1_message_root_before": "0",
-    "new_state_root": "4c077cab8e653b961ca7350ce428c99c3389ef7ab226b713116f49b072b2bca0",
+    "l1_message_root_after": "328590f67ce8c3461e9874a427e9fcc2578134ff6a36eb098ddbaafbef04a27e",
+    "l1_message_root_before": "4516194056b44dfa2fc1800147576dd0d63bd0c55ef9743d634df2ecdd449092",
+    "new_state_root": "5422adbf753bba7de74c532984692058647cf73496331118850207167d2e45b8",
     "prior_state_root": "1",
-    "queue_prefix_commitment": "0",
+    "queue_prefix_commitment": "0ada18d0e921053acbff1737ac51763b6e91457d7bafff7511c037e2765cfda2",
     "sidechain_id": "9",
-    "withdrawal_root": "6efe7d7cfdf185037d793fe2c8a2299733f0a5daf0f49df8240e0c029493332"
+    "withdrawal_root": "44858d92d8a57e8b2c40dd5184cbbf20d72e57b56c399ce66c163d2c8c9ab9ae"
   },
+  "setup_deposits": [
+    {
+      "destination_commitment": "3333333333333333333333333333333333333333333333333333333333333333",
+      "refund_script": "00141111111111111111111111111111111111111111",
+      "amount": "1.0",
+      "nonce": 16,
+      "deposit_id": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
   "data_chunks_hex": [
     "7265616c2d6261746368",
     "2d6461"
   ],
-  "proof_bytes_hex": "5653475001a61e75cd9d0158040572d254453797f01c674af367558f692d928c101c3b7fad91301885ab21c86a5394cdd392fb7877b54f0e0e9a0b0e1d8265271849994ff92519d1ca1652d039ba503d29f05ce8a2a02a2d790584718fee50c84c7fbf76060faeb3e4d65f397e87b23b2a0e50a4d16f9f0b48154c77cace0de2bcb5c8ad3a73f78816bfb42d2cabda074673ba43f0a7ca47565da26ebbc4d1f633e72ea45d1a1985209749830862d248944be3a28efc3e10a1533c51b0e833fdf8a1cbe02e",
+  "proof_bytes_hex": "5653475001a03638c67d40bc12f6d50bcc6a84013c605bc8b0874ab5422e1ebfb368ea66945ae83060a37edd3901d1b79684c217b3853c418ebd3caba5c74028372afddd998e3b0c8ef2c05d4769b171809f53a8ad5d5ad4dc0c541bbd30c3357519e1ad9d10da3cfe7decfde699a94f270f6d22aca05a7a42042ad66cc6d5369bc2afb82f0bdbc981a469af4ee0746a7e565df8f4a1a8ea129cc8ec0464cf8a9ca74b4896248d1482a92fa27a2befe063ea6cc6585ec92c0c7d830c583ac09a21203ad1e7",
   "notes": [
     "derived from the valid native proof by flipping one byte"
   ]

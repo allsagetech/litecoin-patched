@@ -413,8 +413,10 @@ Current branch status:
   proof-vector replay through the native `blst` verifier,
   and `groth16_bls12_381_poseidon_v1` as a fixed non-scaffold tuple with
   committed experimental assets, non-empty DA proof vectors, external
-  auto-prover support that now carries `data_chunks_hex`, and native
-  in-process verification that still stops short of final trustless semantics
+  auto-prover support that now carries `data_chunks_hex`, one deterministic
+  consumed deposit queue entry with a non-zero `queue_prefix_commitment`, and
+  native in-process verification that still stops short of final trustless
+  semantics
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking

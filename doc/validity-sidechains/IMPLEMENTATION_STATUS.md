@@ -134,6 +134,10 @@ This means:
   and the external auto-prover request path now carries `data_chunks_hex` so
   the prover validates `data_root` and `data_size` against the same chunk list
   the wallet publishes onchain
+- the committed real-profile vectors now also consume one deterministic deposit
+  queue entry and bind a non-zero `queue_prefix_commitment`, with the deposit
+  nonce chosen so the queue hashes fit the current one-scalar-per-input native
+  verifier format
 - external-profile asset status now validates manifest name, consensus tuple,
   declared public-input layout, backend/key layout, and listed valid/invalid
   proof-vector files instead of treating file presence alone as sufficient
