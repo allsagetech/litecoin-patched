@@ -231,6 +231,10 @@ This means:
   consumed queue prefixes and generic withdrawal Merkle roots for `v2`, while
   `groth16_bls12_381_poseidon_v1` remains explicitly single-entry and
   single-leaf
+- the decomposed `groth16_bls12_381_poseidon_v2` runtime path now also has
+  direct reclaim coverage in both state-unit and functional tests, proving a
+  matured deposit can be reclaimed and persisted across restart while keeping
+  the profile's full-width initial withdrawal root intact
 - real-profile registration now enforces that `initial_state_root` already
   fits the BLS12-381 scalar field for both Poseidon profiles, while
   `initial_withdrawal_root` is still scalar-sized only for

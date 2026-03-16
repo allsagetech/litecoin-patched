@@ -667,6 +667,7 @@ jobs:
           run_one validitysidechain_force_exit_recovery.py
           run_one validitysidechain_force_exit_reorg.py
           run_one validitysidechain_real_profile_reorg.py
+          run_one validitysidechain_decomposed_profile_reclaim.py
           run_one validitysidechain_real_profile_reclaim.py
           run_one validitysidechain_real_profile_reclaim_reorg.py
           run_one validitysidechain_reclaim_consumed_reorg.py

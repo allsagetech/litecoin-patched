@@ -1055,6 +1055,43 @@ BOOST_AUTO_TEST_CASE(real_profile_accepts_committed_vector_deposit_but_rejects_r
     BOOST_CHECK_EQUAL(error, "experimental real profile reclaim queue root does not fit BLS12-381 scalar field");
 }
 
+BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reclaims_matured_deposit_without_scalar_tombstone_gate)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 35, /* registration_height= */ 710, config));
+
+    const CScript refund_script = CScript() << OP_0 << std::vector<unsigned char>(20, 0x21);
+    ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("5555555555555555555555555555555555555555555555555555555555555555"),
+        refund_script,
+        COIN);
+    deposit.nonce = 16;
+
+    std::string error;
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 35, /* deposit_height= */ 711, deposit, &error));
+    BOOST_CHECK(error.empty());
+
+    BOOST_REQUIRE(state.ReclaimDeposit(
+        /* sidechain_id= */ 35,
+        /* reclaim_height= */ 711 + static_cast<int>(config.deposit_reclaim_delay),
+        deposit,
+        &error));
+    BOOST_CHECK(error.empty());
+
+    const ValiditySidechain* sidechain = state.GetSidechain(35);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 0);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.head_index, 1U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_message_count, 0U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.pending_deposit_count, 0U);
+    BOOST_CHECK_EQUAL(sidechain->queue_state.reclaimable_deposit_count, 0U);
+    BOOST_CHECK_EQUAL(sidechain->current_withdrawal_root, config.initial_withdrawal_root);
+    BOOST_REQUIRE(state.GetPendingDeposit(35, deposit.deposit_id) == nullptr);
+    BOOST_REQUIRE_EQUAL(sidechain->pending_deposits.size(), 0U);
+    BOOST_REQUIRE(sidechain->queue_entries.at(0).status == ValiditySidechainQueueEntry::QUEUE_STATUS_TOMBSTONED);
+}
+
 BOOST_AUTO_TEST_CASE(real_profile_rejects_force_exit_requests)
 {
     ValiditySidechainState state;

@@ -255,6 +255,7 @@ BASE_SCRIPTS = [
     'validitysidechain_force_exit_recovery.py',
     'validitysidechain_force_exit_reorg.py',
     'validitysidechain_real_profile_reorg.py',
+    'validitysidechain_decomposed_profile_reclaim.py',
     'validitysidechain_real_profile_reclaim.py',
     'validitysidechain_real_profile_reclaim_reorg.py',
     'validitysidechain_reclaim_consumed_reorg.py',
