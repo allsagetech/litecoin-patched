@@ -9,6 +9,8 @@
 
 namespace {
 
+static constexpr char POSEIDON_PROFILE_PREFIX[] = "groth16_bls12_381_poseidon_v";
+
 static bool FailValidation(std::string* error, const char* message)
 {
     if (error != nullptr) {
@@ -36,7 +38,24 @@ static bool MatchesProfileTuple(
 static bool IsRealGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
 {
     return supported.profile_name != nullptr &&
-           std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v1";
+           std::string(supported.profile_name).rfind(POSEIDON_PROFILE_PREFIX, 0) == 0 &&
+           supported.proof_system_id == 2 &&
+           supported.circuit_family_id == 1 &&
+           supported.state_root_format == 2 &&
+           supported.withdrawal_leaf_format == 2 &&
+           supported.balance_leaf_format == 2;
+}
+
+static bool UsesDecomposedPoseidonPublicInputs(const SupportedValiditySidechainConfig& supported)
+{
+    return IsRealGroth16PoseidonProfile(supported) &&
+           supported.public_input_version >= 5;
+}
+
+static bool IsExperimentalScalarLimitedGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
+{
+    return IsRealGroth16PoseidonProfile(supported) &&
+           !UsesDecomposedPoseidonPublicInputs(supported);
 }
 
 static std::array<unsigned char, 32> Uint256ToLEBytes(const uint256& value)
@@ -181,6 +200,32 @@ const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidecha
             /* min_escape_hatch_delay     = */ 288,
             /* max_escape_hatch_delay     = */ 56 * 144,
         },
+        {
+            /* profile_name               = */ "groth16_bls12_381_poseidon_v2",
+            /* verifier_artifact_name     = */ "groth16_bls12_381_poseidon_v2",
+            /* verifier_backend           = */ "native_blst_groth16",
+            /* scaffolding_only           = */ false,
+            /* requires_external_verifier_assets = */ true,
+            /* supports_external_prover   = */ true,
+            /* version                    = */ 1,
+            /* proof_system_id            = */ 2,
+            /* circuit_family_id          = */ 1,
+            /* verifier_id                = */ 1,
+            /* public_input_version       = */ 5,
+            /* state_root_format          = */ 2,
+            /* deposit_message_format     = */ 1,
+            /* withdrawal_leaf_format     = */ 2,
+            /* balance_leaf_format        = */ 2,
+            /* data_availability_mode     = */ 1,
+            /* max_batch_data_bytes_limit = */ 64 * 1024,
+            /* max_proof_bytes_limit      = */ 4 * 1024,
+            /* min_force_inclusion_delay  = */ 12,
+            /* max_force_inclusion_delay  = */ 7 * 144,
+            /* min_deposit_reclaim_delay  = */ 144,
+            /* max_deposit_reclaim_delay  = */ 28 * 144,
+            /* min_escape_hatch_delay     = */ 288,
+            /* max_escape_hatch_delay     = */ 56 * 144,
+        },
     };
 
     return supported_configs;
@@ -231,7 +276,8 @@ bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std:
         if (!ValidateValiditySidechainGroth16ScalarFieldElement(Uint256ToLEBytes(config.initial_state_root), nullptr)) {
             return FailValidation(error, "initial_state_root does not fit BLS12-381 scalar field");
         }
-        if (!ValidateValiditySidechainGroth16ScalarFieldElement(Uint256ToLEBytes(config.initial_withdrawal_root), nullptr)) {
+        if (!UsesDecomposedPoseidonPublicInputs(*supported) &&
+            !ValidateValiditySidechainGroth16ScalarFieldElement(Uint256ToLEBytes(config.initial_withdrawal_root), nullptr)) {
             return FailValidation(error, "initial_withdrawal_root does not fit BLS12-381 scalar field");
         }
     }
@@ -251,7 +297,7 @@ const char* GetValiditySidechainDepositAdmissionMode(const ValiditySidechainConf
     if (supported == nullptr) {
         return "unsupported_profile";
     }
-    if (IsRealGroth16PoseidonProfile(*supported)) {
+    if (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported)) {
         return "single_pending_entry_scalar_field_experimental";
     }
     return "enabled_local_queue_consensus";
@@ -262,7 +308,7 @@ bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidech
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
     return supported != nullptr &&
            !supported->scaffolding_only &&
-           IsRealGroth16PoseidonProfile(*supported);
+           IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported);
 }
 
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config)

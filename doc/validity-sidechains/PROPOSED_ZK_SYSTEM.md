@@ -62,6 +62,12 @@ The first non-scaffold profile should be a fixed registry entry:
 The exact numeric ids are less important than fixing one tuple and treating it
 as consensus.
 
+The current branch also reserves a successor tuple,
+`groth16_bls12_381_poseidon_v2`, with the same ids except
+`public_input_version = 5`, so the final profile can decompose full-width
+queue, withdrawal, and DA roots into 128-bit limbs without mutating the
+committed experimental `v1` artifact bundle.
+
 ## 4. State Commitments
 
 ### State tree

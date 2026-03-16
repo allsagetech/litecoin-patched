@@ -49,7 +49,7 @@ ValiditySidechainConfig MakeSupportedConfig(size_t supported_index = 0)
     config.force_inclusion_delay = supported.min_force_inclusion_delay;
     config.deposit_reclaim_delay = supported.min_deposit_reclaim_delay;
     config.escape_hatch_delay = supported.min_escape_hatch_delay;
-    if (supported_index == 4) {
+    if (supported_index >= 4) {
         config.initial_state_root = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
         config.initial_withdrawal_root = uint256S("2222222222222222222222222222222222222222222222222222222222222222");
     } else {
@@ -255,7 +255,7 @@ BOOST_FIXTURE_TEST_SUITE(validitysidechain_state_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 {
     const auto& supported_configs = GetSupportedValiditySidechainConfigs();
-    BOOST_REQUIRE_EQUAL(supported_configs.size(), 5U);
+    BOOST_REQUIRE_EQUAL(supported_configs.size(), 6U);
     BOOST_CHECK_EQUAL(std::string(supported_configs.front().profile_name), "scaffold_onchain_da_v1");
     BOOST_CHECK(supported_configs.front().scaffolding_only);
     BOOST_CHECK_EQUAL(
@@ -280,13 +280,20 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK_EQUAL(
         GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 3)),
         ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1);
-    BOOST_CHECK_EQUAL(std::string(supported_configs.back().profile_name), "groth16_bls12_381_poseidon_v1");
-    BOOST_CHECK(!supported_configs.back().scaffolding_only);
-    BOOST_CHECK(supported_configs.back().requires_external_verifier_assets);
-    BOOST_CHECK(supported_configs.back().supports_external_prover);
+    BOOST_CHECK_EQUAL(std::string(supported_configs.at(4).profile_name), "groth16_bls12_381_poseidon_v1");
+    BOOST_CHECK(!supported_configs.at(4).scaffolding_only);
+    BOOST_CHECK(supported_configs.at(4).requires_external_verifier_assets);
+    BOOST_CHECK(supported_configs.at(4).supports_external_prover);
     BOOST_CHECK_EQUAL(
         GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 4)),
         ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1);
+    BOOST_CHECK_EQUAL(std::string(supported_configs.at(5).profile_name), "groth16_bls12_381_poseidon_v2");
+    BOOST_CHECK(!supported_configs.at(5).scaffolding_only);
+    BOOST_CHECK(supported_configs.at(5).requires_external_verifier_assets);
+    BOOST_CHECK(supported_configs.at(5).supports_external_prover);
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 5)),
+        ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2);
 
     const ValiditySidechainConfig config = MakeSupportedConfig();
     std::string error;
@@ -324,6 +331,31 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist
         BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 11U);
     }
     BOOST_CHECK_EQUAL(status.status, "native blst Groth16 verifier ready");
+}
+
+BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_placeholder_assets_until_final_bundle_exists)
+{
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    ValiditySidechainVerifierAssetsStatus status;
+    BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
+    BOOST_CHECK(status.requires_external_assets);
+    BOOST_CHECK(!status.assets_present);
+    BOOST_CHECK(status.prover_assets_present);
+    BOOST_CHECK(!status.backend_ready);
+    BOOST_CHECK(status.native_backend_available);
+    BOOST_CHECK(status.native_backend_self_test_passed);
+    BOOST_CHECK_EQUAL(status.artifact_name, "groth16_bls12_381_poseidon_v2");
+    BOOST_CHECK(status.profile_manifest_parsed);
+    BOOST_CHECK(status.profile_manifest_name_matches);
+    BOOST_CHECK(status.profile_manifest_backend_matches);
+    BOOST_CHECK(status.profile_manifest_key_layout_matches);
+    BOOST_CHECK(status.profile_manifest_tuple_matches);
+    BOOST_CHECK(status.profile_manifest_public_inputs_match);
+    BOOST_CHECK(status.valid_proof_vectors_present);
+    BOOST_CHECK(status.invalid_proof_vectors_present);
+    BOOST_CHECK_EQUAL(status.profile_manifest_name, "groth16_bls12_381_poseidon_v2");
+    BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 16U);
+    BOOST_CHECK_EQUAL(status.status, "placeholder verifier artifacts only");
 }
 
 BOOST_AUTO_TEST_CASE(native_toy_profile_reports_native_backend_ready_when_assets_exist)
@@ -440,6 +472,42 @@ BOOST_AUTO_TEST_CASE(validation_rejects_invalid_profiles_and_limits)
         BOOST_CHECK(!ValidateValiditySidechainConfig(config, &error));
         BOOST_CHECK_EQUAL(error, "initial_withdrawal_root does not fit BLS12-381 scalar field");
     }
+
+    {
+        ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+        config.initial_state_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+        std::string error;
+        BOOST_CHECK(!ValidateValiditySidechainConfig(config, &error));
+        BOOST_CHECK_EQUAL(error, "initial_state_root does not fit BLS12-381 scalar field");
+    }
+
+    {
+        ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+        config.initial_withdrawal_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+        std::string error;
+        BOOST_CHECK(ValidateValiditySidechainConfig(config, &error));
+        BOOST_CHECK(error.empty());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_uses_generic_queue_and_withdrawal_modes)
+{
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(config),
+        ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2);
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainDepositAdmissionMode(config)), "enabled_local_queue_consensus");
+    BOOST_CHECK(!IsValiditySidechainSingleEntryExperimentalQueueProfile(config));
+    BOOST_CHECK(AllowsValiditySidechainForceExitRequests(config));
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainForceExitRequestMode(config)), "enabled_local_queue_consensus");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainBatchQueueBindingMode(config)), "local_prefix_consensus_count_only");
+    BOOST_CHECK(!IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config));
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainBatchWithdrawalBindingMode(config)), "accepted_root_generic");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainVerifiedWithdrawalExecutionMode(config)), "withdrawal_root_merkle_inclusion");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "disabled_pending_real_state_proof");
 }
 
 BOOST_AUTO_TEST_CASE(register_sidechain_initializes_state_and_rejects_duplicates)
