@@ -225,6 +225,12 @@ This means:
   `queue_prefix_commitment`, `withdrawal_root`, and `data_root` into
   128-bit public-input limbs while leaving the current committed
   `groth16_bls12_381_poseidon_v1` bundle unchanged
+- the external prover helper now treats `groth16_bls12_381_poseidon_v2`
+  according to that decomposed runtime surface instead of reusing the old
+  single-entry/single-leaf witness checks: it derives and validates generic
+  consumed queue prefixes and generic withdrawal Merkle roots for `v2`, while
+  `groth16_bls12_381_poseidon_v1` remains explicitly single-entry and
+  single-leaf
 - real-profile registration now enforces that `initial_state_root` already
   fits the BLS12-381 scalar field for both Poseidon profiles, while
   `initial_withdrawal_root` is still scalar-sized only for

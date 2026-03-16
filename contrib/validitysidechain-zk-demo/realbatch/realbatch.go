@@ -29,6 +29,7 @@ var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
 var queuePrefixCommitmentMagic = []uint8{'V', 'S', 'C', 'Q', 'P', 0x01}
 var withdrawalRootMagic = []uint8{'V', 'S', 'C', 'W', 0x01}
 var withdrawalLeafMagic = []uint8{'V', 'S', 'C', 'W', 0x02}
+var withdrawalNodeMagic = []uint8{'V', 'S', 'C', 'W', 0x03}
 
 func IsSupportedProfileName(profileName string) bool {
 	return profileName == ProfileName || profileName == FinalProfileName
@@ -205,6 +206,10 @@ func BuildPublicAssignment(request toybatch.CommandRequest) (frontend.Circuit, e
 	default:
 		return nil, fmt.Errorf("unsupported profile name %q", request.ProfileName)
 	}
+}
+
+func profileUsesExperimentalSingleEntryWitnesses(profileName string) bool {
+	return profileName == ProfileName
 }
 
 func buildExperimentalAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
@@ -581,7 +586,7 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 		cleared.PublicInputs.DataRoot = computePublishedDataRoot(chunks)
 		cleared.PublicInputs.DataSize = uint32(computePublishedDataSize(chunks))
 	}
-	withdrawalRoot, err := computeWithdrawalRootFromRequest(request)
+	withdrawalRoot, err := computeWithdrawalRootForProfile(request)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
 	}
@@ -621,10 +626,10 @@ func ValidateDerivedRequest(request toybatch.CommandRequest) error {
 	if err := validatePublishedDataWitness(request); err != nil {
 		return err
 	}
-	if err := validateExperimentalQueueWitness(derived); err != nil {
+	if err := validateQueueWitnessForProfile(request); err != nil {
 		return err
 	}
-	if err := validateExperimentalWithdrawalWitness(derived); err != nil {
+	if err := validateWithdrawalWitnessForProfile(request); err != nil {
 		return err
 	}
 	if normalizeHex(request.PublicInputs.NewStateRoot) != normalizeHex(derived.PublicInputs.NewStateRoot) {
@@ -634,6 +639,20 @@ func ValidateDerivedRequest(request toybatch.CommandRequest) error {
 		return fmt.Errorf("withdrawal_root does not match derived Poseidon transition")
 	}
 	return nil
+}
+
+func validateQueueWitnessForProfile(request toybatch.CommandRequest) error {
+	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+		return validateExperimentalQueueWitness(request)
+	}
+	return validateGenericQueueWitness(request)
+}
+
+func validateWithdrawalWitnessForProfile(request toybatch.CommandRequest) error {
+	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+		return validateExperimentalWithdrawalWitness(request)
+	}
+	return validateGenericWithdrawalWitness(request)
 }
 
 func validatePublishedDataWitness(request toybatch.CommandRequest) error {
@@ -698,8 +717,53 @@ func validateExperimentalQueueWitness(request toybatch.CommandRequest) error {
 	return nil
 }
 
+func validateGenericQueueWitness(request toybatch.CommandRequest) error {
+	if len(request.ConsumedQueueEntries) != int(request.PublicInputs.ConsumedQueueMessages) {
+		return fmt.Errorf("consumed_queue_entries length must match consumed_queue_messages")
+	}
+
+	expectedAfter := normalizeHex(request.PublicInputs.L1MessageRootBefore)
+	expectedPrefix := "0"
+	for index, entry := range request.ConsumedQueueEntries {
+		if entry.MessageKind != 1 && entry.MessageKind != 2 {
+			return fmt.Errorf("consumed_queue_entries[%d].message_kind must be 1 or 2", index)
+		}
+		expectedAfter = computeQueueStepDisplayHex(
+			queueConsumeMagic,
+			uint8(request.SidechainID),
+			expectedAfter,
+			entry,
+		)
+		expectedPrefix = computeQueueStepDisplayHex(
+			queuePrefixCommitmentMagic,
+			uint8(request.SidechainID),
+			expectedPrefix,
+			entry,
+		)
+	}
+
+	if normalizeHex(request.PublicInputs.L1MessageRootAfter) != normalizeHex(expectedAfter) {
+		return fmt.Errorf("l1_message_root_after does not match consumed_queue_entries witness")
+	}
+	if normalizeHex(request.PublicInputs.QueuePrefixCommitment) != normalizeHex(expectedPrefix) {
+		return fmt.Errorf("queue_prefix_commitment does not match consumed_queue_entries witness")
+	}
+	return nil
+}
+
 func validateExperimentalWithdrawalWitness(request toybatch.CommandRequest) error {
-	expectedRoot, err := computeWithdrawalRootFromRequest(request)
+	expectedRoot, err := computeExperimentalWithdrawalRootFromRequest(request)
+	if err != nil {
+		return err
+	}
+	if normalizeHex(request.PublicInputs.WithdrawalRoot) != normalizeHex(expectedRoot) {
+		return fmt.Errorf("withdrawal_root does not match withdrawal_leaves witness")
+	}
+	return nil
+}
+
+func validateGenericWithdrawalWitness(request toybatch.CommandRequest) error {
+	expectedRoot, err := computeGenericWithdrawalRootFromRequest(request)
 	if err != nil {
 		return err
 	}
@@ -1061,7 +1125,14 @@ func buildWithdrawalWitness(request toybatch.CommandRequest) (frontend.Variable,
 	return new(big.Int).SetUint64(1), withdrawalID, amount, destinationCommitment, nil
 }
 
-func computeWithdrawalRootFromRequest(request toybatch.CommandRequest) (string, error) {
+func computeWithdrawalRootForProfile(request toybatch.CommandRequest) (string, error) {
+	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+		return computeExperimentalWithdrawalRootFromRequest(request)
+	}
+	return computeGenericWithdrawalRootFromRequest(request)
+}
+
+func computeExperimentalWithdrawalRootFromRequest(request toybatch.CommandRequest) (string, error) {
 	if len(request.WithdrawalLeaves) == 0 {
 		return hashPayloadDisplayHex(buildWithdrawalRootPayload(0, make([]byte, 32))), nil
 	}
@@ -1083,6 +1154,47 @@ func computeWithdrawalRootFromRequest(request toybatch.CommandRequest) (string, 
 	leafPayload = append(leafPayload, uint256HexToLEBytes(leaf.DestinationCommitment)...)
 	leafHash := hashPayloadBytes(leafPayload)
 	return hashPayloadDisplayHex(buildWithdrawalRootPayload(1, leafHash)), nil
+}
+
+func computeGenericWithdrawalRootFromRequest(request toybatch.CommandRequest) (string, error) {
+	if len(request.WithdrawalLeaves) == 0 {
+		return hashPayloadDisplayHex(buildWithdrawalRootPayload(0, make([]byte, 32))), nil
+	}
+
+	levelHashes := make([][]byte, 0, len(request.WithdrawalLeaves))
+	for index, leaf := range request.WithdrawalLeaves {
+		amount, err := parseAmountSatsField(leaf.Amount, fmt.Sprintf("withdrawal_leaves[%d].amount", index))
+		if err != nil {
+			return "", err
+		}
+		leafPayload := make([]byte, 0, len(withdrawalLeafMagic)+32+8+32)
+		leafPayload = append(leafPayload, withdrawalLeafMagic...)
+		leafPayload = append(leafPayload, uint256HexToLEBytes(leaf.WithdrawalID)...)
+		var amountBytes [8]byte
+		binary.LittleEndian.PutUint64(amountBytes[:], amount.Uint64())
+		leafPayload = append(leafPayload, amountBytes[:]...)
+		leafPayload = append(leafPayload, uint256HexToLEBytes(leaf.DestinationCommitment)...)
+		levelHashes = append(levelHashes, hashPayloadBytes(leafPayload))
+	}
+
+	for len(levelHashes) > 1 {
+		nextLevel := make([][]byte, 0, (len(levelHashes)+1)/2)
+		for i := 0; i < len(levelHashes); i += 2 {
+			left := levelHashes[i]
+			right := left
+			if i+1 < len(levelHashes) {
+				right = levelHashes[i+1]
+			}
+			parentPayload := make([]byte, 0, len(withdrawalNodeMagic)+len(left)+len(right))
+			parentPayload = append(parentPayload, withdrawalNodeMagic...)
+			parentPayload = append(parentPayload, left...)
+			parentPayload = append(parentPayload, right...)
+			nextLevel = append(nextLevel, hashPayloadBytes(parentPayload))
+		}
+		levelHashes = nextLevel
+	}
+
+	return hashPayloadDisplayHex(buildWithdrawalRootPayload(uint32(len(request.WithdrawalLeaves)), levelHashes[0])), nil
 }
 
 func buildWithdrawalRootPayload(leafCount uint32, merkleRoot []byte) []byte {

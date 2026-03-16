@@ -80,6 +80,22 @@ def hash256_uint256(payload):
     return uint256_from_str(hash256(payload))
 
 
+def compute_script_commitment(script_hex):
+    return f"{hash256_uint256(bytes.fromhex(script_hex)):064x}"
+
+
+def get_destination_commitment(leaf):
+    if "destination_commitment" in leaf:
+        return leaf["destination_commitment"]
+    if "script" in leaf:
+        return compute_script_commitment(leaf["script"])
+    raise KeyError("destination_commitment")
+
+
+def amount_to_sats(amount):
+    return int(amount * Decimal("100000000"))
+
+
 def compute_queue_consume_root(sidechain_id, prior_root, queue_index, message_kind, message_id, message_hash):
     payload = b"VSCQC\x01"
     payload += sidechain_id.to_bytes(1, "little")
@@ -128,6 +144,38 @@ def compute_queue_prefix_commitment(sidechain_id, entries):
             entry["message_hash"],
         )
     return commitment
+
+
+def compute_merkle_root(encoded_leaves, leaf_magic, node_magic, root_magic):
+    if not encoded_leaves:
+        return f"{hash256_uint256(root_magic + struct.pack('<I', 0) + ser_uint256(0)):064x}"
+
+    level = [hash256_uint256(leaf_magic + leaf) for leaf in encoded_leaves]
+    while len(level) > 1:
+        next_level = []
+        for i in range(0, len(level), 2):
+            left = level[i]
+            right = level[i + 1] if i + 1 < len(level) else level[i]
+            next_level.append(hash256_uint256(node_magic + ser_uint256(left) + ser_uint256(right)))
+        level = next_level
+
+    return f"{hash256_uint256(root_magic + struct.pack('<I', len(encoded_leaves)) + ser_uint256(level[0])):064x}"
+
+
+def compute_withdrawal_root(withdrawals):
+    encoded_leaves = []
+    for withdrawal in withdrawals:
+        encoded_leaves.append(
+            ser_uint256(int(withdrawal["withdrawal_id"], 16)) +
+            amount_to_sats(withdrawal["amount"]).to_bytes(8, "little") +
+            ser_uint256(int(get_destination_commitment(withdrawal), 16))
+        )
+    return compute_merkle_root(encoded_leaves, b"VSCW\x02", b"VSCW\x03", b"VSCW\x01")
+
+
+def build_script_destination(node):
+    address = node.getnewaddress()
+    return node.getaddressinfo(address)["scriptPubKey"]
 
 
 def encode_pushdata(payload):
@@ -1101,6 +1149,150 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_sidechain["accepted_batches"][0]["published_data_bytes"], real_public_inputs["data_size"])
         else:
             self.log.info("Skipping native real auto-prover coverage because the committed proving key is not available in-tree.")
+
+        real_v2_auto_prover_ready = toy_external_backend_ready and real_v2_supported["verifier_assets"]["prover_assets_present"]
+        if real_v2_auto_prover_ready:
+            self.log.info("Auto-building a native-verified decomposed real-profile proof with multi-entry queue and multi-leaf withdrawals.")
+            real_v2_auto_sidechain_id = 58
+            real_v2_auto_initial_root = hex_uint(4300)
+            real_v2_auto_config = build_register_config(
+                real_v2_supported,
+                initial_state_root=real_v2_auto_initial_root,
+                initial_withdrawal_root="ff" * 32,
+            )
+            node.sendvaliditysidechainregister(real_v2_auto_sidechain_id, real_v2_auto_config)
+            node.generate(1)
+
+            real_v2_queue_entries = []
+            for index in range(2):
+                deposit_res = node.sendvaliditydeposit(
+                    real_v2_auto_sidechain_id,
+                    hex_uint(0x6100 + index),
+                    {"address": refund_address},
+                    Decimal("0.25") + (Decimal("0.05") * index),
+                    index + 1,
+                )
+                real_v2_queue_entries.append({
+                    "queue_index": index,
+                    "message_kind": 1,
+                    "message_id": deposit_res["deposit_id"],
+                    "message_hash": deposit_res["deposit_message_hash"],
+                })
+            node.generate(1)
+
+            real_v2_auto_sidechain = get_sidechain_info(node, real_v2_auto_sidechain_id)
+            assert_equal(real_v2_auto_sidechain["queue_state"]["pending_message_count"], 2)
+
+            real_v2_withdrawals_rpc = [
+                {
+                    "withdrawal_id": "91" * 32,
+                    "script": build_script_destination(node),
+                    "amount": Decimal("0.10"),
+                },
+                {
+                    "withdrawal_id": "92" * 32,
+                    "script": build_script_destination(node),
+                    "amount": Decimal("0.15"),
+                },
+            ]
+            real_v2_withdrawal_witness = [
+                {
+                    "withdrawal_id": withdrawal["withdrawal_id"],
+                    "amount": str(withdrawal["amount"]),
+                    "destination_commitment": compute_script_commitment(withdrawal["script"]),
+                }
+                for withdrawal in real_v2_withdrawals_rpc
+            ]
+
+            real_v2_derive_request = {
+                "profile_name": "groth16_bls12_381_poseidon_v2",
+                "artifact_dir": str(self.real_v2_artifact_dir),
+                "sidechain_id": real_v2_auto_sidechain_id,
+                "public_inputs": {
+                    "batch_number": 1,
+                    "prior_state_root": real_v2_auto_initial_root,
+                    "new_state_root": "0",
+                    "l1_message_root_before": real_v2_auto_sidechain["queue_state"]["root"],
+                    "l1_message_root_after": compute_consumed_queue_root(
+                        real_v2_auto_sidechain_id,
+                        real_v2_auto_sidechain["queue_state"]["root"],
+                        real_v2_queue_entries,
+                    ),
+                    "consumed_queue_messages": len(real_v2_queue_entries),
+                    "queue_prefix_commitment": compute_queue_prefix_commitment(
+                        real_v2_auto_sidechain_id,
+                        real_v2_queue_entries,
+                    ),
+                    "withdrawal_root": "0",
+                    "data_root": "00" * 32,
+                    "data_size": 0,
+                },
+                "consumed_queue_entries": real_v2_queue_entries,
+                "withdrawal_leaves": real_v2_withdrawal_witness,
+            }
+            real_v2_derived = self.run_tool("derive", real_v2_derive_request)
+            assert_equal(real_v2_derived["ok"], True)
+            assert_equal(
+                real_v2_derived["public_inputs"]["withdrawal_root"],
+                compute_withdrawal_root(real_v2_withdrawals_rpc),
+            )
+
+            real_v2_public_inputs = dict(real_v2_derived["public_inputs"])
+            for field_name in (
+                "prior_state_root",
+                "new_state_root",
+                "l1_message_root_before",
+                "l1_message_root_after",
+                "queue_prefix_commitment",
+                "withdrawal_root",
+                "data_root",
+            ):
+                real_v2_public_inputs[field_name] = pad_field_hex(real_v2_public_inputs[field_name])
+            real_v2_public_inputs["withdrawal_leaves"] = [
+                {
+                    "withdrawal_id": withdrawal["withdrawal_id"],
+                    "script": withdrawal["script"],
+                    "amount": withdrawal["amount"],
+                }
+                for withdrawal in real_v2_withdrawals_rpc
+            ]
+
+            bad_real_v2_public_inputs = dict(real_v2_public_inputs)
+            bad_real_v2_public_inputs["withdrawal_leaves"] = [
+                {
+                    "withdrawal_id": withdrawal["withdrawal_id"],
+                    "script": withdrawal["script"],
+                    "amount": withdrawal["amount"] + (Decimal("0.01") if index == 1 else Decimal("0.00")),
+                }
+                for index, withdrawal in enumerate(real_v2_withdrawals_rpc)
+            ]
+            assert_raises_rpc_error(
+                -8,
+                "withdrawal_root does not match withdrawal_leaves witness",
+                node.sendvaliditybatch,
+                real_v2_auto_sidechain_id,
+                bad_real_v2_public_inputs,
+            )
+
+            real_v2_batch_res = node.sendvaliditybatch(
+                real_v2_auto_sidechain_id,
+                real_v2_public_inputs,
+            )
+            assert_equal(real_v2_batch_res["auto_scaffold_proof"], False)
+            assert_equal(real_v2_batch_res["auto_external_proof"], True)
+            assert_equal(real_v2_batch_res["auto_proof_backend"], "external_command")
+            node.generate(1)
+
+            real_v2_auto_sidechain = get_sidechain_info(node, real_v2_auto_sidechain_id)
+            assert_equal(real_v2_auto_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v2")
+            assert_equal(real_v2_auto_sidechain["latest_batch_number"], 1)
+            assert_equal(real_v2_auto_sidechain["current_state_root"], real_v2_public_inputs["new_state_root"])
+            assert_equal(real_v2_auto_sidechain["current_withdrawal_root"], real_v2_public_inputs["withdrawal_root"])
+            assert_equal(real_v2_auto_sidechain["queue_state"]["head_index"], len(real_v2_queue_entries))
+            assert_equal(real_v2_auto_sidechain["queue_state"]["pending_message_count"], 0)
+            assert real_v2_auto_sidechain["accepted_batches"][0]["proof_size"] > 0
+        else:
+            self.log.info("Skipping decomposed real auto-prover coverage because the committed proving key is not available in-tree.")
 
 
 if __name__ == "__main__":

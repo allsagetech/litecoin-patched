@@ -6,12 +6,17 @@ from pathlib import Path
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"prove", "verify"}:
-        print("usage: run_tool.py [prove|verify]", file=sys.stderr)
+    command_map = {
+        "prove": "prove-batch",
+        "verify": "verify-batch",
+        "derive": "derive-batch",
+    }
+    if len(sys.argv) != 2 or sys.argv[1] not in command_map:
+        print("usage: run_tool.py [prove|verify|derive]", file=sys.stderr)
         return 1
 
     script_dir = Path(__file__).resolve().parent
-    command = ["go", "run", f"./cmd/{'prove-batch' if sys.argv[1] == 'prove' else 'verify-batch'}"]
+    command = ["go", "run", f"./cmd/{command_map[sys.argv[1]]}"]
     request = sys.stdin.buffer.read()
 
     completed = subprocess.run(

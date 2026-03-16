@@ -488,6 +488,10 @@ Current branch status:
   `groth16_bls12_381_poseidon_v2` tuple still requires a scalar-sized
   `initial_state_root` but now accepts a full-width `initial_withdrawal_root`
   because that commitment has an explicit limb-split public-input layout
+- the external prover helper now also follows that split: the old
+  `groth16_bls12_381_poseidon_v1` path still rejects multi-entry queue and
+  multi-leaf withdrawal witnesses, while `groth16_bls12_381_poseidon_v2`
+  derives and validates generic queue-prefix and withdrawal-root witnesses
 - that same experimental real profile now also admits at most one pending
   deposit queue entry at a time and rejects deposits whose append, consume,
   or prefix-commitment queue hashes would leave the current 11-input native

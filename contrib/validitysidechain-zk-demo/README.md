@@ -38,11 +38,14 @@ Helper commands:
 ```powershell
 go run ./cmd/prove-batch
 go run ./cmd/verify-batch
+go run ./cmd/derive-batch
 ```
 
-Both commands read a single JSON request from stdin and emit a single JSON
+These commands read a single JSON request from stdin and emit a single JSON
 response on stdout for the experimental external-profile integration in
-`src/validitysidechain/verifier.cpp`.
+`src/validitysidechain/verifier.cpp`. `derive-batch` returns the same
+profile-derived public inputs the prover path uses for test and tooling
+workflows.
 
 `verify-batch` now supports both the toy external profile and the experimental
 native real bundles `groth16_bls12_381_poseidon_v1` and
@@ -53,6 +56,7 @@ For the functional test harness, use the wrapper script:
 ```powershell
 python run_tool.py prove
 python run_tool.py verify
+python run_tool.py derive
 ```
 
 The wrapper fixes the working directory and forwards stdin/stdout so the node
