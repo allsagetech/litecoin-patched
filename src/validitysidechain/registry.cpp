@@ -387,5 +387,5 @@ const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainC
     if (supported->scaffolding_only) {
         return "merkle_inclusion_scaffold";
     }
-    return "disabled_pending_real_state_proof";
+    return "merkle_inclusion_current_state_root_experimental";
 }

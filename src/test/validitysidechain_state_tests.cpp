@@ -510,7 +510,7 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_uses_generic_queue_and_withdraw
     BOOST_CHECK(!IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config));
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainBatchWithdrawalBindingMode(config)), "accepted_root_generic");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainVerifiedWithdrawalExecutionMode(config)), "withdrawal_root_merkle_inclusion");
-    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "disabled_pending_real_state_proof");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "merkle_inclusion_current_state_root_experimental");
 }
 
 BOOST_AUTO_TEST_CASE(register_sidechain_initializes_state_and_rejects_duplicates)
@@ -1618,10 +1618,10 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_invalid_merkle_proof)
     BOOST_CHECK_EQUAL(error, "escape-exit proof does not match referenced state root");
 }
 
-BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_non_scaffold_profiles)
+BOOST_AUTO_TEST_CASE(execute_escape_exits_supports_non_scaffold_current_state_root_mode)
 {
     ValiditySidechainState state;
-    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
     BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 18, /* registration_height= */ 620, config));
 
     ValiditySidechain* sidechain = state.GetSidechain(18);
@@ -1637,9 +1637,11 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_non_scaffold_profiles)
     sidechain->current_state_root = escape_root;
 
     std::string error;
-    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 18, /* execution_height= */ 620 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
-    BOOST_CHECK_EQUAL(error, "escape exits are not implemented for non-scaffold profiles");
-    BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 0U);
+    BOOST_REQUIRE(state.ExecuteEscapeExits(/* sidechain_id= */ 18, /* execution_height= */ 620 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 3 * COIN);
+    BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 1U);
+    BOOST_CHECK(state.HasExecutedEscapeExit(18, exits.front().exit_id));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

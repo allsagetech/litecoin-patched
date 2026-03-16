@@ -310,8 +310,9 @@ Currently available wallet/RPC send-paths:
 
 So far, the new path can exercise registration, queue insertion, scaffold batch
 submission, verified-withdrawal execution, stale-deposit recovery, and
-scaffold-profile escape-exit execution from the wallet. Non-scaffold profiles
-now hard-fail `EXECUTE_ESCAPE_EXIT` pending real state-root proof semantics.
+escape-exit execution from the wallet. Non-scaffold profiles now also expose an
+experimental `current_state_root` Merkle mode for `EXECUTE_ESCAPE_EXIT`, but
+that path still stops short of the final user-state proof semantics.
 
 ## 6. Testing Status
 

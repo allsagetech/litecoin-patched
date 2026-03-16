@@ -232,8 +232,9 @@ Current branch status:
   `sendstaledepositreclaim` now exist for the scaffold path
 - `sendverifiedwithdrawals` now executes against accepted batch
   `withdrawal_root` values across the current profiles
-- `sendescapeexit` remains scaffold-only today, and non-scaffold profiles
-  hard-fail pending real state-root proof semantics
+- `sendescapeexit` now works on scaffold profiles plus an experimental
+  non-scaffold `current_state_root` Merkle mode, but that non-scaffold path
+  still stops short of final user-state proof semantics
 
 ### `src/rpc/blockchain.cpp`
 
@@ -470,8 +471,9 @@ Current branch status:
   gating, escrow decrement, executed-exit replay protection, and mempool
   duplicate tracking
 - `EXECUTE_ESCAPE_EXIT` now uses deterministic Merkle-style proof objects
-  against `current_state_root`, but it is still scaffold-only because those
-  proofs are not yet backed by the final user-state circuit
+  against `current_state_root`; scaffold profiles and the current experimental
+  non-scaffold mode both use that path, but the final user-state circuit-backed
+  escape-exit semantics are still outstanding
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration, force-exit, batch-validation, withdrawal, and escape-exit
   plumbing availability, and its top-level status summary now reports
