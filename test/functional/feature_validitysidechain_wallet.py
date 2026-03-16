@@ -410,7 +410,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_v2_sidechain_id = get_unused_sidechain_id(node, preferred_id=57)
         real_v2_config = build_register_config(
             real_v2_supported,
-            initial_state_root=real_valid_vector["public_inputs"]["prior_state_root"],
+            initial_state_root=pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"]),
             initial_withdrawal_root="ff" * 32,
         )
         node.sendvaliditysidechainregister(real_v2_sidechain_id, real_v2_config)
