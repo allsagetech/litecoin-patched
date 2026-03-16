@@ -147,7 +147,7 @@ class ValiditySidechainRealProfileReclaim(BitcoinTestFramework):
 
         self.log.info("Rejecting stale reclaim because the experimental real-profile tombstone root still falls outside the scalar field.")
         assert_raises_rpc_error(
-            -8,
+            -26,
             "experimental real profile reclaim queue root does not fit BLS12-381 scalar field",
             node.sendstaledepositreclaim,
             sidechain_id,
@@ -174,7 +174,7 @@ class ValiditySidechainRealProfileReclaim(BitcoinTestFramework):
         assert_equal(restarted_sidechain["queue_state"]["reclaimable_deposit_count"], 1)
         assert_equal(restarted_sidechain["escrow_balance"], amount_to_sats(Decimal(deposit["amount"])))
         assert_raises_rpc_error(
-            -8,
+            -26,
             "experimental real profile reclaim queue root does not fit BLS12-381 scalar field",
             node.sendstaledepositreclaim,
             sidechain_id,

@@ -172,7 +172,7 @@ class ValiditySidechainRealProfileReclaimReorg(BitcoinTestFramework):
 
         self.log.info("On node0 only, reject reclaim and then consume the matured deposit with the committed batch.")
         assert_raises_rpc_error(
-            -8,
+            -26,
             "experimental real profile reclaim queue root does not fit BLS12-381 scalar field",
             n0.sendstaledepositreclaim,
             sidechain_id,
@@ -280,7 +280,7 @@ class ValiditySidechainRealProfileReclaimReorg(BitcoinTestFramework):
 
         self.log.info("The reverted matured deposit should still reject reclaim and still support replay of the committed batch and withdrawal.")
         assert_raises_rpc_error(
-            -8,
+            -26,
             "experimental real profile reclaim queue root does not fit BLS12-381 scalar field",
             n0.sendstaledepositreclaim,
             sidechain_id,
