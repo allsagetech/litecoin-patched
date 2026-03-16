@@ -106,6 +106,10 @@ class ValiditySidechainWithdrawalInvalidatedReorg(BitcoinTestFramework):
 
         n0.generatetoaddress(110, n0.getnewaddress())
         self.sync_blocks()
+        self.log.info("Funding node1 so it can build winning-fork transactions after the split.")
+        n0.sendtoaddress(n1.getnewaddress(), Decimal("5.0"))
+        n0.generatetoaddress(1, n0.getnewaddress())
+        self.sync_blocks()
 
         sidechain_id = 53
         supported = get_supported_profile(n0, "scaffold_onchain_da_v1")
