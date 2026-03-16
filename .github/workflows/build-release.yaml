@@ -674,6 +674,7 @@ jobs:
           run_one validitysidechain_registration_reorg.py
           run_one validitysidechain_restart_reorg.py
           run_one validitysidechain_reorg_state_rollback.py
+          run_one validitysidechain_withdrawal_invalidated_reorg.py
 
   # ------------------------------------------------------------
   # 5) Build Linux binaries

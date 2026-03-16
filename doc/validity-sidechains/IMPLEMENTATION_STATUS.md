@@ -333,6 +333,8 @@ It also now has functional wallet/RPC coverage for:
   deposits reappear deterministically after losing-fork rollback
 - orphaned reclaim transactions staying out of mempool when a competing fork
   consumes the same deposit in an accepted batch
+- orphaned verified-withdrawal transactions staying out of mempool when the
+  winning fork already executed the same withdrawal ids
 - competing-fork rollback of losing-fork registration and deposit state so
   orphaned sidechains disappear and the same sidechain id can be reused
 
