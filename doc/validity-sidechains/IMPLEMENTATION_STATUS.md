@@ -235,6 +235,10 @@ This means:
   direct reclaim coverage in both state-unit and functional tests, proving a
   matured deposit can be reclaimed and persisted across restart while keeping
   the profile's full-width initial withdrawal root intact
+- that same decomposed reclaim path now also has dedicated reorg coverage,
+  proving an orphaned reclaim cleanly rolls back to the matured-deposit state
+  and can be restored or resubmitted after restart without losing the
+  full-width withdrawal-root state
 - real-profile registration now enforces that `initial_state_root` already
   fits the BLS12-381 scalar field for both Poseidon profiles, while
   `initial_withdrawal_root` is still scalar-sized only for
