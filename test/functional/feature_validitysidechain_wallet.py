@@ -747,9 +747,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             },
         ]
         non_scaffold_escape_root = compute_escape_exit_root(non_scaffold_escape_exits)
+        non_scaffold_escape_initial_root = hex_uint(3000)
         non_scaffold_escape_config = build_register_config(
             real_supported,
-            initial_state_root=non_scaffold_escape_root,
+            initial_state_root=non_scaffold_escape_initial_root,
             initial_withdrawal_root="00" * 32,
         )
         node.sendvaliditysidechainregister(non_scaffold_escape_sidechain_id, non_scaffold_escape_config)
@@ -758,6 +759,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         non_scaffold_escape_sidechain = get_sidechain_info(node, non_scaffold_escape_sidechain_id)
         assert_equal(non_scaffold_escape_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
         assert_equal(non_scaffold_escape_sidechain["escape_exit_mode"], "disabled_pending_real_state_proof")
+        assert_equal(non_scaffold_escape_sidechain["current_state_root"], non_scaffold_escape_initial_root)
         assert_raises_rpc_error(
             -26,
             "escape exits are not implemented for non-scaffold profiles",
