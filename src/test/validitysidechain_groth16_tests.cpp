@@ -476,6 +476,33 @@ BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_accepts_committed_valid_vector)
     BOOST_CHECK(error.empty());
 }
 
+BOOST_AUTO_TEST_CASE(groth16_decomposed_real_profile_bundle_accepts_committed_valid_vector)
+{
+    const fs::path artifact_dir =
+        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v2");
+    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
+    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
+
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    std::string error;
+    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
+        artifact_dir / "batch_vk.bin",
+        /* expected_public_input_count= */ 16,
+        verifying_key,
+        &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(verifying_key.public_input_count, 16U);
+
+    const UniValue valid_vector = ReadJSONFile(artifact_dir / "valid" / "valid_proof.json");
+    const auto public_inputs = BuildManifestPublicInputs(
+        manifest_public_inputs,
+        find_value(valid_vector, "public_inputs"));
+    const ValiditySidechainGroth16Proof proof = ParseProofFromVector(valid_vector);
+
+    BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+    BOOST_CHECK(error.empty());
+}
+
 BOOST_AUTO_TEST_CASE(groth16_synthetic_blst_primitives_smoke)
 {
     const ValiditySidechainGroth16VerificationKey verifying_key = MakeSyntheticValidVerificationKey();
@@ -720,6 +747,52 @@ BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_rejects_committed_invalid_vecto
     BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
         artifact_dir / "batch_vk.bin",
         /* expected_public_input_count= */ 11,
+        verifying_key,
+        &error));
+    BOOST_CHECK(error.empty());
+
+    for (const char* path : {
+             "invalid/public_input_mismatch.json",
+             "invalid/queue_prefix_commitment_mismatch.json",
+             "invalid/withdrawal_root_mismatch.json",
+         }) {
+        const UniValue vector_json = ReadJSONFile(artifact_dir / path);
+        const auto public_inputs = BuildManifestPublicInputs(
+            manifest_public_inputs,
+            find_value(vector_json, "public_inputs"));
+        const ValiditySidechainGroth16Proof proof = ParseProofFromVector(vector_json);
+
+        BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+        BOOST_CHECK_EQUAL(error, "Groth16 pairing doesn't match");
+    }
+
+    const UniValue corrupt_vector = ReadJSONFile(artifact_dir / "invalid" / "corrupt_proof.json");
+    const std::vector<unsigned char> corrupt_bytes = ParseHex(find_value(corrupt_vector, "proof_bytes_hex").get_str());
+    ValiditySidechainGroth16Proof corrupt_proof;
+    const bool parsed = ParseValiditySidechainGroth16Proof(corrupt_bytes, corrupt_proof, &error);
+    if (parsed) {
+        const auto public_inputs = BuildManifestPublicInputs(
+            manifest_public_inputs,
+            find_value(corrupt_vector, "public_inputs"));
+        BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, corrupt_proof, public_inputs, &error));
+        BOOST_CHECK(!error.empty());
+    } else {
+        BOOST_CHECK(!error.empty());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(groth16_decomposed_real_profile_bundle_rejects_committed_invalid_vectors)
+{
+    const fs::path artifact_dir =
+        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v2");
+    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
+    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
+
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    std::string error;
+    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
+        artifact_dir / "batch_vk.bin",
+        /* expected_public_input_count= */ 16,
         verifying_key,
         &error));
     BOOST_CHECK(error.empty());

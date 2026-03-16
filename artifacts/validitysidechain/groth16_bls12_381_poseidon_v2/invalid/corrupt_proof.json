@@ -1,0 +1,57 @@
+{
+  "name": "corrupt_proof",
+  "circuit": "poseidon_batch_transition_v2",
+  "curve": "bls12_381",
+  "expected_result": "reject",
+  "public_inputs": {
+    "batch_number": "1",
+    "consumed_queue_messages": "1",
+    "data_root_hi": "445b4cc30c0617c1b52654d33647a908",
+    "data_root_lo": "c9e6aadc414dbbf2039b12878e978038",
+    "data_size": "13",
+    "l1_message_root_after_hi": "a80ebbffe8fafe39ac5a823980880577",
+    "l1_message_root_after_lo": "681b6921065b29eef06a3e8712723422",
+    "l1_message_root_before_hi": "2f2e91d7455e7420045da4b54ab7fbad",
+    "l1_message_root_before_lo": "6070f32804a7790f405597ed96fe4f0d",
+    "new_state_root": "2eed514dccdf2a2b46fef4f7a3e9d1556f996a21bd908729a9b3f7079d15ae16",
+    "prior_state_root": "1",
+    "queue_prefix_commitment_hi": "1e7ddc520025047aba0370debf4e4c0e",
+    "queue_prefix_commitment_lo": "f1c45a331a585e60db82a08e68b6d177",
+    "sidechain_id": "9",
+    "withdrawal_root_hi": "dcdb12afa97b8da6ff7b1318d4a05c28",
+    "withdrawal_root_lo": "f3ad7fb2d54ba6b1cef304d93b77c704"
+  },
+  "setup_deposits": [
+    {
+      "destination_commitment": "3333333333333333333333333333333333333333333333333333333333333333",
+      "refund_script": "00141111111111111111111111111111111111111111",
+      "amount": "1.0",
+      "nonce": 1,
+      "deposit_id": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "consumed_queue_entries": [
+    {
+      "queue_index": 0,
+      "message_kind": 1,
+      "message_id": "4444444444444444444444444444444444444444444444444444444444444444",
+      "message_hash": "ec05b711a53abdf1f66322b8fe5ad13f19db28c6d408add5f059c816370aef18"
+    }
+  ],
+  "withdrawal_leaves": [
+    {
+      "withdrawal_id": "0000000000000000000000000000000000000000000000000000000000000003",
+      "amount": "0.25",
+      "destination_commitment": "cb96d487e7f0848b320f565aff95eaf266bb36921ea9882ea9daaee82895eb0e",
+      "script": "00142222222222222222222222222222222222222222"
+    }
+  ],
+  "data_chunks_hex": [
+    "7265616c2d6261746368",
+    "2d6461"
+  ],
+  "proof_bytes_hex": "5653475001aedc02767dc3e9cdd219a18dc5c28971bf30de1320e3e0caa132014c213e2f65fbf08cdd9e25714b12721c5db2adeba5ae61948ee043dbe58e42d9fa2b987a85d63bf910e42ee41c6dcdd8c42fff3ac66eaf2fe67e6763c25371c05b64fe24a4084a70076759eafaed16541540f9e8cc693ddbc64d45e89b53545be4dd6c92e336c56923d3987b972ed78ba96082504895fb3410fdf8a3b1aec97c784c5c8a0d4c24e619f6fef5c8353248a06cc82219920daa5ff735f37cd8da5fcfce42d973",
+  "notes": [
+    "derived from the valid native proof by flipping one byte"
+  ]
+}

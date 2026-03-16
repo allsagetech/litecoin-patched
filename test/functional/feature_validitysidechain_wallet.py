@@ -274,6 +274,8 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         repo_root = Path(__file__).resolve().parents[2]
         real_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
         real_proving_key_present = (real_artifact_dir / "batch_pk.bin").exists()
+        real_v2_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v2"
+        real_v2_proving_key_present = (real_v2_artifact_dir / "batch_pk.bin").exists()
         real_valid_vector = load_json(real_artifact_dir / "valid" / "valid_proof.json")
         real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
         real_mismatch_vector = load_json(real_artifact_dir / "invalid" / "public_input_mismatch.json")
@@ -296,6 +298,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
         native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
         real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
+        real_v2_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v2")
         assert_equal(supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["force_exit_request_mode"], "enabled_local_queue_consensus")
@@ -374,6 +377,48 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             assert_equal(real_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
             assert_equal(real_supported["verifier_assets"]["valid_proof_vectors_present"], True)
             assert_equal(real_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
+
+        assert_equal(real_v2_supported["scaffolding_only"], False)
+        assert_equal(real_v2_supported["requires_external_verifier_assets"], True)
+        assert_equal(real_v2_supported["supports_external_prover"], True)
+        assert_equal(real_v2_supported["verifier_backend"], "native_blst_groth16")
+        assert_equal(real_v2_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v2_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
+        assert_equal(real_v2_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
+        assert_equal(real_v2_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_v2_supported["escape_exit_mode"], "disabled_pending_real_state_proof")
+        assert_equal(real_v2_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v2_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_supported["verifier_assets"]["required"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["available"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["prover_assets_present"], real_v2_proving_key_present)
+        assert_equal(real_v2_supported["verifier_assets"]["backend_ready"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["native_backend_available"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_greater_than(real_v2_supported["verifier_assets"]["native_backend_pairing_context_bytes"], 0)
+        if real_v2_supported["verifier_assets"]["profile_manifest_parsed"]:
+            assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+            assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
+            assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+            assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+            assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+            assert_equal(real_v2_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+            assert_equal(real_v2_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
+            assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_public_input_count"], 16)
+
+        real_v2_sidechain_id = get_unused_sidechain_id(node, preferred_id=57)
+        real_v2_config = build_register_config(
+            real_v2_supported,
+            initial_state_root=real_valid_vector["public_inputs"]["prior_state_root"],
+            initial_withdrawal_root="ff" * 32,
+        )
+        node.sendvaliditysidechainregister(real_v2_sidechain_id, real_v2_config)
+        node.generate(1)
+        real_v2_sidechain = get_sidechain_info(node, real_v2_sidechain_id)
+        assert_equal(real_v2_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_sidechain["current_withdrawal_root"], real_v2_config["initial_withdrawal_root"])
+        assert_equal(real_v2_sidechain["force_exit_request_mode"], "enabled_local_queue_consensus")
 
         withdrawals = [
             {

@@ -27,9 +27,11 @@ func main() {
 	switch request.ProfileName {
 	case toybatch.ProfileName:
 		verifyToyProfile(request)
-	case realbatch.ProfileName:
-		verifyRealProfile(request)
 	default:
+		if realbatch.IsSupportedProfileName(request.ProfileName) {
+			verifyRealProfile(request)
+			return
+		}
 		emit(toybatch.CommandResult{OK: false, Error: "unexpected profile name"})
 	}
 }
@@ -86,7 +88,7 @@ func verifyToyProfile(request toybatch.CommandRequest) {
 }
 
 func verifyRealProfile(request toybatch.CommandRequest) {
-	manifest, err := readRealProfileManifest(request.ArtifactDir)
+	manifest, err := readRealProfileManifest(request.ArtifactDir, request.ProfileName)
 	if err != nil {
 		emit(toybatch.CommandResult{OK: false, Error: err.Error()})
 		return
@@ -97,7 +99,7 @@ func verifyRealProfile(request toybatch.CommandRequest) {
 		emit(toybatch.CommandResult{OK: false, Error: err.Error()})
 		return
 	}
-	publicWitness, err := frontend.NewWitness(&publicAssignment, ecc.BLS12_381.ScalarField(), frontend.PublicOnly())
+	publicWitness, err := frontend.NewWitness(publicAssignment, ecc.BLS12_381.ScalarField(), frontend.PublicOnly())
 	if err != nil {
 		emit(toybatch.CommandResult{OK: false, Error: err.Error()})
 		return
@@ -133,7 +135,7 @@ func verifyRealProfile(request toybatch.CommandRequest) {
 	emit(toybatch.CommandResult{OK: true})
 }
 
-func readRealProfileManifest(artifactDir string) (toybatch.ProfileManifest, error) {
+func readRealProfileManifest(artifactDir string, expectedProfileName string) (toybatch.ProfileManifest, error) {
 	var manifest toybatch.ProfileManifest
 	contents, err := os.ReadFile(filepath.Join(artifactDir, "profile.json"))
 	if err != nil {
@@ -142,7 +144,7 @@ func readRealProfileManifest(artifactDir string) (toybatch.ProfileManifest, erro
 	if err := json.Unmarshal(contents, &manifest); err != nil {
 		return manifest, err
 	}
-	if manifest.Name != realbatch.ProfileName {
+	if manifest.Name != expectedProfileName {
 		return manifest, os.ErrInvalid
 	}
 	if manifest.VerifyingKeyFile == "" {

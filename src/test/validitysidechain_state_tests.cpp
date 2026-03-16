@@ -333,15 +333,16 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist
     BOOST_CHECK_EQUAL(status.status, "native blst Groth16 verifier ready");
 }
 
-BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_placeholder_assets_until_final_bundle_exists)
+BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_native_backend_ready_when_assets_exist)
 {
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
     BOOST_CHECK(status.requires_external_assets);
-    BOOST_CHECK(!status.assets_present);
+    BOOST_CHECK(status.assets_present);
     BOOST_CHECK(status.prover_assets_present);
-    BOOST_CHECK(!status.backend_ready);
+    BOOST_CHECK_GT(status.proving_key_bytes, 0U);
+    BOOST_CHECK(status.backend_ready);
     BOOST_CHECK(status.native_backend_available);
     BOOST_CHECK(status.native_backend_self_test_passed);
     BOOST_CHECK_EQUAL(status.artifact_name, "groth16_bls12_381_poseidon_v2");
@@ -354,8 +355,10 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_placeholder_assets_unti
     BOOST_CHECK(status.valid_proof_vectors_present);
     BOOST_CHECK(status.invalid_proof_vectors_present);
     BOOST_CHECK_EQUAL(status.profile_manifest_name, "groth16_bls12_381_poseidon_v2");
+    BOOST_CHECK_GE(status.valid_proof_vector_count, 1U);
+    BOOST_CHECK_GE(status.invalid_proof_vector_count, 1U);
     BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 16U);
-    BOOST_CHECK_EQUAL(status.status, "placeholder verifier artifacts only");
+    BOOST_CHECK_EQUAL(status.status, "native blst Groth16 verifier ready");
 }
 
 BOOST_AUTO_TEST_CASE(native_toy_profile_reports_native_backend_ready_when_assets_exist)

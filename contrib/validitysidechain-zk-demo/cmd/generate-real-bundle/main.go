@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/big"
 	"os"
@@ -24,7 +25,19 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const outputArtifactDir = "..\\..\\artifacts\\validitysidechain\\groth16_bls12_381_poseidon_v1"
+const outputArtifactDirV1 = "..\\..\\artifacts\\validitysidechain\\groth16_bls12_381_poseidon_v1"
+const outputArtifactDirV2 = "..\\..\\artifacts\\validitysidechain\\groth16_bls12_381_poseidon_v2"
+
+type bundleSpec struct {
+	profileName                  string
+	outputArtifactDir            string
+	publicInputVersion           uint8
+	circuitName                  string
+	status                       string
+	validNotes                   []string
+	requireFieldSizedQueueRoots  bool
+	requireFieldSizedWithdrawal  bool
+}
 
 type outputFile struct {
 	Path     string `json:"path"`
@@ -97,23 +110,76 @@ type withdrawalSetup struct {
 	DestinationCommitment string `json:"destination_commitment"`
 }
 
+func resolveBundleSpec(profileName string) (bundleSpec, error) {
+	switch profileName {
+	case realbatch.ProfileName:
+		return bundleSpec{
+			profileName:                 realbatch.ProfileName,
+			outputArtifactDir:           outputArtifactDirV1,
+			publicInputVersion:          realbatch.ExperimentalPublicInputVersion,
+			circuitName:                 "poseidon_batch_transition_v1",
+			status:                      "experimental real Groth16 profile with deterministic Poseidon2 transition semantics, host-validated queue/withdrawal fixtures, and non-empty DA test vectors",
+			requireFieldSizedQueueRoots: true,
+			requireFieldSizedWithdrawal: true,
+			validNotes: []string{
+				"real Groth16 proof for the experimental poseidon batch transition circuit",
+				"includes one deterministic deposit queue entry fixture validated host-side and reused by surrounding node-side queue checks",
+				"includes one deterministic withdrawal leaf fixture validated host-side and reused by surrounding node-side withdrawal execution checks",
+				"binds withdrawal_root directly into the Poseidon transition commitment",
+				"the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
+				"binds a non-empty published DA payload through data_root and data_size",
+				"verified in-process by the node native blst Groth16 path",
+			},
+		}, nil
+	case realbatch.FinalProfileName:
+		return bundleSpec{
+			profileName:                 realbatch.FinalProfileName,
+			outputArtifactDir:           outputArtifactDirV2,
+			publicInputVersion:          realbatch.FinalPublicInputVersion,
+			circuitName:                 "poseidon_batch_transition_v2",
+			status:                      "experimental decomposed-input Poseidon Groth16 profile with full-width queue, withdrawal, and DA roots plus host-validated queue/withdrawal fixtures",
+			requireFieldSizedQueueRoots: false,
+			requireFieldSizedWithdrawal: false,
+			validNotes: []string{
+				"real Groth16 proof for the decomposed-input experimental poseidon batch transition circuit",
+				"includes one deterministic deposit queue entry fixture validated host-side and reused by surrounding node-side queue checks",
+				"includes one deterministic withdrawal leaf fixture validated host-side and reused by surrounding node-side withdrawal execution checks",
+				"binds queue, withdrawal, and DA roots through 128-bit public-input limbs instead of single-field encodings",
+				"the queued roots and/or withdrawal root intentionally exceed the BLS12-381 scalar field to exercise the decomposed public-input layout",
+				"binds a non-empty published DA payload through data_root and data_size",
+				"verified in-process by the node native blst Groth16 path",
+			},
+		}, nil
+	default:
+		return bundleSpec{}, fmt.Errorf("unsupported profile name %q", profileName)
+	}
+}
+
 func main() {
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 
-	outputRoot, err := filepath.Abs(outputArtifactDir)
+	profileName := flag.String("profile", realbatch.ProfileName, "profile name to generate")
+	flag.Parse()
+
+	spec, err := resolveBundleSpec(*profileName)
 	if err != nil {
 		panic(err)
 	}
 
-	deposit, queueRootBefore, queueRootAfter, queuePrefixCommitment := findFieldSizedDepositSetup(9)
+	outputRoot, err := filepath.Abs(spec.outputArtifactDir)
+	if err != nil {
+		panic(err)
+	}
+
+	deposit, queueRootBefore, queueRootAfter, queuePrefixCommitment := findDepositSetup(9, spec.requireFieldSizedQueueRoots)
 	depositMessageHash := computeDepositMessageHash(9, deposit)
 	if depositMessageHash == "" {
 		panic("deposit message hash unexpectedly empty")
 	}
-	withdrawal, withdrawalRoot := findFieldSizedWithdrawalSetup()
+	withdrawal, withdrawalRoot := findWithdrawalSetup(spec.requireFieldSizedWithdrawal)
 
 	request := toybatch.CommandRequest{
-		ProfileName: realbatch.ProfileName,
+		ProfileName: spec.profileName,
 		SidechainID: 9,
 		PublicInputs: toybatch.BatchPublicInputs{
 			BatchNumber:           1,
@@ -148,7 +214,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	experimentalPublicInputs, err := realbatch.ManifestPublicInputs(realbatch.ExperimentalPublicInputVersion)
+	manifestPublicInputs, err := realbatch.ManifestPublicInputs(spec.publicInputVersion)
 	if err != nil {
 		panic(err)
 	}
@@ -159,13 +225,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	validPublicInputs, err := realbatch.PublicInputsMap(derivedRequest, realbatch.ExperimentalPublicInputVersion)
+	validPublicInputs, err := realbatch.PublicInputsMap(derivedRequest, spec.publicInputVersion)
 	if err != nil {
 		panic(err)
 	}
 
-	var circuit realbatch.PoseidonBatchTransitionCircuit
-	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, &circuit)
+	circuit, err := realbatch.NewCircuit(spec.profileName)
+	if err != nil {
+		panic(err)
+	}
+	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, circuit)
 	if err != nil {
 		panic(err)
 	}
@@ -175,7 +244,7 @@ func main() {
 		panic(err)
 	}
 
-	witness, err := frontend.NewWitness(&assignment, ecc.BLS12_381.ScalarField())
+	witness, err := frontend.NewWitness(assignment, ecc.BLS12_381.ScalarField())
 	if err != nil {
 		panic(err)
 	}
@@ -212,7 +281,7 @@ func main() {
 
 	validVector := vectorFile{
 		Name:                 "valid_proof",
-		Circuit:              "poseidon_batch_transition_v1",
+		Circuit:              spec.circuitName,
 		Curve:                "bls12_381",
 		ExpectedResult:       "accept_in_native_verifier",
 		PublicInputs:         validPublicInputs,
@@ -221,24 +290,16 @@ func main() {
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
 		DataChunksHex:        append([]string{}, derivedRequest.DataChunksHex...),
 		ProofBytesHex:        hex.EncodeToString(validProofBytes),
-		Notes: []string{
-			"real Groth16 proof for the experimental poseidon batch transition circuit",
-			"includes one deterministic deposit queue entry fixture validated host-side and reused by surrounding node-side queue checks",
-			"includes one deterministic withdrawal leaf fixture validated host-side and reused by surrounding node-side withdrawal execution checks",
-			"binds withdrawal_root directly into the Poseidon transition commitment",
-			"the queued roots and commitment were chosen to fit the BLS12-381 scalar field",
-			"binds a non-empty published DA payload through data_root and data_size",
-			"verified in-process by the node native blst Groth16 path",
-		},
+		Notes:                append([]string{}, spec.validNotes...),
 	}
 	mismatchRequest := derivedRequest
 	mismatchRequest.PublicInputs.NewStateRoot = "2"
 	mismatchVector := vectorFile{
 		Name:                 "public_input_mismatch",
-		Circuit:              "poseidon_batch_transition_v1",
+		Circuit:              spec.circuitName,
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
-		PublicInputs:         mustPublicInputsMap(mismatchRequest),
+		PublicInputs:         mustPublicInputsMap(mismatchRequest, spec.publicInputVersion),
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -252,10 +313,10 @@ func main() {
 	withdrawalRootMismatchRequest.PublicInputs.WithdrawalRoot = "2"
 	withdrawalRootMismatchVector := vectorFile{
 		Name:                 "withdrawal_root_mismatch",
-		Circuit:              "poseidon_batch_transition_v1",
+		Circuit:              spec.circuitName,
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
-		PublicInputs:         mustPublicInputsMap(withdrawalRootMismatchRequest),
+		PublicInputs:         mustPublicInputsMap(withdrawalRootMismatchRequest, spec.publicInputVersion),
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -269,10 +330,10 @@ func main() {
 	queuePrefixMismatchRequest.PublicInputs.QueuePrefixCommitment = "2"
 	queuePrefixMismatchVector := vectorFile{
 		Name:                 "queue_prefix_commitment_mismatch",
-		Circuit:              "poseidon_batch_transition_v1",
+		Circuit:              spec.circuitName,
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
-		PublicInputs:         mustPublicInputsMap(queuePrefixMismatchRequest),
+		PublicInputs:         mustPublicInputsMap(queuePrefixMismatchRequest, spec.publicInputVersion),
 		SetupDeposits:        []depositSetup{deposit},
 		ConsumedQueueEntries: append([]toybatch.ConsumedQueueEntry{}, derivedRequest.ConsumedQueueEntries...),
 		WithdrawalLeaves:     append([]toybatch.WithdrawalLeaf{}, derivedRequest.WithdrawalLeaves...),
@@ -284,7 +345,7 @@ func main() {
 	}
 	corruptVector := vectorFile{
 		Name:                 "corrupt_proof",
-		Circuit:              "poseidon_batch_transition_v1",
+		Circuit:              spec.circuitName,
 		Curve:                "bls12_381",
 		ExpectedResult:       "reject",
 		PublicInputs:         validPublicInputs,
@@ -299,24 +360,24 @@ func main() {
 	}
 
 	manifest := profileManifest{
-		Name:          realbatch.ProfileName,
+		Name:          spec.profileName,
 		Curve:         "bls12_381",
 		Backend:       "native_blst_groth16",
 		ConsensusSafe: false,
-		Status:        "experimental real Groth16 profile with deterministic Poseidon2 transition semantics, host-validated queue/withdrawal fixtures, and non-empty DA test vectors",
+		Status:        spec.status,
 		ConsensusTuple: consensusTuple{
 			Version:              1,
 			ProofSystemID:        2,
 			CircuitFamilyID:      1,
 			VerifierID:           1,
-			PublicInputVersion:   realbatch.ExperimentalPublicInputVersion,
+			PublicInputVersion:   spec.publicInputVersion,
 			StateRootFormat:      2,
 			DepositMessageFormat: 1,
 			WithdrawalLeafFormat: 2,
 			BalanceLeafFormat:    2,
 			DataAvailabilityMode: 1,
 		},
-		PublicInputs:     experimentalPublicInputs,
+		PublicInputs:     manifestPublicInputs,
 		VerifyingKeyFile: "batch_vk.bin",
 		ProvingKeyFile:   "batch_pk.bin",
 		ProofVectors: proofVectors{
@@ -351,7 +412,7 @@ func main() {
 	}
 }
 
-func findFieldSizedDepositSetup(sidechainID uint8) (depositSetup, string, string, string) {
+func findDepositSetup(sidechainID uint8, requireFieldSized bool) (depositSetup, string, string, string) {
 	base := depositSetup{
 		DestinationCommitment: "3333333333333333333333333333333333333333333333333333333333333333",
 		RefundScript:          "00141111111111111111111111111111111111111111",
@@ -389,14 +450,18 @@ func findFieldSizedDepositSetup(sidechainID uint8) (depositSetup, string, string
 			candidate.DepositID,
 			depositMessageHash,
 		)
-		if fitsField(queueRootBefore) && fitsField(queueRootAfter) && fitsField(queuePrefixCommitment) {
+		allRootsFitField := fitsField(queueRootBefore) && fitsField(queueRootAfter) && fitsField(queuePrefixCommitment)
+		if (requireFieldSized && allRootsFitField) || (!requireFieldSized && !allRootsFitField) {
 			return candidate, queueRootBefore, queueRootAfter, queuePrefixCommitment
 		}
 	}
-	panic("failed to find field-sized queue roots for experimental real profile")
+	if requireFieldSized {
+		panic("failed to find field-sized queue roots for experimental real profile")
+	}
+	panic("failed to find non-field-sized queue roots for decomposed real profile")
 }
 
-func findFieldSizedWithdrawalSetup() (withdrawalSetup, string) {
+func findWithdrawalSetup(requireFieldSized bool) (withdrawalSetup, string) {
 	base := withdrawalSetup{
 		Amount: "0.25",
 		Script: "00142222222222222222222222222222222222222222",
@@ -406,15 +471,19 @@ func findFieldSizedWithdrawalSetup() (withdrawalSetup, string) {
 		candidate := base
 		candidate.WithdrawalID = fmt.Sprintf("%064x", suffix)
 		root := computeWithdrawalRoot([]withdrawalSetup{candidate})
-		if fitsField(root) {
+		rootFitsField := fitsField(root)
+		if (requireFieldSized && rootFitsField) || (!requireFieldSized && !rootFitsField) {
 			return candidate, root
 		}
 	}
-	panic("failed to find field-sized withdrawal root for experimental real profile")
+	if requireFieldSized {
+		panic("failed to find field-sized withdrawal root for experimental real profile")
+	}
+	panic("failed to find non-field-sized withdrawal root for decomposed real profile")
 }
 
-func mustPublicInputsMap(request toybatch.CommandRequest) map[string]string {
-	values, err := realbatch.PublicInputsMap(request, realbatch.ExperimentalPublicInputVersion)
+func mustPublicInputsMap(request toybatch.CommandRequest, publicInputVersion uint8) map[string]string {
+	values, err := realbatch.PublicInputsMap(request, publicInputVersion)
 	if err != nil {
 		panic(err)
 	}

@@ -65,6 +65,12 @@ def pad_field_hex(raw_value):
     return raw_value.lower().rjust(64, "0")
 
 
+def combine_128_bit_limbs(low_hex, high_hex):
+    combined = high_hex.lower().rjust(32, "0") + low_hex.lower().rjust(32, "0")
+    combined = combined.lstrip("0")
+    return combined or "0"
+
+
 def load_json(path):
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -198,7 +204,9 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.toy_artifact_dir = self.artifact_root / "validitysidechain" / "gnark_groth16_toy_batch_transition_v1"
         self.native_toy_artifact_dir = self.artifact_root / "validitysidechain" / "native_blst_groth16_toy_batch_transition_v1"
         self.real_artifact_dir = self.artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
+        self.real_v2_artifact_dir = self.artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v2"
         self.real_proving_key_path = self.real_artifact_dir / "batch_pk.bin"
+        self.real_v2_proving_key_path = self.real_v2_artifact_dir / "batch_pk.bin"
         self.valid_vector_path = self.toy_artifact_dir / "valid" / "valid_proof.json"
         self.invalid_mismatch_vector_path = self.toy_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.invalid_corrupt_vector_path = self.toy_artifact_dir / "invalid" / "corrupt_proof.json"
@@ -206,10 +214,15 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.native_invalid_mismatch_vector_path = self.native_toy_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.native_invalid_corrupt_vector_path = self.native_toy_artifact_dir / "invalid" / "corrupt_proof.json"
         self.real_valid_vector_path = self.real_artifact_dir / "valid" / "valid_proof.json"
+        self.real_v2_valid_vector_path = self.real_v2_artifact_dir / "valid" / "valid_proof.json"
         self.real_invalid_mismatch_vector_path = self.real_artifact_dir / "invalid" / "public_input_mismatch.json"
+        self.real_v2_invalid_mismatch_vector_path = self.real_v2_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.real_invalid_queue_prefix_mismatch_vector_path = self.real_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json"
+        self.real_v2_invalid_queue_prefix_mismatch_vector_path = self.real_v2_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json"
         self.real_invalid_withdrawal_root_mismatch_vector_path = self.real_artifact_dir / "invalid" / "withdrawal_root_mismatch.json"
+        self.real_v2_invalid_withdrawal_root_mismatch_vector_path = self.real_v2_artifact_dir / "invalid" / "withdrawal_root_mismatch.json"
         self.real_invalid_corrupt_vector_path = self.real_artifact_dir / "invalid" / "corrupt_proof.json"
+        self.real_v2_invalid_corrupt_vector_path = self.real_v2_artifact_dir / "invalid" / "corrupt_proof.json"
         self.have_go = shutil.which("go") is not None
 
         base_args = ["-acceptnonstdtxn=1"]
@@ -235,10 +248,15 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             self.native_invalid_mismatch_vector_path,
             self.native_invalid_corrupt_vector_path,
             self.real_valid_vector_path,
+            self.real_v2_valid_vector_path,
             self.real_invalid_mismatch_vector_path,
+            self.real_v2_invalid_mismatch_vector_path,
             self.real_invalid_queue_prefix_mismatch_vector_path,
+            self.real_v2_invalid_queue_prefix_mismatch_vector_path,
             self.real_invalid_withdrawal_root_mismatch_vector_path,
+            self.real_v2_invalid_withdrawal_root_mismatch_vector_path,
             self.real_invalid_corrupt_vector_path,
+            self.real_v2_invalid_corrupt_vector_path,
         ):
             if not required_path.exists():
                 raise SkipTest(f"toy proof vector is missing: {required_path}")
@@ -276,6 +294,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
         native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
         real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
+        real_v2_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v2")
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_backend"], "external_gnark_command")
         assert_equal(toy_supported["supports_external_prover"], True)
@@ -354,6 +373,32 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_supported["verifier_assets"]["valid_proof_vector_count"], 1)
         assert_equal(real_supported["verifier_assets"]["invalid_proof_vector_count"], 4)
+        assert_equal(real_v2_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_supported["verifier_backend"], "native_blst_groth16")
+        assert_equal(real_v2_supported["supports_external_prover"], True)
+        assert_equal(real_v2_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v2_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
+        assert_equal(real_v2_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
+        assert_equal(real_v2_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v2_supported["verifier_assets"]["required"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["available"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["prover_assets_present"], self.real_v2_proving_key_path.exists())
+        assert_equal(real_v2_supported["verifier_assets"]["backend_ready"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["native_backend_available"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_parsed"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_backend"], "native_blst_groth16")
+        assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_public_input_count"], 16)
+        assert_equal(real_v2_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["valid_proof_vector_count"], 1)
+        assert_equal(real_v2_supported["verifier_assets"]["invalid_proof_vector_count"], 4)
 
         self.log.info("Replaying committed proof vectors through consensus.")
         valid_vector = load_json(self.valid_vector_path)
@@ -363,10 +408,15 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         native_mismatch_vector = load_json(self.native_invalid_mismatch_vector_path)
         native_corrupt_vector = load_json(self.native_invalid_corrupt_vector_path)
         real_valid_vector = load_json(self.real_valid_vector_path)
+        real_v2_valid_vector = load_json(self.real_v2_valid_vector_path)
         real_mismatch_vector = load_json(self.real_invalid_mismatch_vector_path)
+        real_v2_mismatch_vector = load_json(self.real_v2_invalid_mismatch_vector_path)
         real_queue_prefix_mismatch_vector = load_json(self.real_invalid_queue_prefix_mismatch_vector_path)
+        real_v2_queue_prefix_mismatch_vector = load_json(self.real_v2_invalid_queue_prefix_mismatch_vector_path)
         real_withdrawal_root_mismatch_vector = load_json(self.real_invalid_withdrawal_root_mismatch_vector_path)
+        real_v2_withdrawal_root_mismatch_vector = load_json(self.real_v2_invalid_withdrawal_root_mismatch_vector_path)
         real_corrupt_vector = load_json(self.real_invalid_corrupt_vector_path)
+        real_v2_corrupt_vector = load_json(self.real_v2_invalid_corrupt_vector_path)
         assert_equal(valid_vector["expected_result"], "accept_in_demo_verifier")
         assert_equal(mismatch_vector["expected_result"], "reject")
         assert_equal(corrupt_vector["expected_result"], "reject")
@@ -378,6 +428,11 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_queue_prefix_mismatch_vector["expected_result"], "reject")
         assert_equal(real_withdrawal_root_mismatch_vector["expected_result"], "reject")
         assert_equal(real_corrupt_vector["expected_result"], "reject")
+        assert_equal(real_v2_valid_vector["expected_result"], "accept_in_native_verifier")
+        assert_equal(real_v2_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_v2_queue_prefix_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_v2_withdrawal_root_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_v2_corrupt_vector["expected_result"], "reject")
 
         self.log.info("Replaying the committed real vector through the external verify helper too.")
         real_verify_request = {
@@ -407,6 +462,50 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         real_verify_mismatch_result = self.run_tool("verify", real_verify_mismatch_request)
         assert_equal(real_verify_mismatch_result["ok"], False)
         assert real_verify_mismatch_result["error"]
+
+        self.log.info("Replaying the committed decomposed real vector through the external verify helper too.")
+        real_v2_verify_request = {
+            "profile_name": "groth16_bls12_381_poseidon_v2",
+            "artifact_dir": str(self.real_v2_artifact_dir),
+            "sidechain_id": int(real_v2_valid_vector["public_inputs"]["sidechain_id"]),
+            "public_inputs": {
+                "batch_number": int(real_v2_valid_vector["public_inputs"]["batch_number"]),
+                "prior_state_root": real_v2_valid_vector["public_inputs"]["prior_state_root"],
+                "new_state_root": real_v2_valid_vector["public_inputs"]["new_state_root"],
+                "l1_message_root_before": combine_128_bit_limbs(
+                    real_v2_valid_vector["public_inputs"]["l1_message_root_before_lo"],
+                    real_v2_valid_vector["public_inputs"]["l1_message_root_before_hi"],
+                ),
+                "l1_message_root_after": combine_128_bit_limbs(
+                    real_v2_valid_vector["public_inputs"]["l1_message_root_after_lo"],
+                    real_v2_valid_vector["public_inputs"]["l1_message_root_after_hi"],
+                ),
+                "consumed_queue_messages": int(real_v2_valid_vector["public_inputs"]["consumed_queue_messages"]),
+                "queue_prefix_commitment": combine_128_bit_limbs(
+                    real_v2_valid_vector["public_inputs"]["queue_prefix_commitment_lo"],
+                    real_v2_valid_vector["public_inputs"]["queue_prefix_commitment_hi"],
+                ),
+                "withdrawal_root": combine_128_bit_limbs(
+                    real_v2_valid_vector["public_inputs"]["withdrawal_root_lo"],
+                    real_v2_valid_vector["public_inputs"]["withdrawal_root_hi"],
+                ),
+                "data_root": combine_128_bit_limbs(
+                    real_v2_valid_vector["public_inputs"]["data_root_lo"],
+                    real_v2_valid_vector["public_inputs"]["data_root_hi"],
+                ),
+                "data_size": int(real_v2_valid_vector["public_inputs"]["data_size"]),
+            },
+            "proof_bytes_hex": real_v2_valid_vector["proof_bytes_hex"],
+        }
+        real_v2_verify_result = self.run_tool("verify", real_v2_verify_request)
+        assert_equal(real_v2_verify_result["ok"], True)
+
+        real_v2_verify_mismatch_request = dict(real_v2_verify_request)
+        real_v2_verify_mismatch_request["public_inputs"] = dict(real_v2_verify_request["public_inputs"])
+        real_v2_verify_mismatch_request["public_inputs"]["new_state_root"] = real_v2_mismatch_vector["public_inputs"]["new_state_root"]
+        real_v2_verify_mismatch_result = self.run_tool("verify", real_v2_verify_mismatch_request)
+        assert_equal(real_v2_verify_mismatch_result["ok"], False)
+        assert real_v2_verify_mismatch_result["error"]
         refund_address = node.getnewaddress()
         native_toy_vectors_da_compatible = pad_field_hex(native_valid_vector["public_inputs"]["data_root"]) == ("00" * 32)
 

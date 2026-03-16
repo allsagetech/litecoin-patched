@@ -2,9 +2,8 @@
   "name": "groth16_bls12_381_poseidon_v2",
   "curve": "bls12_381",
   "backend": "native_blst_groth16",
-  "placeholder": true,
   "consensus_safe": false,
-  "status": "placeholder decomposed Poseidon profile for full-width queue, withdrawal, and DA roots",
+  "status": "experimental decomposed-input Poseidon Groth16 profile with full-width queue, withdrawal, and DA roots plus host-validated queue/withdrawal fixtures",
   "consensus_tuple": {
     "version": 1,
     "proof_system_id": 2,
@@ -39,10 +38,13 @@
   "proving_key_file": "batch_pk.bin",
   "proof_vectors": {
     "valid": [
-      "valid/placeholder.json"
+      "valid/valid_proof.json"
     ],
     "invalid": [
-      "invalid/placeholder.json"
+      "invalid/corrupt_proof.json",
+      "invalid/public_input_mismatch.json",
+      "invalid/queue_prefix_commitment_mismatch.json",
+      "invalid/withdrawal_root_mismatch.json"
     ]
   }
 }

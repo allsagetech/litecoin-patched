@@ -21,6 +21,7 @@ import (
 )
 
 const ProfileName = "groth16_bls12_381_poseidon_v1"
+const FinalProfileName = "groth16_bls12_381_poseidon_v2"
 const ExperimentalPublicInputVersion uint8 = 2
 const FinalPublicInputVersion uint8 = 5
 
@@ -28,6 +29,21 @@ var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
 var queuePrefixCommitmentMagic = []uint8{'V', 'S', 'C', 'Q', 'P', 0x01}
 var withdrawalRootMagic = []uint8{'V', 'S', 'C', 'W', 0x01}
 var withdrawalLeafMagic = []uint8{'V', 'S', 'C', 'W', 0x02}
+
+func IsSupportedProfileName(profileName string) bool {
+	return profileName == ProfileName || profileName == FinalProfileName
+}
+
+func PublicInputVersionForProfileName(profileName string) (uint8, error) {
+	switch profileName {
+	case ProfileName:
+		return ExperimentalPublicInputVersion, nil
+	case FinalProfileName:
+		return FinalPublicInputVersion, nil
+	default:
+		return 0, fmt.Errorf("unsupported profile name %q", profileName)
+	}
+}
 
 type PoseidonBatchTransitionCircuit struct {
 	SidechainID           frontend.Variable `gnark:",public"`
@@ -52,6 +68,25 @@ type PoseidonBatchTransitionCircuit struct {
 	WithdrawalLeafID                    [32]uints.U8
 	WithdrawalLeafAmount                frontend.Variable
 	WithdrawalLeafDestinationCommitment [32]uints.U8
+}
+
+type PoseidonBatchTransitionCircuitDecomposedPublicInputs struct {
+	SidechainID               frontend.Variable `gnark:",public"`
+	BatchNumber               frontend.Variable `gnark:",public"`
+	PriorStateRoot            frontend.Variable `gnark:",public"`
+	NewStateRoot              frontend.Variable `gnark:",public"`
+	L1MessageRootBeforeLo     frontend.Variable `gnark:",public"`
+	L1MessageRootBeforeHi     frontend.Variable `gnark:",public"`
+	L1MessageRootAfterLo      frontend.Variable `gnark:",public"`
+	L1MessageRootAfterHi      frontend.Variable `gnark:",public"`
+	ConsumedQueueMessages     frontend.Variable `gnark:",public"`
+	QueuePrefixCommitmentLo   frontend.Variable `gnark:",public"`
+	QueuePrefixCommitmentHi   frontend.Variable `gnark:",public"`
+	WithdrawalRootLo          frontend.Variable `gnark:",public"`
+	WithdrawalRootHi          frontend.Variable `gnark:",public"`
+	DataRootLo                frontend.Variable `gnark:",public"`
+	DataRootHi                frontend.Variable `gnark:",public"`
+	DataSize                  frontend.Variable `gnark:",public"`
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
@@ -86,11 +121,93 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
+func (c *PoseidonBatchTransitionCircuitDecomposedPublicInputs) Define(api frontend.API) error {
+	transitionHasher, err := newPoseidonHasher(api)
+	if err != nil {
+		return err
+	}
+	transitionHasher.Write(
+		c.SidechainID,
+		c.BatchNumber,
+		c.PriorStateRoot,
+		c.L1MessageRootBeforeLo,
+		c.L1MessageRootBeforeHi,
+		c.L1MessageRootAfterLo,
+		c.L1MessageRootAfterHi,
+		c.ConsumedQueueMessages,
+		c.QueuePrefixCommitmentLo,
+		c.QueuePrefixCommitmentHi,
+		c.WithdrawalRootLo,
+		c.WithdrawalRootHi,
+		c.DataRootLo,
+		c.DataRootHi,
+		c.DataSize,
+	)
+	transitionCommitment := transitionHasher.Sum()
+
+	stateHasher, err := newPoseidonHasher(api)
+	if err != nil {
+		return err
+	}
+	stateHasher.Write(c.PriorStateRoot, transitionCommitment)
+	api.AssertIsEqual(c.NewStateRoot, stateHasher.Sum())
+	return nil
+}
+
+func NewCircuit(profileName string) (frontend.Circuit, error) {
+	switch profileName {
+	case ProfileName:
+		return &PoseidonBatchTransitionCircuit{}, nil
+	case FinalProfileName:
+		return &PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported profile name %q", profileName)
+	}
+}
+
+func BuildAssignment(request toybatch.CommandRequest) (frontend.Circuit, error) {
 	if err := validatePublishedDataWitness(request); err != nil {
-		return PoseidonBatchTransitionCircuit{}, err
+		return nil, err
 	}
 
+	switch request.ProfileName {
+	case ProfileName:
+		assignment, err := buildExperimentalAssignment(request)
+		if err != nil {
+			return nil, err
+		}
+		return &assignment, nil
+	case FinalProfileName:
+		assignment, err := buildDecomposedPublicAssignment(request)
+		if err != nil {
+			return nil, err
+		}
+		return &assignment, nil
+	default:
+		return nil, fmt.Errorf("unsupported profile name %q", request.ProfileName)
+	}
+}
+
+func BuildPublicAssignment(request toybatch.CommandRequest) (frontend.Circuit, error) {
+	switch request.ProfileName {
+	case ProfileName:
+		assignment, err := buildExperimentalPublicAssignment(request)
+		if err != nil {
+			return nil, err
+		}
+		return &assignment, nil
+	case FinalProfileName:
+		assignment, err := buildDecomposedPublicAssignment(request)
+		if err != nil {
+			return nil, err
+		}
+		return &assignment, nil
+	default:
+		return nil, fmt.Errorf("unsupported profile name %q", request.ProfileName)
+	}
+}
+
+func buildExperimentalAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
 	sidechainID, err := parseUintAsField(request.SidechainID, "sidechain_id")
 	if err != nil {
 		return PoseidonBatchTransitionCircuit{}, err
@@ -171,7 +288,7 @@ func BuildAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCi
 	}, nil
 }
 
-func BuildPublicAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
+func buildExperimentalPublicAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
 	sidechainID, err := parseUintAsField(request.SidechainID, "sidechain_id")
 	if err != nil {
 		return PoseidonBatchTransitionCircuit{}, err
@@ -229,6 +346,72 @@ func BuildPublicAssignment(request toybatch.CommandRequest) (PoseidonBatchTransi
 		WithdrawalRoot:        withdrawalRoot,
 		DataRoot:              dataRoot,
 		DataSize:              dataSize,
+	}, nil
+}
+
+func buildDecomposedPublicAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuitDecomposedPublicInputs, error) {
+	sidechainID, err := parseUintAsField(request.SidechainID, "sidechain_id")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	batchNumber, err := parseUintAsField(uint64(request.PublicInputs.BatchNumber), "batch_number")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	priorStateRoot, err := parseFieldHex(request.PublicInputs.PriorStateRoot, "prior_state_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	newStateRoot, err := parseFieldHex(request.PublicInputs.NewStateRoot, "new_state_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	l1MessageRootBeforeLo, l1MessageRootBeforeHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.L1MessageRootBefore, "l1_message_root_before")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	l1MessageRootAfterLo, l1MessageRootAfterHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.L1MessageRootAfter, "l1_message_root_after")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	consumedQueueMessages, err := parseUintAsField(uint64(request.PublicInputs.ConsumedQueueMessages), "consumed_queue_messages")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	queuePrefixCommitmentLo, queuePrefixCommitmentHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.QueuePrefixCommitment, "queue_prefix_commitment")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	withdrawalRootLo, withdrawalRootHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.WithdrawalRoot, "withdrawal_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	dataRootLo, dataRootHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.DataRoot, "data_root")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+	dataSize, err := parseUintAsField(uint64(request.PublicInputs.DataSize), "data_size")
+	if err != nil {
+		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
+	}
+
+	return PoseidonBatchTransitionCircuitDecomposedPublicInputs{
+		SidechainID:             sidechainID,
+		BatchNumber:             batchNumber,
+		PriorStateRoot:          priorStateRoot,
+		NewStateRoot:            newStateRoot,
+		L1MessageRootBeforeLo:   l1MessageRootBeforeLo,
+		L1MessageRootBeforeHi:   l1MessageRootBeforeHi,
+		L1MessageRootAfterLo:    l1MessageRootAfterLo,
+		L1MessageRootAfterHi:    l1MessageRootAfterHi,
+		ConsumedQueueMessages:   consumedQueueMessages,
+		QueuePrefixCommitmentLo: queuePrefixCommitmentLo,
+		QueuePrefixCommitmentHi: queuePrefixCommitmentHi,
+		WithdrawalRootLo:        withdrawalRootLo,
+		WithdrawalRootHi:        withdrawalRootHi,
+		DataRootLo:              dataRootLo,
+		DataRootHi:              dataRootHi,
+		DataSize:                dataSize,
 	}, nil
 }
 
@@ -370,7 +553,25 @@ func decomposeUint256HexTo128BitLimbs(raw string) (string, string) {
 	return low, high
 }
 
+func parseUint256HexTo128BitLimbs(raw string, fieldName string) (*big.Int, *big.Int, error) {
+	lowHex, highHex := decomposeUint256HexTo128BitLimbs(normalizeUint256Hex(raw))
+	low, err := parseFieldHex(lowHex, fieldName+"_lo")
+	if err != nil {
+		return nil, nil, err
+	}
+	high, err := parseFieldHex(highHex, fieldName+"_hi")
+	if err != nil {
+		return nil, nil, err
+	}
+	return low, high, nil
+}
+
 func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, error) {
+	publicInputVersion, err := PublicInputVersionForProfileName(request.ProfileName)
+	if err != nil {
+		return toybatch.CommandRequest{}, err
+	}
+
 	cleared := ensureDerivedTargetsCleared(request)
 	if len(request.DataChunksHex) != 0 {
 		chunks, err := decodeDataChunks(request.DataChunksHex)
@@ -385,15 +586,15 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 		return toybatch.CommandRequest{}, err
 	}
 	cleared.PublicInputs.WithdrawalRoot = withdrawalRoot
-	assignment, err := BuildAssignment(cleared)
+	transitionCommitment, err := computeTransitionCommitment(cleared, publicInputVersion)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
 	}
-
-	newStateRoot, err := poseidonHash(
-		assignment.PriorStateRoot.(*big.Int),
-		mustTransitionCommitment(assignment),
-	)
+	priorStateRoot, err := parseFieldHex(cleared.PublicInputs.PriorStateRoot, "prior_state_root")
+	if err != nil {
+		return toybatch.CommandRequest{}, err
+	}
+	newStateRoot, err := poseidonHash(priorStateRoot, transitionCommitment)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
 	}
@@ -514,23 +715,103 @@ func ensureDerivedTargetsCleared(request toybatch.CommandRequest) toybatch.Comma
 	return request
 }
 
-func mustTransitionCommitment(assignment PoseidonBatchTransitionCircuit) *big.Int {
-	commitment, err := poseidonHash(
-		assignment.SidechainID.(*big.Int),
-		assignment.BatchNumber.(*big.Int),
-		assignment.PriorStateRoot.(*big.Int),
-		assignment.L1MessageRootBefore.(*big.Int),
-		assignment.L1MessageRootAfter.(*big.Int),
-		assignment.ConsumedQueueMessages.(*big.Int),
-		assignment.QueuePrefixCommitment.(*big.Int),
-		assignment.WithdrawalRoot.(*big.Int),
-		assignment.DataRoot.(*big.Int),
-		assignment.DataSize.(*big.Int),
-	)
+func computeTransitionCommitment(request toybatch.CommandRequest, publicInputVersion uint8) (*big.Int, error) {
+	sidechainID, err := parseUintAsField(request.SidechainID, "sidechain_id")
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return commitment
+	batchNumber, err := parseUintAsField(uint64(request.PublicInputs.BatchNumber), "batch_number")
+	if err != nil {
+		return nil, err
+	}
+	priorStateRoot, err := parseFieldHex(request.PublicInputs.PriorStateRoot, "prior_state_root")
+	if err != nil {
+		return nil, err
+	}
+	consumedQueueMessages, err := parseUintAsField(uint64(request.PublicInputs.ConsumedQueueMessages), "consumed_queue_messages")
+	if err != nil {
+		return nil, err
+	}
+	dataSize, err := parseUintAsField(uint64(request.PublicInputs.DataSize), "data_size")
+	if err != nil {
+		return nil, err
+	}
+
+	switch publicInputVersion {
+	case ExperimentalPublicInputVersion:
+		l1MessageRootBefore, err := parseFieldHex(request.PublicInputs.L1MessageRootBefore, "l1_message_root_before")
+		if err != nil {
+			return nil, err
+		}
+		l1MessageRootAfter, err := parseFieldHex(request.PublicInputs.L1MessageRootAfter, "l1_message_root_after")
+		if err != nil {
+			return nil, err
+		}
+		queuePrefixCommitment, err := parseFieldHex(request.PublicInputs.QueuePrefixCommitment, "queue_prefix_commitment")
+		if err != nil {
+			return nil, err
+		}
+		withdrawalRoot, err := parseFieldHex(request.PublicInputs.WithdrawalRoot, "withdrawal_root")
+		if err != nil {
+			return nil, err
+		}
+		dataRoot, err := parseFieldHex(request.PublicInputs.DataRoot, "data_root")
+		if err != nil {
+			return nil, err
+		}
+		return poseidonHash(
+			sidechainID,
+			batchNumber,
+			priorStateRoot,
+			l1MessageRootBefore,
+			l1MessageRootAfter,
+			consumedQueueMessages,
+			queuePrefixCommitment,
+			withdrawalRoot,
+			dataRoot,
+			dataSize,
+		)
+	case FinalPublicInputVersion:
+		l1MessageRootBeforeLo, l1MessageRootBeforeHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.L1MessageRootBefore, "l1_message_root_before")
+		if err != nil {
+			return nil, err
+		}
+		l1MessageRootAfterLo, l1MessageRootAfterHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.L1MessageRootAfter, "l1_message_root_after")
+		if err != nil {
+			return nil, err
+		}
+		queuePrefixCommitmentLo, queuePrefixCommitmentHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.QueuePrefixCommitment, "queue_prefix_commitment")
+		if err != nil {
+			return nil, err
+		}
+		withdrawalRootLo, withdrawalRootHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.WithdrawalRoot, "withdrawal_root")
+		if err != nil {
+			return nil, err
+		}
+		dataRootLo, dataRootHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.DataRoot, "data_root")
+		if err != nil {
+			return nil, err
+		}
+		return poseidonHash(
+			sidechainID,
+			batchNumber,
+			priorStateRoot,
+			l1MessageRootBeforeLo,
+			l1MessageRootBeforeHi,
+			l1MessageRootAfterLo,
+			l1MessageRootAfterHi,
+			consumedQueueMessages,
+			queuePrefixCommitmentLo,
+			queuePrefixCommitmentHi,
+			withdrawalRootLo,
+			withdrawalRootHi,
+			dataRootLo,
+			dataRootHi,
+			dataSize,
+		)
+	default:
+		return nil, fmt.Errorf("unsupported public_input_version %d", publicInputVersion)
+	}
 }
 
 func assertExperimentalQueueWitness(api frontend.API, circuit *PoseidonBatchTransitionCircuit) error {

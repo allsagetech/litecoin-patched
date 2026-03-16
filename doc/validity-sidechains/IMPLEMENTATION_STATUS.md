@@ -219,17 +219,18 @@ This means:
 - the current native verifier path interprets each batch public input as a
   single BLS12-381 scalar, so the final real profile must either keep those
   roots / commitments field-sized or move to a decomposed public-input layout
-- the branch now also reserves `groth16_bls12_381_poseidon_v2` as that
-  decomposed successor layout, splitting `l1_message_root_before`,
-  `l1_message_root_after`, `queue_prefix_commitment`, `withdrawal_root`, and
-  `data_root` into 128-bit public-input limbs while leaving the current
-  committed `groth16_bls12_381_poseidon_v1` bundle unchanged
+- the branch now also has a committed `groth16_bls12_381_poseidon_v2` bundle
+  for that decomposed successor layout, splitting
+  `l1_message_root_before`, `l1_message_root_after`,
+  `queue_prefix_commitment`, `withdrawal_root`, and `data_root` into
+  128-bit public-input limbs while leaving the current committed
+  `groth16_bls12_381_poseidon_v1` bundle unchanged
 - real-profile registration now enforces that `initial_state_root` already
   fits the BLS12-381 scalar field for both Poseidon profiles, while
   `initial_withdrawal_root` is still scalar-sized only for
-  `groth16_bls12_381_poseidon_v1`; the decomposed `v2` placeholder accepts a
-  full-width withdrawal root because that value now has a final limb-split
-  public-input slot reserved
+  `groth16_bls12_381_poseidon_v1`; the decomposed `v2` bundle now accepts a
+  full-width withdrawal root because that value has a committed limb-split
+  public-input slot and matching native Groth16 verifier assets
 - the experimental real profile now also rejects a second pending deposit
   queue entry, and deposit admission checks the append, single-entry consume,
   and prefix-commitment queue hashes against that same scalar field, while

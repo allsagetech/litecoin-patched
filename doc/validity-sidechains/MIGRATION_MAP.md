@@ -456,10 +456,11 @@ Current branch status:
   committed repo bundle remains verifier-side only and still stops short of
   final trustless semantics even though the validity-sidechain CI job now
   materializes that proving key transiently on the runner for auto-prover
-  coverage, plus a reserved `groth16_bls12_381_poseidon_v2` tuple with
-  `public_input_version = 5` and placeholder assets so the codebase can
-  distinguish the current scalar-limited bundle from the future decomposed
-  queue/withdrawal/DA root layout without mutating the committed `v1` assets
+  coverage, plus a committed `groth16_bls12_381_poseidon_v2` tuple with
+  `public_input_version = 5` and real native verifier/prover assets so the
+  codebase can distinguish the current scalar-limited bundle from the
+  decomposed queue/withdrawal/DA root layout without mutating the committed
+  `v1` assets
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
   accepted-batch lookup, escrow decrement, executed-withdrawal replay
   protection, and mempool duplicate tracking
@@ -483,7 +484,7 @@ Current branch status:
   the publishing transaction id
 - `groth16_bls12_381_poseidon_v1` registration now also rejects
   `initial_state_root` and `initial_withdrawal_root` values that do not fit
-  the native BLS12-381 scalar field, while the reserved decomposed
+  the native BLS12-381 scalar field, while the committed decomposed
   `groth16_bls12_381_poseidon_v2` tuple still requires a scalar-sized
   `initial_state_root` but now accepts a full-width `initial_withdrawal_root`
   because that commitment has an explicit limb-split public-input layout

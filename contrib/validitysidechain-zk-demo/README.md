@@ -30,6 +30,7 @@ cd contrib/validitysidechain-zk-demo
 go run ./cmd/generate-demo | python materialize_bundle.py
 go run ./cmd/export-native-bundle | python materialize_bundle.py
 go run ./cmd/generate-real-bundle | python materialize_bundle.py
+go run ./cmd/generate-real-bundle -profile groth16_bls12_381_poseidon_v2 | python materialize_bundle.py
 ```
 
 Helper commands:
@@ -44,7 +45,8 @@ response on stdout for the experimental external-profile integration in
 `src/validitysidechain/verifier.cpp`.
 
 `verify-batch` now supports both the toy external profile and the experimental
-real native `groth16_bls12_381_poseidon_v1` bundle.
+native real bundles `groth16_bls12_381_poseidon_v1` and
+`groth16_bls12_381_poseidon_v2`.
 
 For the functional test harness, use the wrapper script:
 

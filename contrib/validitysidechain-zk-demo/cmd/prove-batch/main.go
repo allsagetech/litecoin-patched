@@ -30,9 +30,11 @@ func main() {
 	switch request.ProfileName {
 	case toybatch.ProfileName:
 		proveToyProfile(request)
-	case realbatch.ProfileName:
-		proveRealProfile(request)
 	default:
+		if realbatch.IsSupportedProfileName(request.ProfileName) {
+			proveRealProfile(request)
+			return
+		}
 		emit(toybatch.CommandResult{Error: "unexpected profile name"})
 	}
 }
@@ -109,7 +111,7 @@ func proveRealProfile(request toybatch.CommandRequest) {
 		return
 	}
 
-	manifest, err := readRealProfileManifest(request.ArtifactDir)
+	manifest, err := readRealProfileManifest(request.ArtifactDir, request.ProfileName)
 	if err != nil {
 		emit(toybatch.CommandResult{Error: err.Error()})
 		return
@@ -121,8 +123,12 @@ func proveRealProfile(request toybatch.CommandRequest) {
 		return
 	}
 
-	var circuit realbatch.PoseidonBatchTransitionCircuit
-	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, &circuit)
+	circuit, err := realbatch.NewCircuit(request.ProfileName)
+	if err != nil {
+		emit(toybatch.CommandResult{Error: err.Error()})
+		return
+	}
+	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, circuit)
 	if err != nil {
 		emit(toybatch.CommandResult{Error: err.Error()})
 		return
@@ -141,7 +147,7 @@ func proveRealProfile(request toybatch.CommandRequest) {
 		return
 	}
 
-	witness, err := frontend.NewWitness(&assignment, ecc.BLS12_381.ScalarField())
+	witness, err := frontend.NewWitness(assignment, ecc.BLS12_381.ScalarField())
 	if err != nil {
 		emit(toybatch.CommandResult{Error: err.Error()})
 		return
@@ -171,7 +177,7 @@ func proveRealProfile(request toybatch.CommandRequest) {
 	})
 }
 
-func readRealProfileManifest(artifactDir string) (toybatch.ProfileManifest, error) {
+func readRealProfileManifest(artifactDir string, expectedProfileName string) (toybatch.ProfileManifest, error) {
 	var manifest toybatch.ProfileManifest
 	contents, err := os.ReadFile(filepath.Join(artifactDir, "profile.json"))
 	if err != nil {
@@ -180,7 +186,7 @@ func readRealProfileManifest(artifactDir string) (toybatch.ProfileManifest, erro
 	if err := json.Unmarshal(contents, &manifest); err != nil {
 		return manifest, err
 	}
-	if manifest.Name != realbatch.ProfileName {
+	if manifest.Name != expectedProfileName {
 		return manifest, os.ErrInvalid
 	}
 	if manifest.ProvingKeyFile == "" {
