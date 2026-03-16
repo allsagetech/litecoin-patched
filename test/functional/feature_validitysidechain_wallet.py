@@ -765,7 +765,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             "escape exits are not implemented for non-scaffold profiles",
             node.sendescapeexit,
             non_scaffold_escape_sidechain_id,
-            non_scaffold_escape_root,
+            non_scaffold_escape_sidechain["current_state_root"],
             non_scaffold_escape_exits,
         )
 
