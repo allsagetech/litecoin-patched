@@ -331,6 +331,8 @@ It also now has functional wallet/RPC coverage for:
   losing-fork censorship recovery data does not survive reorg
 - competing-fork rollback of stale-deposit reclaim state so reclaimable
   deposits reappear deterministically after losing-fork rollback
+- orphaned reclaim transactions staying out of mempool when a competing fork
+  consumes the same deposit in an accepted batch
 - competing-fork rollback of losing-fork registration and deposit state so
   orphaned sidechains disappear and the same sidechain id can be reused
 

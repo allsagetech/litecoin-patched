@@ -257,6 +257,7 @@ BASE_SCRIPTS = [
     'validitysidechain_real_profile_reorg.py',
     'validitysidechain_real_profile_reclaim.py',
     'validitysidechain_real_profile_reclaim_reorg.py',
+    'validitysidechain_reclaim_consumed_reorg.py',
     'validitysidechain_reclaim_reorg.py',
     'validitysidechain_registration_reorg.py',
     'validitysidechain_restart_reorg.py',
