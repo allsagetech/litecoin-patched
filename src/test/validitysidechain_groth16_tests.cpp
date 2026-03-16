@@ -25,6 +25,9 @@ extern "C" {
 
 namespace {
 
+std::array<unsigned char, 48> CompressedG1Infinity();
+std::array<unsigned char, 96> CompressedG2Infinity();
+
 std::array<unsigned char, 48> CompressedG1Generator()
 {
     std::array<unsigned char, 48> out{};
@@ -41,14 +44,29 @@ std::array<unsigned char, 96> CompressedG2Generator()
 
 std::array<unsigned char, 48> CompressedG1Multiple(uint64_t scalar_value)
 {
-    uint64_t scalar_words[4]{scalar_value, 0, 0, 0};
-    blst_scalar scalar;
-    blst_scalar_from_uint64(&scalar, scalar_words);
+    if (scalar_value == 0) {
+        return CompressedG1Infinity();
+    }
 
-    blst_p1 generator;
-    blst_p1_from_affine(&generator, blst_p1_affine_generator());
     blst_p1 point;
-    blst_p1_mult(&point, &generator, scalar.b, 255);
+    blst_p1 base = *blst_p1_generator();
+    bool have_point = false;
+
+    while (scalar_value != 0) {
+        if ((scalar_value & 1U) != 0) {
+            if (!have_point) {
+                point = base;
+                have_point = true;
+            } else {
+                blst_p1_add_or_double(&point, &point, &base);
+            }
+        }
+
+        scalar_value >>= 1;
+        if (scalar_value != 0) {
+            blst_p1_double(&base, &base);
+        }
+    }
 
     blst_p1_affine point_affine;
     blst_p1_to_affine(&point_affine, &point);
@@ -60,14 +78,29 @@ std::array<unsigned char, 48> CompressedG1Multiple(uint64_t scalar_value)
 
 std::array<unsigned char, 96> CompressedG2Multiple(uint64_t scalar_value)
 {
-    uint64_t scalar_words[4]{scalar_value, 0, 0, 0};
-    blst_scalar scalar;
-    blst_scalar_from_uint64(&scalar, scalar_words);
+    if (scalar_value == 0) {
+        return CompressedG2Infinity();
+    }
 
-    blst_p2 generator;
-    blst_p2_from_affine(&generator, blst_p2_affine_generator());
     blst_p2 point;
-    blst_p2_mult(&point, &generator, scalar.b, 255);
+    blst_p2 base = *blst_p2_generator();
+    bool have_point = false;
+
+    while (scalar_value != 0) {
+        if ((scalar_value & 1U) != 0) {
+            if (!have_point) {
+                point = base;
+                have_point = true;
+            } else {
+                blst_p2_add_or_double(&point, &point, &base);
+            }
+        }
+
+        scalar_value >>= 1;
+        if (scalar_value != 0) {
+            blst_p2_double(&base, &base);
+        }
+    }
 
     blst_p2_affine point_affine;
     blst_p2_to_affine(&point_affine, &point);
