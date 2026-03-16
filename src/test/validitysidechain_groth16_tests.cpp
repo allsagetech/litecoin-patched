@@ -305,6 +305,24 @@ ValiditySidechainGroth16Proof ParseProofFromVector(const UniValue& vector_json)
     return proof;
 }
 
+blst_p1_affine UncompressG1ForTest(const std::array<unsigned char, 48>& point_bytes)
+{
+    blst_p1_affine point;
+    BOOST_REQUIRE_EQUAL(blst_p1_uncompress(&point, point_bytes.data()), BLST_SUCCESS);
+    BOOST_REQUIRE(blst_p1_affine_in_g1(&point));
+    BOOST_REQUIRE(!blst_p1_affine_is_inf(&point));
+    return point;
+}
+
+blst_p2_affine UncompressG2ForTest(const std::array<unsigned char, 96>& point_bytes)
+{
+    blst_p2_affine point;
+    BOOST_REQUIRE_EQUAL(blst_p2_uncompress(&point, point_bytes.data()), BLST_SUCCESS);
+    BOOST_REQUIRE(blst_p2_affine_in_g2(&point));
+    BOOST_REQUIRE(!blst_p2_affine_is_inf(&point));
+    return point;
+}
+
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(validitysidechain_groth16_tests, BasicTestingSetup)
@@ -398,16 +416,106 @@ BOOST_AUTO_TEST_CASE(groth16_verifying_key_rejects_infinity_points)
         error == "Groth16 proof artifact contains invalid G2 encoding");
 }
 
-BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_accepts_synthetic_valid_equation)
+BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_accepts_committed_valid_vector)
+{
+    const fs::path artifact_dir =
+        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v1");
+    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
+    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
+
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    std::string error;
+    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
+        artifact_dir / "batch_vk.bin",
+        /* expected_public_input_count= */ 11,
+        verifying_key,
+        &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(verifying_key.public_input_count, 11U);
+
+    const UniValue valid_vector = ReadJSONFile(artifact_dir / "valid" / "valid_proof.json");
+    const auto public_inputs = BuildManifestPublicInputs(
+        manifest_public_inputs,
+        find_value(valid_vector, "public_inputs"));
+    const ValiditySidechainGroth16Proof proof = ParseProofFromVector(valid_vector);
+
+    BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+    BOOST_CHECK(error.empty());
+}
+
+BOOST_AUTO_TEST_CASE(groth16_synthetic_blst_primitives_smoke)
 {
     const ValiditySidechainGroth16VerificationKey verifying_key = MakeSyntheticValidVerificationKey();
     const ValiditySidechainGroth16Proof proof = MakeSyntheticValidProof();
+
+    BOOST_TEST_CHECKPOINT("synthetic fixtures constructed");
+    const blst_p1_affine proof_a = UncompressG1ForTest(proof.a_g1);
+    const blst_p2_affine proof_b = UncompressG2ForTest(proof.b_g2);
+    const blst_p1_affine proof_c = UncompressG1ForTest(proof.c_g1);
+    const blst_p1_affine alpha_g1 = UncompressG1ForTest(verifying_key.alpha_g1);
+    const blst_p2_affine beta_g2 = UncompressG2ForTest(verifying_key.beta_g2);
+    const blst_p2_affine gamma_g2 = UncompressG2ForTest(verifying_key.gamma_g2);
+    const blst_p2_affine delta_g2 = UncompressG2ForTest(verifying_key.delta_g2);
+    const blst_p1_affine gamma_abc_0 = UncompressG1ForTest(verifying_key.gamma_abc_g1[0]);
+    const blst_p1_affine gamma_abc_1 = UncompressG1ForTest(verifying_key.gamma_abc_g1[1]);
+    const blst_p1_affine gamma_abc_2 = UncompressG1ForTest(verifying_key.gamma_abc_g1[2]);
+
+    const std::array<unsigned char, 32> public_input_0 = ScalarLE(3);
+    const std::array<unsigned char, 32> public_input_1 = ScalarLE(4);
+    blst_scalar scalar_0;
+    blst_scalar scalar_1;
+    blst_scalar_from_lendian(&scalar_0, public_input_0.data());
+    blst_scalar_from_lendian(&scalar_1, public_input_1.data());
+    BOOST_REQUIRE(blst_scalar_fr_check(&scalar_0));
+    BOOST_REQUIRE(blst_scalar_fr_check(&scalar_1));
+
+    BOOST_TEST_CHECKPOINT("synthetic points and scalars parsed");
+    blst_p1 gamma_abc_sum;
+    blst_p1_from_affine(&gamma_abc_sum, &gamma_abc_0);
+
+    blst_p1 gamma_abc_term;
+    blst_p1 gamma_abc_term_base;
+    blst_p1_from_affine(&gamma_abc_term_base, &gamma_abc_1);
+    blst_p1_mult(&gamma_abc_term, &gamma_abc_term_base, scalar_0.b, 255);
+    blst_p1_add_or_double(&gamma_abc_sum, &gamma_abc_sum, &gamma_abc_term);
+
+    blst_p1_from_affine(&gamma_abc_term_base, &gamma_abc_2);
+    blst_p1_mult(&gamma_abc_term, &gamma_abc_term_base, scalar_1.b, 255);
+    blst_p1_add_or_double(&gamma_abc_sum, &gamma_abc_sum, &gamma_abc_term);
+
+    blst_p1_affine gamma_abc_sum_affine;
+    blst_p1_to_affine(&gamma_abc_sum_affine, &gamma_abc_sum);
+    BOOST_REQUIRE(blst_p1_affine_in_g1(&gamma_abc_sum_affine));
+
+    BOOST_TEST_CHECKPOINT("synthetic gamma_abc combination computed");
+    blst_fp12 lhs;
+    blst_fp12 rhs;
+    blst_fp12 term;
+    blst_miller_loop(&lhs, &proof_b, &proof_a);
+    blst_miller_loop(&rhs, &beta_g2, &alpha_g1);
+    blst_miller_loop(&term, &gamma_g2, &gamma_abc_sum_affine);
+    blst_fp12_mul(&rhs, &rhs, &term);
+    blst_miller_loop(&term, &delta_g2, &proof_c);
+    blst_fp12_mul(&rhs, &rhs, &term);
+
+    BOOST_TEST_CHECKPOINT("synthetic pairing equation assembled");
+    BOOST_CHECK(blst_fp12_finalverify(&lhs, &rhs));
+}
+
+BOOST_AUTO_TEST_CASE(groth16_pairing_verifier_accepts_synthetic_valid_equation)
+{
+    const ValiditySidechainGroth16VerificationKey verifying_key = MakeSyntheticValidVerificationKey();
+    BOOST_TEST_CHECKPOINT("synthetic verifying key constructed");
+    const ValiditySidechainGroth16Proof proof = MakeSyntheticValidProof();
+    BOOST_TEST_CHECKPOINT("synthetic proof constructed");
     const std::vector<std::array<unsigned char, 32>> public_inputs{
         ScalarLE(3),
         ScalarLE(4),
     };
+    BOOST_TEST_CHECKPOINT("synthetic public inputs constructed");
 
     std::string error;
+    BOOST_TEST_CHECKPOINT("before VerifyValiditySidechainGroth16Proof");
     BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
     BOOST_CHECK(error.empty());
 }
@@ -565,33 +673,6 @@ BOOST_AUTO_TEST_CASE(groth16_public_input_builder_rejects_unknown_name)
     BOOST_CHECK(!BuildValiditySidechainGroth16PublicInputs(names, /* sidechain_id= */ 1, public_inputs, encoded, &error));
     BOOST_CHECK_EQUAL(error, "unsupported Groth16 public input name: unknown_input");
     BOOST_CHECK(encoded.empty());
-}
-
-BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_accepts_committed_valid_vector)
-{
-    const fs::path artifact_dir =
-        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v1");
-    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
-    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
-
-    ValiditySidechainGroth16VerificationKey verifying_key;
-    std::string error;
-    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
-        artifact_dir / "batch_vk.bin",
-        /* expected_public_input_count= */ 11,
-        verifying_key,
-        &error));
-    BOOST_CHECK(error.empty());
-    BOOST_CHECK_EQUAL(verifying_key.public_input_count, 11U);
-
-    const UniValue valid_vector = ReadJSONFile(artifact_dir / "valid" / "valid_proof.json");
-    const auto public_inputs = BuildManifestPublicInputs(
-        manifest_public_inputs,
-        find_value(valid_vector, "public_inputs"));
-    const ValiditySidechainGroth16Proof proof = ParseProofFromVector(valid_vector);
-
-    BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
-    BOOST_CHECK(error.empty());
 }
 
 BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_rejects_committed_invalid_vectors)
