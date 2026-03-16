@@ -279,6 +279,7 @@ class ValiditySidechainRealProfileReclaimReorg(BitcoinTestFramework):
         )
 
         self.log.info("The reverted matured deposit should still reject reclaim and still support replay of the committed batch and withdrawal.")
+        mempool_before_reclaim = sorted(n0.getrawmempool())
         assert_raises_rpc_error(
             -26,
             "experimental real profile reclaim queue root does not fit BLS12-381 scalar field",
@@ -287,7 +288,7 @@ class ValiditySidechainRealProfileReclaimReorg(BitcoinTestFramework):
             deposit_metadata,
             {"script": deposit["refund_script"]},
         )
-        assert_equal(n0.getrawmempool(), [])
+        assert_equal(sorted(n0.getrawmempool()), mempool_before_reclaim)
 
         mempool = n0.getrawmempool()
         if batch_txid not in mempool:
