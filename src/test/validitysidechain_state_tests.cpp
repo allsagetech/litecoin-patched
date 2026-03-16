@@ -958,6 +958,32 @@ BOOST_AUTO_TEST_CASE(real_profile_rejects_deposit_queue_transition_outside_scala
     BOOST_CHECK(found_reject);
 }
 
+BOOST_AUTO_TEST_CASE(real_profile_accepts_committed_vector_deposit_but_rejects_reclaim_tombstone_outside_scalar_field)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 9, /* registration_height= */ 710, config));
+
+    const CScript refund_script = CScript() << OP_0 << std::vector<unsigned char>(20, 0x11);
+    ValiditySidechainDepositData deposit;
+    deposit.deposit_id = uint256S("4444444444444444444444444444444444444444444444444444444444444444");
+    deposit.amount = COIN;
+    deposit.destination_commitment = uint256S("3333333333333333333333333333333333333333333333333333333333333333");
+    deposit.refund_script_commitment = Hash(refund_script);
+    deposit.nonce = 16;
+
+    std::string error;
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 9, /* deposit_height= */ 711, deposit, &error));
+    BOOST_CHECK(error.empty());
+
+    BOOST_CHECK(!state.ReclaimDeposit(
+        /* sidechain_id= */ 9,
+        /* reclaim_height= */ 711 + static_cast<int>(config.deposit_reclaim_delay),
+        deposit,
+        &error));
+    BOOST_CHECK_EQUAL(error, "experimental real profile reclaim queue root does not fit BLS12-381 scalar field");
+}
+
 BOOST_AUTO_TEST_CASE(real_profile_rejects_force_exit_requests)
 {
     ValiditySidechainState state;

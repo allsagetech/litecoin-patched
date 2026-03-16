@@ -223,8 +223,9 @@ This means:
   registration time instead of later during proof verification
 - the experimental real profile now also rejects a second pending deposit
   queue entry, and deposit admission checks the append, single-entry consume,
-  prefix-commitment, and reclaim queue hashes against that same scalar field,
-  so the node no longer accepts pending deposit states the current 11-input
+  and prefix-commitment queue hashes against that same scalar field, while
+  stale-deposit reclaim still separately checks the tombstone queue hash, so
+  the node no longer accepts pending deposit states the current 11-input
   native verifier layout cannot represent
 - the wallet `sendvaliditydeposit` RPC now mirrors that profile limit too:
   it reports `deposit_admission_mode = "single_pending_entry_scalar_field_experimental"`

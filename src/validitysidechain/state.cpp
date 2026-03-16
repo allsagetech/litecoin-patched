@@ -145,7 +145,6 @@ static bool ValidateExperimentalRealProfilePendingDepositTransition(
     const uint256 root_after_append = ComputeQueueAppendRoot(sidechain_id, sidechain.queue_state.root, entry);
     const uint256 root_after_consume = ComputeQueueConsumeRoot(sidechain_id, root_after_append, entry);
     const uint256 queue_prefix_commitment = ComputeQueuePrefixCommitmentStep(sidechain_id, uint256(), entry);
-    const uint256 root_after_tombstone = ComputeQueueTombstoneRoot(sidechain_id, root_after_append, entry);
 
     return ValidateFieldSizedGroth16Uint256(
                root_after_append,
@@ -157,10 +156,6 @@ static bool ValidateExperimentalRealProfilePendingDepositTransition(
                error) &&
            ValidateFieldSizedGroth16Uint256(
                queue_prefix_commitment,
-               "experimental real profile deposit queue transition does not fit BLS12-381 scalar field",
-               error) &&
-           ValidateFieldSizedGroth16Uint256(
-               root_after_tombstone,
                "experimental real profile deposit queue transition does not fit BLS12-381 scalar field",
                error);
 }

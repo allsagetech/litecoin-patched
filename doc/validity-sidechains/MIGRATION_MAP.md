@@ -483,8 +483,9 @@ Current branch status:
   verifier path ever sees an impossible public input
 - that same experimental real profile now also admits at most one pending
   deposit queue entry at a time and rejects deposits whose append, consume,
-  prefix-commitment, or reclaim queue hashes would leave the current 11-input
-  native verifier layout outside the BLS12-381 scalar field
+  or prefix-commitment queue hashes would leave the current 11-input native
+  verifier layout outside the BLS12-381 scalar field, while stale-deposit
+  reclaim still separately rejects impossible tombstone queue roots
 - `getvaliditysidechaininfo` and `sendvaliditydeposit` now expose that as
   `deposit_admission_mode = "single_pending_entry_scalar_field_experimental"`,
   and the wallet auto-selects a compatible nonce for that profile when one is
