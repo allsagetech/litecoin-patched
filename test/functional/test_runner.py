@@ -251,6 +251,7 @@ BASE_SCRIPTS = [
     'feature_validitysidechain_wallet.py',
     'feature_validitysidechain_bad_artifacts.py',
     'feature_validitysidechain_toy_proof_profile.py',
+    'validitysidechain_mempool_conflicts.py',
     'validitysidechain_force_exit_recovery.py',
     'validitysidechain_force_exit_reorg.py',
     'validitysidechain_real_profile_reorg.py',

@@ -322,6 +322,8 @@ It also now has functional wallet/RPC coverage for:
 - verified withdrawal execution
 - escape-exit execution
 - stale-deposit reclaim
+- mempool duplicate rejection for registration, deposit, reclaim, force-exit,
+  batch, verified-withdrawal, and escape-exit transaction families
 - restart persistence and snapshot-backed rollback across invalidated tips and
   competing-fork rollback of accepted batches, verified withdrawals, and
   escape-exit/nullifier state
