@@ -17,7 +17,7 @@ The following consensus features are mandatory:
 - A fixed, Litecoin-reviewed verifier set. Arbitrary user-supplied verifier code
   or verifying keys are not acceptable for V1.
 - Explicit resource bounds on proof bytes, public inputs, queue processing, DA
-  payload size, and withdrawal execution fanout.
+  payload size and chunk count, and withdrawal / escape-exit execution fanout.
 - Onchain-enforced data availability for every accepted batch.
 - An L1 message queue for deposits and forced exits, with deterministic queue
   root and head tracking.

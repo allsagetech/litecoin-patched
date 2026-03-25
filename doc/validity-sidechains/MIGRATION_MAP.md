@@ -509,8 +509,13 @@ Current branch status:
   `deposit_admission_mode = "single_pending_entry_scalar_field_experimental"`,
   and the wallet auto-selects a compatible nonce for that profile when one is
   omitted
+- consensus now also hard-rejects more than `256` published DA chunks in a
+  single batch, alongside fixed bounds of `1024` consumed queue messages and
+  `128` executed withdrawal / escape-exit proofs, and
+  `getvaliditysidechaininfo` now reports those limits directly
 - wallet send-path RPCs now exist for validity-sidechain registration,
-  deposits, scaffold batches, force-exit requests, and stale-deposit reclaim
+  deposits, batches, verified withdrawals, force-exit requests,
+  stale-deposit reclaim, and escape exits
 - the legacy `getdrivechaininfo`, `senddrivechainbundle`, and
   `senddrivechainexecute` RPC surfaces are now explicitly marked deprecated,
   while the underlying legacy consensus path remains active during migration

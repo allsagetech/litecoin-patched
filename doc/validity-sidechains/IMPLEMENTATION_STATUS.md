@@ -35,8 +35,14 @@ That RPC currently reports:
 - `trustless_enforced = false`
 - `activation_candidate = false`
 - `legacy_drivechain_withdrawal_path_active = true`
+- `force_exit_request_mode = "profile_specific"`
 - `batch_validation_mode = "profile_specific"`
+- `batch_queue_binding_mode = "profile_specific"`
+- `batch_withdrawal_binding_mode = "profile_specific"`
+- `max_batch_data_chunks_limit = 256`
+- `max_batch_queue_consumption_limit = 1024`
 - `verified_withdrawal_execution_mode = "profile_specific"`
+- `max_execution_fanout_limit = 128`
 - `escape_exit_mode = "profile_specific"`
 
 ## 2. What Is Implemented
@@ -69,10 +75,12 @@ The following core behaviors exist on this branch:
 - executed escape-exit replay protection
 - persisted validity-sidechain snapshots by tip hash for restart and reorg rollback
 - read-only RPC reporting for validity-sidechain state
-- wallet send-path RPCs for registration, deposit, force-exit request,
-  stale-deposit reclaim, and scaffold batch submission
+- fixed consensus/resource bounds for batch DA chunk count, consumed queue
+  messages, and withdrawal / escape-exit execution fanout
+- wallet send-path RPCs for registration, deposit, force-exit request, batch
+  submission, verified withdrawals, stale-deposit reclaim, and escape exits
 
-## 3. What Is Still Scaffold-Only
+## 3. What Is Still Scaffolded Or Experimental
 
 The current implementation is not yet the final trustless design.
 
@@ -101,7 +109,8 @@ This means:
 - the scaffold profiles still require a deterministic scaffold proof envelope
   - that envelope binds the batch commitment and current chainstate roots
 - empty proof bytes, missing non-zero DA payloads, empty DA chunks, oversized
-  payloads, and mismatched `data_root` commitments are rejected
+  payloads, oversized DA chunk counts, and mismatched `data_root`
+  commitments are rejected
 - queue-prefix consumption is enforced, and batch metadata now carries a
   deterministic `queue_prefix_commitment` checked against the exact consumed
   pending prefix
@@ -274,10 +283,12 @@ objects, but this is still scaffolded because:
 ### Escape exits
 
 `EXECUTE_ESCAPE_EXIT` now also uses deterministic Merkle-style proof objects,
-but this is still scaffolded because:
+but this is still experimental rather than final because:
 
-- the escape-exit tree is still a staging proof format
-- the proofs are not yet tied to the final user-state circuit
+- consensus still decodes the staging escape-exit proof objects directly and
+  verifies them against `current_state_root`
+- the dormant account/balance witness format is not yet wired into block or
+  mempool validation
 
 ## 4. Legacy Drivechain Status
 
@@ -308,11 +319,12 @@ Currently available wallet/RPC send-paths:
 - `sendstaledepositreclaim`
 - `sendescapeexit`
 
-So far, the new path can exercise registration, queue insertion, scaffold batch
-submission, verified-withdrawal execution, stale-deposit recovery, and
-escape-exit execution from the wallet. Non-scaffold profiles now also expose an
-experimental `current_state_root` Merkle mode for `EXECUTE_ESCAPE_EXIT`, but
-that path still stops short of the final user-state proof semantics.
+So far, the new path can exercise registration, queue insertion, batch
+submission, verified-withdrawal execution, force-exit request submission,
+stale-deposit recovery, and escape-exit execution from the wallet.
+Non-scaffold profiles now also expose an experimental `current_state_root`
+Merkle mode for `EXECUTE_ESCAPE_EXIT`, but that path still stops short of the
+final user-state proof semantics.
 
 ## 6. Testing Status
 
@@ -322,6 +334,8 @@ The branch has unit coverage for the new parsing/state layers, including:
 - deposit queue and reclaim
 - batch scaffold acceptance
 - commit-script DA chunk framing and malformed chunk-order/count rejection
+- resource-bound rejection for DA chunk count, consumed queue count, and
+  withdrawal / escape-exit execution fanout
 - withdrawal proof execution
 - escape-exit proof execution
 
@@ -341,7 +355,8 @@ It also now has functional wallet/RPC coverage for:
   configured external prover command path, with native in-process verification
 - malformed external verifier manifests for tuple/public-input mismatches
 - malformed batch DA rejection for missing chunks, malformed chunk ordering,
-  oversized payloads, oversized proof bytes, and bad `data_root`
+  oversized payloads, oversized proof bytes, oversized DA chunk counts, and
+  bad `data_root`
 - forced-inclusion recovery by requiring matured force-exit requests to be
   consumed by the accepted queue prefix
 - verified withdrawal execution
