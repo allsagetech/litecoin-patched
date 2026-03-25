@@ -291,7 +291,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(info["batch_validation_mode"], "profile_specific")
         assert_equal(info["batch_queue_binding_mode"], "profile_specific")
         assert_equal(info["batch_withdrawal_binding_mode"], "profile_specific")
+        assert_equal(info["max_batch_data_chunks_limit"], 256)
+        assert_equal(info["max_batch_queue_consumption_limit"], 1024)
         assert_equal(info["verified_withdrawal_execution_mode"], "profile_specific")
+        assert_equal(info["max_execution_fanout_limit"], 128)
         assert_equal(info["escape_exit_mode"], "profile_specific")
         supported = get_supported_profile(node, "scaffold_onchain_da_v1")
         transition_supported = get_supported_profile(node, "scaffold_transition_da_v1")
@@ -302,6 +305,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_equal(supported["max_batch_data_chunks_limit"], 256)
+        assert_equal(supported["max_batch_queue_consumption_limit"], 1024)
+        assert_equal(supported["max_execution_fanout_limit"], 128)
         assert_equal(transition_supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(transition_supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(transition_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
@@ -465,6 +471,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(register_res["sidechain_id"], sidechain_id)
         assert_equal(sidechain["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(sidechain["escape_exit_mode"], "merkle_inclusion_scaffold")
+        assert_equal(sidechain["max_batch_data_chunks_limit"], 256)
+        assert_equal(sidechain["max_batch_queue_consumption_limit"], 1024)
+        assert_equal(sidechain["max_execution_fanout_limit"], 128)
         assert_equal(sidechain["current_state_root"], config["initial_state_root"])
         assert_equal(sidechain["current_withdrawal_root"], config["initial_withdrawal_root"])
         assert_equal(sidechain["queue_state"]["pending_message_count"], 0)
@@ -549,6 +558,32 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             "data_root": sidechain["current_data_root"],
             "data_size": 0,
         }
+
+        self.log.info("Rejecting a batch that exceeds the queue-consumption consensus limit.")
+        oversized_queue_public_inputs = dict(public_inputs)
+        oversized_queue_public_inputs["consumed_queue_messages"] = 1025
+        assert_raises_rpc_error(
+            -8,
+            "consumed queue message count exceeds consensus limit",
+            node.sendvaliditybatch,
+            sidechain_id,
+            oversized_queue_public_inputs,
+        )
+
+        self.log.info("Rejecting a batch that exceeds the DA chunk-count consensus limit.")
+        oversized_chunk_public_inputs = dict(public_inputs)
+        oversized_chunk_bytes = [bytes([i % 251 + 1]) for i in range(257)]
+        oversized_chunk_public_inputs["data_root"] = compute_data_root(oversized_chunk_bytes)
+        oversized_chunk_public_inputs["data_size"] = len(oversized_chunk_bytes)
+        assert_raises_rpc_error(
+            -8,
+            "batch data chunk count exceeds consensus limit",
+            node.sendvaliditybatch,
+            sidechain_id,
+            oversized_chunk_public_inputs,
+            None,
+            [chunk.hex() for chunk in oversized_chunk_bytes],
+        )
 
         self.log.info("Rejecting a batch that advertises non-zero data_size without publishing DA chunks.")
         missing_da_public_inputs = dict(public_inputs)

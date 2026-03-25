@@ -351,6 +351,17 @@ static int GetLastProgressHeight(const ValiditySidechain& sidechain)
     return it->second.accepted_height;
 }
 
+static bool ValidateConsumedQueueMessageCount(uint32_t consumed_queue_messages, std::string* error)
+{
+    if (consumed_queue_messages > MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION) {
+        if (error != nullptr) {
+            *error = "consumed queue message count exceeds consensus limit";
+        }
+        return false;
+    }
+    return true;
+}
+
 static bool ComputeConsumedQueueRoot(
     const ValiditySidechain& sidechain,
     uint8_t sidechain_id,
@@ -358,6 +369,9 @@ static bool ComputeConsumedQueueRoot(
     uint256& out_root,
     std::string* error)
 {
+    if (!ValidateConsumedQueueMessageCount(consumed_queue_messages, error)) {
+        return false;
+    }
     out_root = sidechain.queue_state.root;
     uint64_t next_queue_index = sidechain.queue_state.head_index;
 
@@ -390,6 +404,9 @@ static bool ComputeQueuePrefixCommitment(
     uint256& out_commitment,
     std::string* error)
 {
+    if (!ValidateConsumedQueueMessageCount(consumed_queue_messages, error)) {
+        return false;
+    }
     out_commitment.SetNull();
     uint64_t next_queue_index = sidechain.queue_state.head_index;
 
@@ -615,6 +632,9 @@ bool GetValiditySidechainConsumedQueueEntries(
     std::vector<ValiditySidechainQueueEntry>& out_entries,
     std::string* error)
 {
+    if (!ValidateConsumedQueueMessageCount(consumed_queue_messages, error)) {
+        return false;
+    }
     out_entries.clear();
     out_entries.reserve(consumed_queue_messages);
 
@@ -1041,6 +1061,9 @@ bool ValiditySidechainState::AcceptBatch(
         }
         return false;
     }
+    if (!ValidateConsumedQueueMessageCount(public_inputs.consumed_queue_messages, error)) {
+        return false;
+    }
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain->config) &&
         public_inputs.consumed_queue_messages > 1) {
         if (error != nullptr) {
@@ -1184,6 +1207,12 @@ bool ValiditySidechainState::ExecuteWithdrawals(
         }
         return false;
     }
+    if (withdrawal_proofs.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+        if (error != nullptr) {
+            *error = "withdrawal execution fanout exceeds consensus limit";
+        }
+        return false;
+    }
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain->config) &&
         withdrawal_proofs.size() > 1) {
         if (error != nullptr) {
@@ -1283,6 +1312,12 @@ bool ValiditySidechainState::ExecuteEscapeExits(
     if (exit_proofs.empty()) {
         if (error != nullptr) {
             *error = "escape-exit metadata is empty";
+        }
+        return false;
+    }
+    if (exit_proofs.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+        if (error != nullptr) {
+            *error = "escape-exit execution fanout exceeds consensus limit";
         }
         return false;
     }

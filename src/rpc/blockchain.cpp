@@ -1768,6 +1768,9 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("data_availability_mode", static_cast<int>(supported.data_availability_mode));
     result.pushKV("max_batch_data_bytes_limit", static_cast<int64_t>(supported.max_batch_data_bytes_limit));
     result.pushKV("max_proof_bytes_limit", static_cast<int64_t>(supported.max_proof_bytes_limit));
+    result.pushKV("max_batch_data_chunks_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS));
+    result.pushKV("max_batch_queue_consumption_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION));
+    result.pushKV("max_execution_fanout_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT));
     result.pushKV("min_force_inclusion_delay", static_cast<int64_t>(supported.min_force_inclusion_delay));
     result.pushKV("max_force_inclusion_delay", static_cast<int64_t>(supported.max_force_inclusion_delay));
     result.pushKV("min_deposit_reclaim_delay", static_cast<int64_t>(supported.min_deposit_reclaim_delay));
@@ -1895,6 +1898,9 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("latest_batch_number", static_cast<int64_t>(sidechain.latest_batch_number));
     result.pushKV("executed_withdrawal_count", static_cast<int64_t>(sidechain.executed_withdrawal_count));
     result.pushKV("executed_escape_exit_count", static_cast<int64_t>(sidechain.executed_escape_exit_count));
+    result.pushKV("max_batch_data_chunks_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS));
+    result.pushKV("max_batch_queue_consumption_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION));
+    result.pushKV("max_execution_fanout_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT));
     result.pushKV("deposit_admission_mode", GetValiditySidechainDepositAdmissionMode(sidechain.config));
     result.pushKV("force_exit_request_mode", GetValiditySidechainForceExitRequestMode(sidechain.config));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
@@ -1981,10 +1987,13 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("force_exit_request_mode", "profile_specific");
     result.pushKV("batch_validation_available", true);
     result.pushKV("batch_validation_mode", "profile_specific");
+    result.pushKV("max_batch_data_chunks_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS));
     result.pushKV("batch_queue_binding_mode", "profile_specific");
     result.pushKV("batch_withdrawal_binding_mode", "profile_specific");
+    result.pushKV("max_batch_queue_consumption_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION));
     result.pushKV("verified_withdrawal_execution_available", true);
     result.pushKV("verified_withdrawal_execution_mode", "profile_specific");
+    result.pushKV("max_execution_fanout_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT));
     result.pushKV("escape_exit_available", true);
     result.pushKV("escape_exit_mode", "profile_specific");
     const ValiditySidechainStateCacheStats cache_stats = GetValiditySidechainStateCacheStats();

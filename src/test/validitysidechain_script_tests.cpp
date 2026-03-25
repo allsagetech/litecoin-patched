@@ -238,6 +238,35 @@ BOOST_AUTO_TEST_CASE(commit_script_rejects_inconsistent_data_chunk_count)
     BOOST_CHECK(!DecodeValiditySidechainCommitMetadata(info, decoded_public_inputs, decoded_proof_bytes, decoded_data_chunks));
 }
 
+BOOST_AUTO_TEST_CASE(commit_script_rejects_data_chunk_count_above_consensus_limit)
+{
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.batch_number = 15;
+    public_inputs.prior_state_root = uint256S("1717171717171717171717171717171717171717171717171717171717171717");
+    public_inputs.new_state_root = uint256S("1818181818181818181818181818181818181818181818181818181818181818");
+    public_inputs.l1_message_root_before = uint256S("1919191919191919191919191919191919191919191919191919191919191919");
+    public_inputs.l1_message_root_after = uint256S("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a");
+    public_inputs.queue_prefix_commitment = uint256S("1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b");
+    public_inputs.withdrawal_root = uint256S("1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c");
+    public_inputs.data_root = uint256S("1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d");
+    public_inputs.data_size = MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS + 1;
+
+    ValiditySidechainScriptInfo info;
+    BOOST_REQUIRE(DecodeValiditySidechainScript(
+        BuildValiditySidechainCommitScript(
+            /* scid= */ 11,
+            public_inputs,
+            /* proof_bytes= */ {0x03},
+            /* data_chunks= */ {{0x01}}),
+        info));
+    info.metadata_pushes.resize(static_cast<size_t>(MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS) + 3U);
+
+    ValiditySidechainBatchPublicInputs decoded_public_inputs;
+    std::vector<unsigned char> decoded_proof_bytes;
+    std::vector<std::vector<unsigned char>> decoded_data_chunks;
+    BOOST_CHECK(!DecodeValiditySidechainCommitMetadata(info, decoded_public_inputs, decoded_proof_bytes, decoded_data_chunks));
+}
+
 BOOST_AUTO_TEST_CASE(force_exit_script_roundtrip)
 {
     ValiditySidechainForceExitData request;
@@ -414,6 +443,48 @@ BOOST_AUTO_TEST_CASE(escape_exit_state_proof_rejects_bad_length_prefix)
     BOOST_CHECK(!DecodeValiditySidechainEscapeExitStateProof(encoded, decoded));
 }
 
+BOOST_AUTO_TEST_CASE(withdrawal_proof_decode_rejects_oversized_merkle_depth)
+{
+    ValiditySidechainWithdrawalProof proof;
+    proof.withdrawal.withdrawal_id = uint256S("2727272727272727272727272727272727272727272727272727272727272727");
+    proof.withdrawal.amount = COIN;
+    proof.withdrawal.destination_commitment = uint256S("2828282828282828282828282828282828282828282828282828282828282828");
+    proof.leaf_index = 0;
+    proof.leaf_count = 1;
+    proof.sibling_hashes.assign(33, uint256S("2929292929292929292929292929292929292929292929292929292929292929"));
+
+    const std::vector<unsigned char> encoded = EncodeValiditySidechainWithdrawalProof(proof);
+
+    ValiditySidechainWithdrawalProof decoded;
+    BOOST_CHECK(!DecodeValiditySidechainWithdrawalProof(encoded, decoded));
+}
+
+BOOST_AUTO_TEST_CASE(escape_exit_state_proof_rejects_oversized_merkle_depth)
+{
+    ValiditySidechainEscapeExitStateProof proof;
+    proof.exit_id = uint256S("2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a");
+    proof.exit_asset_id = uint256S("2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b");
+    proof.amount = COIN;
+    proof.destination_commitment = uint256S("2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c");
+    proof.account_proof.account.account_id = uint256S("2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d");
+    proof.account_proof.account.spend_key_commitment = uint256S("2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e");
+    proof.account_proof.account.balance_root = uint256S("2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f");
+    proof.account_proof.account.account_nonce = 1;
+    proof.account_proof.account.last_forced_exit_nonce = 0;
+    proof.account_proof.leaf_index = 0;
+    proof.account_proof.leaf_count = 1;
+    proof.account_proof.sibling_hashes.assign(33, uint256S("3030303030303030303030303030303030303030303030303030303030303030"));
+    proof.balance_proof.balance.asset_id = uint256S("3131313131313131313131313131313131313131313131313131313131313131");
+    proof.balance_proof.balance.balance = COIN;
+    proof.balance_proof.leaf_index = 0;
+    proof.balance_proof.leaf_count = 1;
+
+    const std::vector<unsigned char> encoded = EncodeValiditySidechainEscapeExitStateProof(proof);
+
+    ValiditySidechainEscapeExitStateProof decoded;
+    BOOST_CHECK(!DecodeValiditySidechainEscapeExitStateProof(encoded, decoded));
+}
+
 BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
 {
     const uint8_t sidechain_id = 12;
@@ -530,6 +601,26 @@ BOOST_AUTO_TEST_CASE(validity_parser_rejects_legacy_register_tag)
 
     ValiditySidechainScriptInfo info;
     BOOST_CHECK(!DecodeValiditySidechainScript(script, info));
+}
+
+BOOST_AUTO_TEST_CASE(execute_metadata_rejects_fanout_above_consensus_limit)
+{
+    ValiditySidechainScriptInfo info;
+    info.kind = ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS;
+    info.metadata_pushes.resize(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT + 1);
+
+    std::vector<ValiditySidechainWithdrawalProof> decoded;
+    BOOST_CHECK(!DecodeValiditySidechainExecuteMetadata(info, decoded));
+}
+
+BOOST_AUTO_TEST_CASE(escape_exit_metadata_rejects_fanout_above_consensus_limit)
+{
+    ValiditySidechainScriptInfo info;
+    info.kind = ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT;
+    info.metadata_pushes.resize(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT + 1);
+
+    std::vector<ValiditySidechainEscapeExitProof> decoded;
+    BOOST_CHECK(!DecodeValiditySidechainEscapeExitMetadata(info, decoded));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

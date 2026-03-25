@@ -19,6 +19,16 @@ class CBlock;
 class CBlockIndex;
 class BlockValidationState;
 
+// Consensus/resource bound for EXECUTE_VERIFIED_WITHDRAWALS and
+// EXECUTE_ESCAPE_EXIT fanout.
+static constexpr uint32_t MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT = 128;
+// Consensus/resource bound for the number of queue messages a single batch may
+// consume from the reachable pending prefix.
+static constexpr uint32_t MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION = 1024;
+// Consensus/resource bound for the number of data-availability chunks a single
+// batch may publish.
+static constexpr uint32_t MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS = 256;
+
 struct ValiditySidechainConfig
 {
     uint8_t version{1};

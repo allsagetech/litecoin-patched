@@ -40,6 +40,7 @@ static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_LEAF_BYTES = 72;
 static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_PROOF_BASE_BYTES = 80;
 static constexpr size_t VALIDITY_SIDECHAIN_ESCAPE_EXIT_STATE_PROOF_HEADER_BYTES = 128;
 static constexpr size_t VALIDITY_SIDECHAIN_FORCE_EXIT_BYTES = 112;
+static constexpr size_t MAX_VALIDITY_SIDECHAIN_MERKLE_PROOF_DEPTH = 32;
 
 static void AppendLE32(std::vector<unsigned char>& out, uint32_t v)
 {
@@ -615,6 +616,9 @@ bool DecodeValiditySidechainCommitMetadata(
     }
 
     const uint32_t chunk_count = static_cast<uint32_t>(encoded_chunk_count);
+    if (chunk_count > MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS) {
+        return false;
+    }
     out_data_chunks.reserve(encoded_chunk_count);
     for (uint32_t i = 0; i < chunk_count; ++i) {
         std::vector<unsigned char> chunk_bytes;
@@ -705,6 +709,9 @@ bool DecodeValiditySidechainWithdrawalProof(
     }
 
     const size_t sibling_count = (proof_bytes.size() - VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES) / UINT256_BYTES;
+    if (sibling_count > MAX_VALIDITY_SIDECHAIN_MERKLE_PROOF_DEPTH) {
+        return false;
+    }
     proof.sibling_hashes.reserve(sibling_count);
     size_t offset = VALIDITY_SIDECHAIN_WITHDRAWAL_PROOF_BASE_BYTES;
     for (size_t i = 0; i < sibling_count; ++i) {
@@ -726,6 +733,9 @@ bool DecodeValiditySidechainExecuteMetadata(
 {
     if (info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_VERIFIED_WITHDRAWALS ||
         info.metadata_pushes.empty()) {
+        return false;
+    }
+    if (info.metadata_pushes.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
         return false;
     }
 
@@ -929,6 +939,9 @@ bool DecodeValiditySidechainBalanceProof(
     }
 
     const size_t sibling_count = (proof_bytes.size() - VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES) / UINT256_BYTES;
+    if (sibling_count > MAX_VALIDITY_SIDECHAIN_MERKLE_PROOF_DEPTH) {
+        return false;
+    }
     proof.sibling_hashes.reserve(sibling_count);
     size_t offset = VALIDITY_SIDECHAIN_BALANCE_PROOF_BASE_BYTES;
     for (size_t i = 0; i < sibling_count; ++i) {
@@ -1017,6 +1030,9 @@ bool DecodeValiditySidechainAccountStateProof(
     }
 
     const size_t sibling_count = (proof_bytes.size() - VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES) / UINT256_BYTES;
+    if (sibling_count > MAX_VALIDITY_SIDECHAIN_MERKLE_PROOF_DEPTH) {
+        return false;
+    }
     proof.sibling_hashes.reserve(sibling_count);
     size_t offset = VALIDITY_SIDECHAIN_ACCOUNT_STATE_PROOF_BASE_BYTES;
     for (size_t i = 0; i < sibling_count; ++i) {
@@ -1101,6 +1117,9 @@ bool DecodeValiditySidechainEscapeExitProof(
     }
 
     const size_t sibling_count = (proof_bytes.size() - VALIDITY_SIDECHAIN_ESCAPE_EXIT_PROOF_BASE_BYTES) / UINT256_BYTES;
+    if (sibling_count > MAX_VALIDITY_SIDECHAIN_MERKLE_PROOF_DEPTH) {
+        return false;
+    }
     proof.sibling_hashes.reserve(sibling_count);
     size_t offset = VALIDITY_SIDECHAIN_ESCAPE_EXIT_PROOF_BASE_BYTES;
     for (size_t i = 0; i < sibling_count; ++i) {
@@ -1198,6 +1217,9 @@ bool DecodeValiditySidechainEscapeExitMetadata(
         info.metadata_pushes.empty()) {
         return false;
     }
+    if (info.metadata_pushes.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+        return false;
+    }
 
     std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
     exit_proofs.reserve(info.metadata_pushes.size());
@@ -1219,6 +1241,9 @@ bool DecodeValiditySidechainEscapeExitStateMetadata(
 {
     if (info.kind != ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT ||
         info.metadata_pushes.empty()) {
+        return false;
+    }
+    if (info.metadata_pushes.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
         return false;
     }
 

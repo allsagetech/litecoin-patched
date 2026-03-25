@@ -10,6 +10,7 @@
 #include <script/script.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
+#include <util/strencodings.h>
 #include <validitysidechain/blst_backend.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
@@ -1300,6 +1301,46 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_oversized_data_size)
     BOOST_CHECK_EQUAL(error, "data size exceeds configured limit");
 }
 
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_data_chunk_count_above_consensus_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 25, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(25);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    std::vector<std::vector<unsigned char>> data_chunks;
+    data_chunks.resize(MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS + 1, std::vector<unsigned char>{0x42});
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.data_root = ComputeValiditySidechainDataRoot(data_chunks);
+    public_inputs.data_size = static_cast<uint32_t>(data_chunks.size());
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 25, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 25, /* accepted_height= */ 621, public_inputs, proof_bytes, data_chunks, &error));
+    BOOST_CHECK_EQUAL(error, "batch data chunk count exceeds consensus limit");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_queue_consumption_above_consensus_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 27, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(27);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.consumed_queue_messages = MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION + 1;
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 27, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 27, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
+    BOOST_CHECK_EQUAL(error, "consumed queue message count exceeds consensus limit");
+}
+
 BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_records)
 {
     ValiditySidechainState state;
@@ -1473,6 +1514,38 @@ BOOST_AUTO_TEST_CASE(execute_withdrawals_rejects_invalid_merkle_proof)
     BOOST_CHECK_EQUAL(error, "withdrawal proof does not match accepted withdrawal root");
 }
 
+BOOST_AUTO_TEST_CASE(execute_withdrawals_rejects_fanout_above_consensus_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 19, /* registration_height= */ 580, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(19);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 1000;
+
+    const CScript payout = CScript() << OP_11;
+    std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+    withdrawals.reserve(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT + 1);
+    for (uint32_t i = 0; i <= MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT; ++i) {
+        withdrawals.push_back(MakeWithdrawalLeaf(
+            uint256S(HexStr(std::vector<unsigned char>(32, static_cast<unsigned char>(i + 1)))),
+            payout,
+            /* amount= */ 1));
+    }
+    InstallAcceptedWithdrawalBatch(state, /* sidechain_id= */ 19, /* batch_number= */ 1, withdrawals, /* accepted_height= */ 581);
+
+    const uint256 accepted_batch_id = ComputeValiditySidechainAcceptedBatchId(
+        /* scid= */ 19,
+        /* batch_number= */ 1,
+        ComputeValiditySidechainWithdrawalRoot(withdrawals));
+    const std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs = BuildWithdrawalProofsForTest(withdrawals);
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteWithdrawals(/* sidechain_id= */ 19, accepted_batch_id, withdrawal_proofs, &error));
+    BOOST_CHECK_EQUAL(error, "withdrawal execution fanout exceeds consensus limit");
+}
+
 BOOST_AUTO_TEST_CASE(connect_block_handles_verified_withdrawal_execution)
 {
     ValiditySidechainState state;
@@ -1616,6 +1689,34 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_invalid_merkle_proof)
     std::string error;
     BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 17, /* execution_height= */ 600 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
     BOOST_CHECK_EQUAL(error, "escape-exit proof does not match referenced state root");
+}
+
+BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_fanout_above_consensus_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 20, /* registration_height= */ 610, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(20);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 1000;
+
+    const CScript payout = CScript() << OP_16;
+    std::vector<ValiditySidechainEscapeExitLeaf> exits;
+    exits.reserve(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT + 1);
+    for (uint32_t i = 0; i <= MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT; ++i) {
+        exits.push_back(MakeEscapeExitLeaf(
+            uint256S(HexStr(std::vector<unsigned char>(32, static_cast<unsigned char>(i + 1)))),
+            payout,
+            /* amount= */ 1));
+    }
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    const std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
+    sidechain->current_state_root = escape_root;
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 20, /* execution_height= */ 610 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
+    BOOST_CHECK_EQUAL(error, "escape-exit execution fanout exceeds consensus limit");
 }
 
 BOOST_AUTO_TEST_CASE(execute_escape_exits_supports_non_scaffold_current_state_root_mode)

@@ -2129,7 +2129,7 @@ static RPCHelpMan sendvaliditybatch()
                         }},
                 }},
             {"proof_bytes", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional proof bytes. Omit to auto-build the scaffold proof envelope when supported."},
-            {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings",
+            {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings. Limited to 256 chunks by consensus.",
                 {
                     {"chunk", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Data chunk hex"},
                 }},
@@ -2179,6 +2179,11 @@ static RPCHelpMan sendvaliditybatch()
                     RPC_INVALID_PARAMETER,
                     "experimental real profile currently supports at most one consumed queue message");
             }
+            if (public_inputs.consumed_queue_messages > MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "consumed queue message count exceeds consensus limit");
+            }
             if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config) &&
                 experimental_withdrawal_leaves.size() > 1) {
                 throw JSONRPCError(
@@ -2200,6 +2205,11 @@ static RPCHelpMan sendvaliditybatch()
                 (request.params.size() > 3 && !request.params[3].isNull())
                     ? ParseHexArray(request.params[3], "data_chunks")
                     : std::vector<std::vector<unsigned char>>{};
+            if (data_chunks.size() > MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "batch data chunk count exceeds consensus limit");
+            }
             std::vector<ValiditySidechainQueueEntry> consumed_queue_entries;
             std::string queue_entries_error;
             if (!GetValiditySidechainConsumedQueueEntries(
@@ -2342,6 +2352,11 @@ static RPCHelpMan sendverifiedwithdrawals()
             std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
             std::vector<CRecipient> payout_recipients;
             ParseValidityWithdrawalLeaves(request.params[2], withdrawals, payout_recipients);
+            if (withdrawals.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "withdrawal execution fanout exceeds consensus limit");
+            }
             if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config) &&
                 withdrawals.size() > 1) {
                 throw JSONRPCError(
@@ -2412,7 +2427,7 @@ static RPCHelpMan sendescapeexit()
         "sendescapeexit",
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_ESCAPE_EXIT transaction.\n"
         "The wallet deterministically builds Merkle proofs from the ordered exit list and requires the resulting state root to match the current state root tracked by this node.\n"
-        "This execution path is currently scaffold-only; non-scaffold profiles hard-fail pending real state-root proof semantics.\n",
+        "Scaffold profiles use scaffold Merkle inclusion, and supported non-scaffold profiles expose an experimental current-state-root Merkle mode pending final user-state proof semantics.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"state_root_reference", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Current finalized state root reference"},
@@ -2460,6 +2475,11 @@ static RPCHelpMan sendescapeexit()
             std::vector<ValiditySidechainEscapeExitLeaf> exits;
             std::vector<CRecipient> payout_recipients;
             ParseValidityEscapeExitLeaves(request.params[2], exits, payout_recipients);
+            if (exits.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "escape-exit execution fanout exceeds consensus limit");
+            }
 
             const uint256 computed_root = ComputeValiditySidechainEscapeExitRoot(exits);
             if (computed_root != state_root_reference) {

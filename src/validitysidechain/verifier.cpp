@@ -157,6 +157,9 @@ static bool ValidatePublishedBatchData(
     if (public_inputs.data_size > config.max_batch_data_bytes) {
         return FailValidation(error, "data size exceeds configured limit");
     }
+    if (data_chunks.size() > MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS) {
+        return FailValidation(error, "batch data chunk count exceeds consensus limit");
+    }
     if (public_inputs.data_size != 0 && data_chunks.empty()) {
         return FailValidation(error, "data chunks missing for non-zero data_size");
     }
