@@ -339,6 +339,38 @@ static bool MatchEscapeExitOutputs(
     return true;
 }
 
+static bool MatchEscapeExitOutputs(
+    const CTransaction& tx,
+    int marker_index,
+    const std::vector<ValiditySidechainEscapeExitStateProof>& exit_state_proofs)
+{
+    if (exit_state_proofs.empty()) {
+        return false;
+    }
+
+    const size_t start = static_cast<size_t>(marker_index) + 1;
+    if (tx.vout.size() < start + exit_state_proofs.size()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < exit_state_proofs.size(); ++i) {
+        const CTxOut& txout = tx.vout[start + i];
+        const ValiditySidechainEscapeExitStateProof& exit = exit_state_proofs[i];
+        ValiditySidechainScriptInfo validity_info;
+        DrivechainScriptInfo drivechain_info;
+        if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) ||
+            DecodeDrivechainScript(txout.scriptPubKey, drivechain_info) ||
+            txout.nValue != exit.amount) {
+            return false;
+        }
+        if (ComputeScriptCommitment(txout.scriptPubKey) != exit.destination_commitment) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static int GetLastProgressHeight(const ValiditySidechain& sidechain)
 {
     if (sidechain.latest_batch_number == 0) {
@@ -1388,6 +1420,159 @@ bool ValiditySidechainState::ExecuteEscapeExits(
     return true;
 }
 
+bool ValiditySidechainState::ExecuteEscapeExits(
+    uint8_t sidechain_id,
+    int execution_height,
+    const uint256& state_root_reference,
+    const std::vector<ValiditySidechainEscapeExitStateProof>& exit_state_proofs,
+    std::string* error)
+{
+    if (execution_height < 0) {
+        if (error != nullptr) {
+            *error = "escape-exit execution height must be non-negative";
+        }
+        return false;
+    }
+
+    ValiditySidechain* sidechain = GetSidechain(sidechain_id);
+    if (sidechain == nullptr || !sidechain->is_active) {
+        if (error != nullptr) {
+            *error = "unknown validity sidechain";
+        }
+        return false;
+    }
+    if (exit_state_proofs.empty()) {
+        if (error != nullptr) {
+            *error = "escape-exit metadata is empty";
+        }
+        return false;
+    }
+    if (exit_state_proofs.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+        if (error != nullptr) {
+            *error = "escape-exit execution fanout exceeds consensus limit";
+        }
+        return false;
+    }
+    if (state_root_reference != sidechain->current_state_root) {
+        if (error != nullptr) {
+            *error = "escape-exit state root does not match current state root";
+        }
+        return false;
+    }
+
+    const int last_progress_height = GetLastProgressHeight(*sidechain);
+    if (execution_height < last_progress_height + static_cast<int>(sidechain->config.escape_hatch_delay)) {
+        if (error != nullptr) {
+            *error = "escape hatch delay not reached";
+        }
+        return false;
+    }
+
+    CAmount total_amount = 0;
+    std::set<uint256> new_ids;
+    std::set<uint256> new_claim_keys;
+    for (const auto& proof : exit_state_proofs) {
+        const ValiditySidechainAccountStateLeaf& account = proof.account_proof.account;
+        const uint256 expected_claim_key = ComputeValiditySidechainEscapeExitStateClaimKey(sidechain_id, proof);
+        const uint256 expected_exit_id = ComputeValiditySidechainEscapeExitStateId(sidechain_id, proof);
+
+        if (proof.exit_id != expected_exit_id) {
+            if (error != nullptr) {
+                *error = "escape-exit state proof id does not match deterministic claim id";
+            }
+            return false;
+        }
+        if (!VerifyValiditySidechainAccountStateProof(proof.account_proof, state_root_reference)) {
+            if (error != nullptr) {
+                *error = "escape-exit account proof does not match referenced state root";
+            }
+            return false;
+        }
+        if (!VerifyValiditySidechainBalanceProof(proof.balance_proof, account.balance_root)) {
+            if (error != nullptr) {
+                *error = "escape-exit balance proof does not match account balance root";
+            }
+            return false;
+        }
+        if (proof.exit_asset_id != proof.balance_proof.balance.asset_id) {
+            if (error != nullptr) {
+                *error = "escape-exit asset id does not match balance proof asset";
+            }
+            return false;
+        }
+        if (proof.required_account_nonce != account.account_nonce) {
+            if (error != nullptr) {
+                *error = "escape-exit account nonce does not match account proof";
+            }
+            return false;
+        }
+        if (proof.required_last_forced_exit_nonce != account.last_forced_exit_nonce) {
+            if (error != nullptr) {
+                *error = "escape-exit forced-exit nonce does not match account proof";
+            }
+            return false;
+        }
+        if (!MoneyRange(proof.amount) || proof.amount <= 0) {
+            if (error != nullptr) {
+                *error = "escape-exit amount out of range";
+            }
+            return false;
+        }
+        if (proof.balance_proof.balance.balance < proof.amount) {
+            if (error != nullptr) {
+                *error = "escape-exit amount exceeds proven balance";
+            }
+            return false;
+        }
+        if (!new_ids.insert(proof.exit_id).second) {
+            if (error != nullptr) {
+                *error = "duplicate escape-exit id in execution";
+            }
+            return false;
+        }
+        if (!new_claim_keys.insert(expected_claim_key).second) {
+            if (error != nullptr) {
+                *error = "duplicate escape-exit claim in execution";
+            }
+            return false;
+        }
+        if (sidechain->executed_escape_exit_ids.count(proof.exit_id) != 0) {
+            if (error != nullptr) {
+                *error = "escape-exit id already executed";
+            }
+            return false;
+        }
+        if (sidechain->executed_escape_exit_claim_keys.count(expected_claim_key) != 0) {
+            if (error != nullptr) {
+                *error = "escape-exit claim already executed";
+            }
+            return false;
+        }
+        if (total_amount > MAX_MONEY - proof.amount) {
+            if (error != nullptr) {
+                *error = "escape-exit total out of range";
+            }
+            return false;
+        }
+        total_amount += proof.amount;
+    }
+    if (!MoneyRange(total_amount) || sidechain->escrow_balance < total_amount) {
+        if (error != nullptr) {
+            *error = "escrow balance insufficient for escape exits";
+        }
+        return false;
+    }
+
+    sidechain->escrow_balance -= total_amount;
+    sidechain->executed_escape_exit_ids.insert(new_ids.begin(), new_ids.end());
+    sidechain->executed_escape_exit_claim_keys.insert(new_claim_keys.begin(), new_claim_keys.end());
+    sidechain->executed_escape_exit_count += new_ids.size();
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
+}
+
 bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex* pindex, BlockValidationState& state)
 {
     const int height = pindex->nHeight;
@@ -1528,6 +1713,19 @@ bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex
                 case ValiditySidechainScriptInfo::Kind::EXECUTE_ESCAPE_EXIT: {
                     if (txout.nValue != 0) {
                         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-marker-value");
+                    }
+
+                    std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs;
+                    if (DecodeValiditySidechainEscapeExitStateMetadata(info, exit_state_proofs)) {
+                        if (!MatchEscapeExitOutputs(*tx, static_cast<int>(out_i), exit_state_proofs)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-payout-mismatch");
+                        }
+
+                        std::string error;
+                        if (!ExecuteEscapeExits(info.sidechain_id, height, info.payload, exit_state_proofs, &error)) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-invalid", error);
+                        }
+                        break;
                     }
 
                     std::vector<ValiditySidechainEscapeExitProof> exit_proofs;

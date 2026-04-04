@@ -599,13 +599,6 @@ static bool PopulateVerifierAssetsStatus(
                 break;
             }
         }
-        if (!out_status.valid_proof_vectors_present) {
-            out_status.assets_present = false;
-            out_status.prover_assets_present = false;
-            out_status.backend_ready = false;
-            out_status.status = "profile manifest valid proof vector missing";
-            return true;
-        }
 
         out_status.invalid_proof_vectors_present = !manifest.invalid_vector_files.empty();
         for (const auto& relpath : manifest.invalid_vector_files) {
@@ -614,13 +607,6 @@ static bool PopulateVerifierAssetsStatus(
                 out_status.invalid_proof_vectors_present = false;
                 break;
             }
-        }
-        if (!out_status.invalid_proof_vectors_present) {
-            out_status.assets_present = false;
-            out_status.prover_assets_present = false;
-            out_status.backend_ready = false;
-            out_status.status = "profile manifest invalid proof vector missing";
-            return true;
         }
 
         if (!has_vk || out_status.verifying_key_bytes == 0) {
@@ -836,26 +822,26 @@ static std::array<unsigned char, 32> EncodeGroth16ScalarLE128Limb(
     return scalar;
 }
 
-static bool AppendUint256Groth16Input(
+static bool ResolveUint256Groth16Input(
     const std::string& input_name,
     const char* base_name,
     const uint256& value,
-    std::vector<std::array<unsigned char, 32>>& out_public_inputs_le)
+    std::array<unsigned char, 32>& out_input_le)
 {
     if (input_name == base_name) {
-        out_public_inputs_le.push_back(EncodeGroth16ScalarLE(value));
+        out_input_le = EncodeGroth16ScalarLE(value);
         return true;
     }
 
     const std::string low_name = std::string(base_name) + "_lo";
     if (input_name == low_name) {
-        out_public_inputs_le.push_back(EncodeGroth16ScalarLE128Limb(value, /* limb_index= */ 0));
+        out_input_le = EncodeGroth16ScalarLE128Limb(value, /* limb_index= */ 0);
         return true;
     }
 
     const std::string high_name = std::string(base_name) + "_hi";
     if (input_name == high_name) {
-        out_public_inputs_le.push_back(EncodeGroth16ScalarLE128Limb(value, /* limb_index= */ 1));
+        out_input_le = EncodeGroth16ScalarLE128Limb(value, /* limb_index= */ 1);
         return true;
     }
 
@@ -1006,6 +992,20 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
         withdrawal_leaves.size() > 1) {
         return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");
     }
+    {
+        const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(*supported);
+        if (!expected_public_inputs.empty()) {
+            std::vector<std::array<unsigned char, 32>> encoded_public_inputs;
+            if (!BuildValiditySidechainGroth16PublicInputs(
+                    expected_public_inputs,
+                    sidechain_id,
+                    public_inputs,
+                    encoded_public_inputs,
+                    error)) {
+                return false;
+            }
+        }
+    }
 
     ValiditySidechainVerifierAssetsStatus assets_status;
     GetValiditySidechainVerifierAssetsStatus(config, assets_status);
@@ -1070,37 +1070,53 @@ bool BuildValiditySidechainGroth16PublicInputs(
     out_public_inputs_le.reserve(public_input_names.size());
 
     for (const auto& input_name : public_input_names) {
+        std::array<unsigned char, 32> encoded_input{};
+        bool recognized_input = false;
+
         if (input_name == "sidechain_id") {
-            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(static_cast<uint32_t>(sidechain_id)));
-            continue;
+            encoded_input = EncodeGroth16ScalarLE(static_cast<uint32_t>(sidechain_id));
+            recognized_input = true;
         }
-        if (input_name == "batch_number") {
-            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(public_inputs.batch_number));
-            continue;
+        if (!recognized_input && input_name == "batch_number") {
+            encoded_input = EncodeGroth16ScalarLE(public_inputs.batch_number);
+            recognized_input = true;
         }
-        if (input_name == "consumed_queue_messages") {
-            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(public_inputs.consumed_queue_messages));
-            continue;
+        if (!recognized_input && input_name == "consumed_queue_messages") {
+            encoded_input = EncodeGroth16ScalarLE(public_inputs.consumed_queue_messages);
+            recognized_input = true;
         }
-        if (input_name == "data_size") {
-            out_public_inputs_le.push_back(EncodeGroth16ScalarLE(public_inputs.data_size));
-            continue;
+        if (!recognized_input && input_name == "data_size") {
+            encoded_input = EncodeGroth16ScalarLE(public_inputs.data_size);
+            recognized_input = true;
         }
-        if (AppendUint256Groth16Input(input_name, "prior_state_root", public_inputs.prior_state_root, out_public_inputs_le) ||
-            AppendUint256Groth16Input(input_name, "new_state_root", public_inputs.new_state_root, out_public_inputs_le) ||
-            AppendUint256Groth16Input(input_name, "l1_message_root_before", public_inputs.l1_message_root_before, out_public_inputs_le) ||
-            AppendUint256Groth16Input(input_name, "l1_message_root_after", public_inputs.l1_message_root_after, out_public_inputs_le) ||
-            AppendUint256Groth16Input(input_name, "queue_prefix_commitment", public_inputs.queue_prefix_commitment, out_public_inputs_le) ||
-            AppendUint256Groth16Input(input_name, "withdrawal_root", public_inputs.withdrawal_root, out_public_inputs_le) ||
-            AppendUint256Groth16Input(input_name, "data_root", public_inputs.data_root, out_public_inputs_le)) {
-            continue;
+        if (!recognized_input &&
+            (ResolveUint256Groth16Input(input_name, "prior_state_root", public_inputs.prior_state_root, encoded_input) ||
+             ResolveUint256Groth16Input(input_name, "new_state_root", public_inputs.new_state_root, encoded_input) ||
+             ResolveUint256Groth16Input(input_name, "l1_message_root_before", public_inputs.l1_message_root_before, encoded_input) ||
+             ResolveUint256Groth16Input(input_name, "l1_message_root_after", public_inputs.l1_message_root_after, encoded_input) ||
+             ResolveUint256Groth16Input(input_name, "queue_prefix_commitment", public_inputs.queue_prefix_commitment, encoded_input) ||
+             ResolveUint256Groth16Input(input_name, "withdrawal_root", public_inputs.withdrawal_root, encoded_input) ||
+             ResolveUint256Groth16Input(input_name, "data_root", public_inputs.data_root, encoded_input))) {
+            recognized_input = true;
         }
 
-        if (error != nullptr) {
-            *error = "unsupported Groth16 public input name: " + input_name;
+        if (!recognized_input) {
+            if (error != nullptr) {
+                *error = "unsupported Groth16 public input name: " + input_name;
+            }
+            out_public_inputs_le.clear();
+            return false;
         }
-        out_public_inputs_le.clear();
-        return false;
+
+        if (!ValidateValiditySidechainGroth16ScalarFieldElement(encoded_input, nullptr)) {
+            if (error != nullptr) {
+                *error = "Groth16 public input " + input_name + " does not fit BLS12-381 scalar field";
+            }
+            out_public_inputs_le.clear();
+            return false;
+        }
+
+        out_public_inputs_le.push_back(encoded_input);
     }
 
     if (error != nullptr) {

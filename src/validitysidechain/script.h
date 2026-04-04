@@ -110,6 +110,14 @@ std::vector<unsigned char> EncodeValiditySidechainBalanceProof(const ValiditySid
 bool DecodeValiditySidechainBalanceProof(
     Span<const unsigned char> proof_bytes,
     ValiditySidechainBalanceProof& out_proof);
+bool BuildValiditySidechainBalanceProof(
+    const std::vector<ValiditySidechainBalanceLeaf>& balances,
+    uint32_t leaf_index,
+    ValiditySidechainBalanceProof& out_proof);
+bool VerifyValiditySidechainBalanceProof(
+    const ValiditySidechainBalanceProof& proof,
+    const uint256& expected_root);
+uint256 ComputeValiditySidechainBalanceRoot(const std::vector<ValiditySidechainBalanceLeaf>& balances);
 std::vector<unsigned char> EncodeValiditySidechainAccountStateLeaf(const ValiditySidechainAccountStateLeaf& account);
 bool DecodeValiditySidechainAccountStateLeaf(
     Span<const unsigned char> account_bytes,
@@ -118,6 +126,14 @@ std::vector<unsigned char> EncodeValiditySidechainAccountStateProof(const Validi
 bool DecodeValiditySidechainAccountStateProof(
     Span<const unsigned char> proof_bytes,
     ValiditySidechainAccountStateProof& out_proof);
+bool BuildValiditySidechainAccountStateProof(
+    const std::vector<ValiditySidechainAccountStateLeaf>& accounts,
+    uint32_t leaf_index,
+    ValiditySidechainAccountStateProof& out_proof);
+bool VerifyValiditySidechainAccountStateProof(
+    const ValiditySidechainAccountStateProof& proof,
+    const uint256& expected_root);
+uint256 ComputeValiditySidechainAccountStateRoot(const std::vector<ValiditySidechainAccountStateLeaf>& accounts);
 
 std::vector<unsigned char> EncodeValiditySidechainEscapeExitLeaf(const ValiditySidechainEscapeExitLeaf& exit);
 bool DecodeValiditySidechainEscapeExitLeaf(
@@ -137,6 +153,12 @@ bool DecodeValiditySidechainEscapeExitMetadata(
 bool DecodeValiditySidechainEscapeExitStateMetadata(
     const ValiditySidechainScriptInfo& info,
     std::vector<ValiditySidechainEscapeExitStateProof>& out_exit_state_proofs);
+uint256 ComputeValiditySidechainEscapeExitStateClaimKey(
+    uint8_t scid,
+    const ValiditySidechainEscapeExitStateProof& proof);
+uint256 ComputeValiditySidechainEscapeExitStateId(
+    uint8_t scid,
+    const ValiditySidechainEscapeExitStateProof& proof);
 bool BuildValiditySidechainEscapeExitProof(
     const std::vector<ValiditySidechainEscapeExitLeaf>& exits,
     uint32_t leaf_index,

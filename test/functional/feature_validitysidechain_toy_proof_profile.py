@@ -609,7 +609,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             mismatch_public_inputs["new_state_root"] = pad_field_hex(mismatch_vector["public_inputs"]["new_state_root"])
 
             assert_raises_rpc_error(
-                -26,
+                -8,
                 "pairing doesn't match",
                 node.sendvaliditybatch,
                 vector_sidechain_id,
@@ -617,7 +617,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                 mismatch_vector["proof_bytes_hex"],
             )
             assert_raises_rpc_error(
-                -26,
+                -8,
                 "pairing doesn't match",
                 node.sendvaliditybatch,
                 vector_sidechain_id,
@@ -698,7 +698,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             native_mismatch_public_inputs["new_state_root"] = pad_field_hex(native_mismatch_vector["public_inputs"]["new_state_root"])
 
             assert_raises_rpc_error(
-                -26,
+                -8,
                 "Groth16 pairing doesn't match",
                 node.sendvaliditybatch,
                 native_sidechain_id,
@@ -706,7 +706,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                 native_mismatch_vector["proof_bytes_hex"],
             )
             assert_raises_rpc_error(
-                -26,
+                -8,
                 "Groth16 pairing doesn't match",
                 node.sendvaliditybatch,
                 native_sidechain_id,
@@ -807,7 +807,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             corrupted_proof_hex = proof_hex[:-2] + ("00" if proof_hex[-2:] != "00" else "01")
 
             assert_raises_rpc_error(
-                -26,
+                -8,
                 "pairing doesn't match",
                 node.sendvaliditybatch,
                 invalid_sidechain_id,
@@ -896,7 +896,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
 
         self.log.info("Rejecting missing or malformed DA on the real Groth16 profile before proof verification.")
         assert_raises_rpc_error(
-            -26,
+            -8,
             "data chunks missing for non-zero data_size",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -904,7 +904,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_valid_vector["proof_bytes_hex"],
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "data size does not match published chunks",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -913,7 +913,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             [real_data_chunks[0]],
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "data root does not match published chunks",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -922,7 +922,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             list(reversed(real_data_chunks)),
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "data size exceeds configured limit",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -964,7 +964,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         )
 
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -973,7 +973,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_data_chunks,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -982,7 +982,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_data_chunks,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -991,7 +991,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_data_chunks,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,

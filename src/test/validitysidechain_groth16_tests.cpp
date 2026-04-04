@@ -735,6 +735,19 @@ BOOST_AUTO_TEST_CASE(groth16_public_input_builder_rejects_unknown_name)
     BOOST_CHECK(encoded.empty());
 }
 
+BOOST_AUTO_TEST_CASE(groth16_public_input_builder_rejects_out_of_field_unsplit_input)
+{
+    const std::vector<std::string> names{"prior_state_root"};
+    ValiditySidechainBatchPublicInputs public_inputs;
+    public_inputs.prior_state_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+    std::vector<std::array<unsigned char, 32>> encoded;
+    std::string error;
+    BOOST_CHECK(!BuildValiditySidechainGroth16PublicInputs(names, /* sidechain_id= */ 1, public_inputs, encoded, &error));
+    BOOST_CHECK_EQUAL(error, "Groth16 public input prior_state_root does not fit BLS12-381 scalar field");
+    BOOST_CHECK(encoded.empty());
+}
+
 BOOST_AUTO_TEST_CASE(groth16_real_profile_bundle_rejects_committed_invalid_vectors)
 {
     const fs::path artifact_dir =

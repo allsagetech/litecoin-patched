@@ -709,6 +709,11 @@ static void ParseValidityWithdrawalLeaves(
     }
 }
 
+enum class ValidityVerifiedWithdrawalInputMode {
+    LEGACY_LEAF_LIST,
+    PROOF_LIST,
+};
+
 static void ParseValidityEscapeExitLeaves(
     const UniValue& arr,
     std::vector<ValiditySidechainEscapeExitLeaf>& out_exits,
@@ -745,6 +750,206 @@ static void ParseValidityEscapeExitLeaves(
         out_recipients.push_back({script, exit.amount, /*subtract_fee=*/false});
         out_exits.push_back(std::move(exit));
     }
+}
+
+static uint32_t ParseUint32Value(const UniValue& value, const std::string& field_name);
+static uint64_t ParseUint64Value(const UniValue& value, const std::string& field_name);
+
+static std::vector<uint256> ParseHashArrayField(const UniValue& value, const std::string& field_name)
+{
+    RPCTypeCheckArgument(value, UniValue::VARR);
+
+    std::vector<uint256> hashes;
+    hashes.reserve(value.size());
+    for (size_t i = 0; i < value.size(); ++i) {
+        hashes.push_back(ParseHashV(value[i], strprintf("%s[%u]", field_name, static_cast<unsigned>(i))));
+    }
+    return hashes;
+}
+
+static ValidityVerifiedWithdrawalInputMode ParseValidityWithdrawalClaims(
+    const UniValue& arr,
+    std::vector<ValiditySidechainWithdrawalLeaf>& out_withdrawals,
+    std::vector<ValiditySidechainWithdrawalProof>& out_withdrawal_proofs,
+    std::vector<CRecipient>& out_recipients)
+{
+    RPCTypeCheckArgument(arr, UniValue::VARR);
+    if (arr.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawals array must not be empty");
+    }
+
+    const UniValue& first = arr[0];
+    RPCTypeCheckArgument(first, UniValue::VOBJ);
+    const bool uses_explicit_proofs = first.exists("proof") && !first["proof"].isNull();
+
+    out_withdrawals.clear();
+    out_withdrawal_proofs.clear();
+    out_recipients.clear();
+    out_recipients.reserve(arr.size());
+
+    if (!uses_explicit_proofs) {
+        ParseValidityWithdrawalLeaves(arr, out_withdrawals, out_recipients);
+        return ValidityVerifiedWithdrawalInputMode::LEGACY_LEAF_LIST;
+    }
+
+    out_withdrawal_proofs.reserve(arr.size());
+    for (size_t i = 0; i < arr.size(); ++i) {
+        const UniValue& obj = arr[i];
+        RPCTypeCheckArgument(obj, UniValue::VOBJ);
+        const std::string context = strprintf("withdrawals[%u]", static_cast<unsigned>(i));
+
+        if (!(obj.exists("proof") && !obj["proof"].isNull())) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "proof mode and legacy withdrawal inputs cannot be mixed");
+        }
+
+        ValiditySidechainWithdrawalProof proof;
+        proof.withdrawal.withdrawal_id = ParseHashO(obj, "withdrawal_id");
+        proof.withdrawal.amount = AmountFromValue(find_value(obj, "amount"));
+        if (proof.withdrawal.amount <= 0 || !MoneyRange(proof.withdrawal.amount)) {
+            throw JSONRPCError(
+                RPC_INVALID_PARAMETER,
+                context + ".amount must be a valid positive amount");
+        }
+
+        const CScript script = ParseRpcPayoutScript(obj, context);
+        proof.withdrawal.destination_commitment = ComputeRpcScriptCommitment(script);
+
+        const UniValue& proof_obj = obj["proof"];
+        RPCTypeCheckArgument(proof_obj, UniValue::VOBJ);
+        proof.leaf_index = ParseUint32Value(find_value(proof_obj, "leaf_index"), context + ".proof.leaf_index");
+        proof.leaf_count = ParseUint32Value(find_value(proof_obj, "leaf_count"), context + ".proof.leaf_count");
+        if (proof.leaf_count == 0 || proof.leaf_index >= proof.leaf_count) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, context + ".proof leaf_index must be within leaf_count");
+        }
+        proof.sibling_hashes = ParseHashArrayField(find_value(proof_obj, "sibling_hashes"), context + ".proof.sibling_hashes");
+
+        out_recipients.push_back({script, proof.withdrawal.amount, /*subtract_fee=*/false});
+        out_withdrawal_proofs.push_back(std::move(proof));
+    }
+
+    return ValidityVerifiedWithdrawalInputMode::PROOF_LIST;
+}
+
+static void ParseValidityBalanceProofObject(
+    const UniValue& obj,
+    const std::string& context,
+    ValiditySidechainBalanceProof& out_proof)
+{
+    RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+    out_proof.balance.asset_id = ParseHashO(obj, "asset_id");
+    out_proof.balance.balance = AmountFromValue(find_value(obj, "balance"));
+    if (out_proof.balance.balance < 0 || !MoneyRange(out_proof.balance.balance)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, context + ".balance must be a valid non-negative amount");
+    }
+    out_proof.leaf_index = ParseUint32Value(find_value(obj, "leaf_index"), context + ".leaf_index");
+    out_proof.leaf_count = ParseUint32Value(find_value(obj, "leaf_count"), context + ".leaf_count");
+    if (out_proof.leaf_count == 0 || out_proof.leaf_index >= out_proof.leaf_count) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, context + " leaf_index must be within leaf_count");
+    }
+    out_proof.sibling_hashes = ParseHashArrayField(find_value(obj, "sibling_hashes"), context + ".sibling_hashes");
+}
+
+static void ParseValidityAccountStateProofObject(
+    const UniValue& obj,
+    const std::string& context,
+    ValiditySidechainAccountStateProof& out_proof)
+{
+    RPCTypeCheckArgument(obj, UniValue::VOBJ);
+
+    out_proof.account.account_id = ParseHashO(obj, "account_id");
+    out_proof.account.spend_key_commitment = ParseHashO(obj, "spend_key_commitment");
+    out_proof.account.balance_root = ParseHashO(obj, "balance_root");
+    out_proof.account.account_nonce = ParseUint64Value(find_value(obj, "account_nonce"), context + ".account_nonce");
+    out_proof.account.last_forced_exit_nonce = ParseUint64Value(find_value(obj, "last_forced_exit_nonce"), context + ".last_forced_exit_nonce");
+    out_proof.leaf_index = ParseUint32Value(find_value(obj, "leaf_index"), context + ".leaf_index");
+    out_proof.leaf_count = ParseUint32Value(find_value(obj, "leaf_count"), context + ".leaf_count");
+    if (out_proof.leaf_count == 0 || out_proof.leaf_index >= out_proof.leaf_count) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, context + " leaf_index must be within leaf_count");
+    }
+    out_proof.sibling_hashes = ParseHashArrayField(find_value(obj, "sibling_hashes"), context + ".sibling_hashes");
+}
+
+enum class ValidityEscapeExitInputMode {
+    LEGACY_LEAF_LIST,
+    STATE_PROOF_LIST,
+};
+
+static ValidityEscapeExitInputMode ParseValidityEscapeExitClaims(
+    const UniValue& arr,
+    uint8_t sidechain_id,
+    std::vector<ValiditySidechainEscapeExitLeaf>& out_exits,
+    std::vector<ValiditySidechainEscapeExitStateProof>& out_state_proofs,
+    std::vector<CRecipient>& out_recipients)
+{
+    RPCTypeCheckArgument(arr, UniValue::VARR);
+    if (arr.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "exits array must not be empty");
+    }
+
+    const UniValue& first = arr[0];
+    RPCTypeCheckArgument(first, UniValue::VOBJ);
+    const bool uses_state_proofs =
+        (first.exists("account_proof") && !first["account_proof"].isNull()) ||
+        (first.exists("balance_proof") && !first["balance_proof"].isNull());
+
+    out_exits.clear();
+    out_state_proofs.clear();
+    out_recipients.clear();
+    out_recipients.reserve(arr.size());
+
+    if (!uses_state_proofs) {
+        ParseValidityEscapeExitLeaves(arr, out_exits, out_recipients);
+        return ValidityEscapeExitInputMode::LEGACY_LEAF_LIST;
+    }
+
+    out_state_proofs.reserve(arr.size());
+    for (size_t i = 0; i < arr.size(); ++i) {
+        const UniValue& obj = arr[i];
+        RPCTypeCheckArgument(obj, UniValue::VOBJ);
+        const std::string context = strprintf("exits[%u]", static_cast<unsigned>(i));
+        if ((obj.exists("account_proof") && !obj["account_proof"].isNull()) !=
+            (obj.exists("balance_proof") && !obj["balance_proof"].isNull())) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, context + " must include both account_proof and balance_proof");
+        }
+        if (!(obj.exists("account_proof") && !obj["account_proof"].isNull())) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "state-proof and legacy escape exits cannot be mixed");
+        }
+
+        ValiditySidechainEscapeExitStateProof proof;
+        ParseValidityAccountStateProofObject(obj["account_proof"], context + ".account_proof", proof.account_proof);
+        ParseValidityBalanceProofObject(obj["balance_proof"], context + ".balance_proof", proof.balance_proof);
+        proof.exit_asset_id = obj.exists("exit_asset_id") && !obj["exit_asset_id"].isNull()
+            ? ParseHashO(obj, "exit_asset_id")
+            : proof.balance_proof.balance.asset_id;
+        proof.amount = AmountFromValue(find_value(obj, "amount"));
+        if (proof.amount <= 0 || !MoneyRange(proof.amount)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, context + ".amount must be a valid positive amount");
+        }
+
+        const CScript script = ParseRpcPayoutScript(obj, context);
+        proof.destination_commitment = ComputeRpcScriptCommitment(script);
+        proof.required_account_nonce = obj.exists("required_account_nonce") && !obj["required_account_nonce"].isNull()
+            ? ParseUint64Value(obj["required_account_nonce"], context + ".required_account_nonce")
+            : proof.account_proof.account.account_nonce;
+        proof.required_last_forced_exit_nonce = obj.exists("required_last_forced_exit_nonce") && !obj["required_last_forced_exit_nonce"].isNull()
+            ? ParseUint64Value(obj["required_last_forced_exit_nonce"], context + ".required_last_forced_exit_nonce")
+            : proof.account_proof.account.last_forced_exit_nonce;
+
+        const uint256 computed_exit_id = ComputeValiditySidechainEscapeExitStateId(sidechain_id, proof);
+        if (obj.exists("exit_id") && !obj["exit_id"].isNull()) {
+            const uint256 provided_exit_id = ParseHashO(obj, "exit_id");
+            if (provided_exit_id != computed_exit_id) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, context + ".exit_id does not match the deterministic state-proof claim id");
+            }
+        }
+        proof.exit_id = computed_exit_id;
+
+        out_recipients.push_back({script, proof.amount, /*subtract_fee=*/false});
+        out_state_proofs.push_back(std::move(proof));
+    }
+
+    return ValidityEscapeExitInputMode::STATE_PROOF_LIST;
 }
 
 UniValue SendMoney(CWallet* const pwallet, const CCoinControl &coin_control, std::vector<CRecipient> &recipients, mapValue_t map_value, bool verbose)
@@ -2051,8 +2256,8 @@ static RPCHelpMan sendstaledepositreclaim()
             CWallet* const pwallet = wallet.get();
 
             const uint8_t sidechain_id = ParseUint8Value(request.params[0], "sidechain_id");
-
-            if (!HasValiditySidechainInChain(*pwallet, sidechain_id)) {
+            ValiditySidechain sidechain;
+            if (!GetValiditySidechainFromChain(*pwallet, sidechain_id, sidechain)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id is not registered on the active chain");
             }
 
@@ -2069,6 +2274,22 @@ static RPCHelpMan sendstaledepositreclaim()
             bool allow_unbroadcast = false;
             if (request.params.size() > 3 && !request.params[3].isNull()) {
                 allow_unbroadcast = request.params[3].get_bool();
+            }
+
+            const Optional<int> tip_height = pwallet->chain().getHeight();
+            if (!tip_height) {
+                throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "active chain tip is unavailable");
+            }
+
+            ValiditySidechainState local_state;
+            local_state.sidechains.emplace(sidechain.id, sidechain);
+            std::string reclaim_error;
+            if (!local_state.ReclaimDeposit(
+                    sidechain_id,
+                    *tip_height + 1,
+                    deposit,
+                    &reclaim_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, reclaim_error);
             }
 
             std::vector<CRecipient> recipients;
@@ -2266,6 +2487,24 @@ static RPCHelpMan sendvaliditybatch()
                 }
             }
 
+            const Optional<int> tip_height = pwallet->chain().getHeight();
+            if (!tip_height) {
+                throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "active chain tip is unavailable");
+            }
+
+            ValiditySidechainState local_state;
+            local_state.sidechains.emplace(sidechain.id, sidechain);
+            std::string batch_error;
+            if (!local_state.AcceptBatch(
+                    sidechain_id,
+                    *tip_height + 1,
+                    public_inputs,
+                    proof_bytes,
+                    data_chunks,
+                    &batch_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, batch_error);
+            }
+
             bool allow_unbroadcast = false;
             if (request.params.size() > 4 && !request.params[4].isNull()) {
                 allow_unbroadcast = request.params[4].get_bool();
@@ -2299,12 +2538,13 @@ static RPCHelpMan sendverifiedwithdrawals()
     return RPCHelpMan{
         "sendverifiedwithdrawals",
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_VERIFIED_WITHDRAWALS transaction.\n"
-        "The wallet deterministically builds Merkle proofs from the ordered withdrawal list and requires the resulting withdrawal root to match the accepted batch tracked by this node.\n"
+        "Legacy callers may provide the full ordered withdrawal list, and the wallet will deterministically build Merkle proofs that must match the accepted batch tracked by this node.\n"
+        "Callers that already have explicit Merkle proofs may instead provide proof objects directly.\n"
         "For the current experimental real profile, only a single executed withdrawal leaf is supported.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"batch_number", RPCArg::Type::NUM, RPCArg::Optional::NO, "Accepted batch number"},
-            {"withdrawals", RPCArg::Type::ARR, RPCArg::Optional::NO, "Ordered list of withdrawal leaves to execute",
+            {"withdrawals", RPCArg::Type::ARR, RPCArg::Optional::NO, "Ordered list of withdrawal leaves to execute, or explicit withdrawal proof objects",
                 {
                     {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                         {
@@ -2312,6 +2552,17 @@ static RPCHelpMan sendverifiedwithdrawals()
                             {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Destination address (exactly one of address/script)"},
                             {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw destination scriptPubKey hex (exactly one of address/script)"},
                             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Withdrawal amount in " + CURRENCY_UNIT},
+                            {"proof", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "Optional explicit Merkle proof. If present on one entry, every entry must provide it.",
+                                {
+                                    {"leaf_index", RPCArg::Type::NUM, RPCArg::Optional::NO, "0-based leaf index"},
+                                    {"leaf_count", RPCArg::Type::NUM, RPCArg::Optional::NO, "Total leaf count committed by the accepted withdrawal root"},
+                                    {"sibling_hashes", RPCArg::Type::ARR, RPCArg::Optional::NO, "Ordered Merkle sibling hashes",
+                                        {
+                                            {"", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "32-byte sibling hash"},
+                                        }
+                                    },
+                                }
+                            },
                         }
                     }
                 }
@@ -2350,33 +2601,66 @@ static RPCHelpMan sendverifiedwithdrawals()
             }
 
             std::vector<ValiditySidechainWithdrawalLeaf> withdrawals;
+            std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
             std::vector<CRecipient> payout_recipients;
-            ParseValidityWithdrawalLeaves(request.params[2], withdrawals, payout_recipients);
-            if (withdrawals.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+            const ValidityVerifiedWithdrawalInputMode input_mode = ParseValidityWithdrawalClaims(
+                request.params[2],
+                withdrawals,
+                withdrawal_proofs,
+                payout_recipients);
+            const size_t withdrawal_count = input_mode == ValidityVerifiedWithdrawalInputMode::LEGACY_LEAF_LIST
+                ? withdrawals.size()
+                : withdrawal_proofs.size();
+            if (withdrawal_count > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     "withdrawal execution fanout exceeds consensus limit");
             }
             if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config) &&
-                withdrawals.size() > 1) {
+                withdrawal_count > 1) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     "experimental real profile currently supports at most one executed withdrawal leaf");
             }
 
-            const uint256 computed_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
-            if (computed_root != accepted_batch->withdrawal_root) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawal list does not match the accepted batch withdrawal root");
+            if (input_mode == ValidityVerifiedWithdrawalInputMode::LEGACY_LEAF_LIST) {
+                const uint256 computed_root = ComputeValiditySidechainWithdrawalRoot(withdrawals);
+                if (computed_root != accepted_batch->withdrawal_root) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawal list does not match the accepted batch withdrawal root");
+                }
+
+                withdrawal_proofs.reserve(withdrawals.size());
+                for (uint32_t i = 0; i < withdrawals.size(); ++i) {
+                    ValiditySidechainWithdrawalProof proof;
+                    if (!BuildValiditySidechainWithdrawalProof(withdrawals, i, proof)) {
+                        throw JSONRPCError(RPC_INTERNAL_ERROR, "failed to build withdrawal proof");
+                    }
+                    withdrawal_proofs.push_back(std::move(proof));
+                }
+            } else {
+                for (size_t i = 0; i < withdrawal_proofs.size(); ++i) {
+                    if (!VerifyValiditySidechainWithdrawalProof(withdrawal_proofs[i], accepted_batch->withdrawal_root)) {
+                        throw JSONRPCError(
+                            RPC_INVALID_PARAMETER,
+                            strprintf("withdrawals[%u] proof does not match the accepted batch withdrawal root",
+                                static_cast<unsigned>(i)));
+                    }
+                }
             }
 
-            std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs;
-            withdrawal_proofs.reserve(withdrawals.size());
-            for (uint32_t i = 0; i < withdrawals.size(); ++i) {
-                ValiditySidechainWithdrawalProof proof;
-                if (!BuildValiditySidechainWithdrawalProof(withdrawals, i, proof)) {
-                    throw JSONRPCError(RPC_INTERNAL_ERROR, "failed to build withdrawal proof");
-                }
-                withdrawal_proofs.push_back(std::move(proof));
+            ValiditySidechainState local_state;
+            local_state.sidechains.emplace(sidechain.id, sidechain);
+            const uint256 accepted_batch_id = ComputeValiditySidechainAcceptedBatchId(
+                sidechain_id,
+                batch_number,
+                accepted_batch->withdrawal_root);
+            std::string execution_error;
+            if (!local_state.ExecuteWithdrawals(
+                    sidechain_id,
+                    accepted_batch_id,
+                    withdrawal_proofs,
+                    &execution_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, execution_error);
             }
 
             std::vector<CRecipient> recipients;
@@ -2415,7 +2699,7 @@ static RPCHelpMan sendverifiedwithdrawals()
                 batch_number,
                 accepted_batch->withdrawal_root).GetHex());
             result.pushKV("withdrawal_root", accepted_batch->withdrawal_root.GetHex());
-            result.pushKV("withdrawal_count", static_cast<int64_t>(withdrawals.size()));
+            result.pushKV("withdrawal_count", static_cast<int64_t>(withdrawal_count));
             return result;
         },
     };
@@ -2426,19 +2710,23 @@ static RPCHelpMan sendescapeexit()
     return RPCHelpMan{
         "sendescapeexit",
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_ESCAPE_EXIT transaction.\n"
-        "The wallet deterministically builds Merkle proofs from the ordered exit list and requires the resulting state root to match the current state root tracked by this node.\n"
+        "Legacy callers may provide an ordered list of escape-exit leaves, and the wallet will deterministically build Merkle proofs that must match the referenced state root.\n"
+        "Callers that already have account/balance witnesses may instead provide explicit state-proof objects, which the wallet encodes directly and binds to a deterministic claim id.\n"
         "Scaffold profiles use scaffold Merkle inclusion, and supported non-scaffold profiles expose an experimental current-state-root Merkle mode pending final user-state proof semantics.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"state_root_reference", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Current finalized state root reference"},
-            {"exits", RPCArg::Type::ARR, RPCArg::Optional::NO, "Ordered list of escape-exit leaves to execute",
+            {"exits", RPCArg::Type::ARR, RPCArg::Optional::NO, "Ordered list of escape-exit leaves or explicit state-proof claims to execute",
                 {
                     {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                         {
-                            {"exit_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte exit id"},
+                            {"exit_id", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Legacy: 32-byte exit id. State-proof mode: optional deterministic claim id cross-check"},
+                            {"exit_asset_id", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "State-proof mode: exit asset id (defaults to balance_proof.asset_id)"},
                             {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Destination address (exactly one of address/script)"},
                             {"script", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw destination scriptPubKey hex (exactly one of address/script)"},
                             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Exit amount in " + CURRENCY_UNIT},
+                            {"required_account_nonce", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "State-proof mode: required account nonce (defaults to account_proof.account_nonce)"},
+                            {"required_last_forced_exit_nonce", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "State-proof mode: required last forced-exit nonce (defaults to account_proof.last_forced_exit_nonce)"},
                         }
                     }
                 }
@@ -2473,40 +2761,93 @@ static RPCHelpMan sendescapeexit()
             }
 
             std::vector<ValiditySidechainEscapeExitLeaf> exits;
+            std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs;
             std::vector<CRecipient> payout_recipients;
-            ParseValidityEscapeExitLeaves(request.params[2], exits, payout_recipients);
-            if (exits.size() > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
+            const ValidityEscapeExitInputMode input_mode = ParseValidityEscapeExitClaims(
+                request.params[2],
+                sidechain_id,
+                exits,
+                exit_state_proofs,
+                payout_recipients);
+            const size_t exit_count = input_mode == ValidityEscapeExitInputMode::LEGACY_LEAF_LIST
+                ? exits.size()
+                : exit_state_proofs.size();
+            if (exit_count > MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     "escape-exit execution fanout exceeds consensus limit");
             }
 
-            const uint256 computed_root = ComputeValiditySidechainEscapeExitRoot(exits);
-            if (computed_root != state_root_reference) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "escape-exit list does not match the referenced state root");
-            }
-
-            std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
-            exit_proofs.reserve(exits.size());
-            for (uint32_t i = 0; i < exits.size(); ++i) {
-                ValiditySidechainEscapeExitProof proof;
-                if (!BuildValiditySidechainEscapeExitProof(exits, i, proof)) {
-                    throw JSONRPCError(RPC_INTERNAL_ERROR, "failed to build escape-exit proof");
-                }
-                exit_proofs.push_back(std::move(proof));
-            }
-
             std::vector<CRecipient> recipients;
             recipients.reserve(1 + payout_recipients.size());
-            recipients.push_back({
-                BuildValiditySidechainEscapeExitScript(sidechain_id, state_root_reference, exit_proofs),
-                /*nAmount=*/0,
-                /*subtract_fee=*/false});
+            if (input_mode == ValidityEscapeExitInputMode::LEGACY_LEAF_LIST) {
+                const uint256 computed_root = ComputeValiditySidechainEscapeExitRoot(exits);
+                if (computed_root != state_root_reference) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "escape-exit list does not match the referenced state root");
+                }
+
+                std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+                exit_proofs.reserve(exits.size());
+                for (uint32_t i = 0; i < exits.size(); ++i) {
+                    ValiditySidechainEscapeExitProof proof;
+                    if (!BuildValiditySidechainEscapeExitProof(exits, i, proof)) {
+                        throw JSONRPCError(RPC_INTERNAL_ERROR, "failed to build escape-exit proof");
+                    }
+                    exit_proofs.push_back(std::move(proof));
+                }
+
+                recipients.push_back({
+                    BuildValiditySidechainEscapeExitScript(sidechain_id, state_root_reference, exit_proofs),
+                    /*nAmount=*/0,
+                    /*subtract_fee=*/false});
+            } else {
+                recipients.push_back({
+                    BuildValiditySidechainEscapeExitStateScript(sidechain_id, state_root_reference, exit_state_proofs),
+                    /*nAmount=*/0,
+                    /*subtract_fee=*/false});
+            }
             recipients.insert(recipients.end(), payout_recipients.begin(), payout_recipients.end());
 
             bool allow_unbroadcast = false;
             if (request.params.size() > 3 && !request.params[3].isNull()) {
                 allow_unbroadcast = request.params[3].get_bool();
+            }
+
+            const Optional<int> tip_height = pwallet->chain().getHeight();
+            if (!tip_height) {
+                throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "active chain tip is unavailable");
+            }
+
+            ValiditySidechainState local_state;
+            local_state.sidechains.emplace(sidechain.id, sidechain);
+            std::string exit_error;
+            if (input_mode == ValidityEscapeExitInputMode::LEGACY_LEAF_LIST) {
+                std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+                exit_proofs.reserve(exits.size());
+                for (uint32_t i = 0; i < exits.size(); ++i) {
+                    ValiditySidechainEscapeExitProof proof;
+                    if (!BuildValiditySidechainEscapeExitProof(exits, i, proof)) {
+                        throw JSONRPCError(RPC_INTERNAL_ERROR, "failed to build escape-exit proof");
+                    }
+                    exit_proofs.push_back(std::move(proof));
+                }
+                if (!local_state.ExecuteEscapeExits(
+                        sidechain_id,
+                        *tip_height + 1,
+                        state_root_reference,
+                        exit_proofs,
+                        &exit_error)) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, exit_error);
+                }
+            } else {
+                if (!local_state.ExecuteEscapeExits(
+                        sidechain_id,
+                        *tip_height + 1,
+                        state_root_reference,
+                        exit_state_proofs,
+                        &exit_error)) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, exit_error);
+                }
             }
 
             CCoinControl coin_control;
@@ -2524,7 +2865,7 @@ static RPCHelpMan sendescapeexit()
             UniValue result(UniValue::VOBJ);
             result.pushKV("txid", txid);
             result.pushKV("state_root_reference", state_root_reference.GetHex());
-            result.pushKV("exit_count", static_cast<int64_t>(exits.size()));
+            result.pushKV("exit_count", static_cast<int64_t>(exit_count));
             return result;
         },
     };

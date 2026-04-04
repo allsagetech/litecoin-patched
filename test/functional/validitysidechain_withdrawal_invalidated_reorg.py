@@ -199,14 +199,14 @@ class ValiditySidechainWithdrawalInvalidatedReorg(BitcoinTestFramework):
         assert_equal(sidechain_after["escrow_balance"], amount_to_sats(Decimal("0.60")))
 
         assert_raises_rpc_error(
-            -26,
+            -8,
             "batch number is not strictly monotonic",
             n0.sendvaliditybatch,
             sidechain_id,
             public_inputs,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "withdrawal id already executed",
             n0.sendverifiedwithdrawals,
             sidechain_id,
@@ -227,14 +227,14 @@ class ValiditySidechainWithdrawalInvalidatedReorg(BitcoinTestFramework):
         assert_equal(sidechain_after_restart["escrow_balance"], amount_to_sats(Decimal("0.60")))
 
         assert_raises_rpc_error(
-            -26,
+            -8,
             "batch number is not strictly monotonic",
             n0.sendvaliditybatch,
             sidechain_id,
             public_inputs,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "withdrawal id already executed",
             n0.sendverifiedwithdrawals,
             sidechain_id,

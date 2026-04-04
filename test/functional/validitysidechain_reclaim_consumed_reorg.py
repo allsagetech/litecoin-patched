@@ -238,7 +238,7 @@ class ValiditySidechainReclaimConsumedReorg(BitcoinTestFramework):
         assert_equal(sidechain_n1_after["escrow_balance"], 100000000)
 
         assert_raises_rpc_error(
-            -26,
+            -8,
             "deposit id is not pending",
             n0.sendstaledepositreclaim,
             sidechain_id,
@@ -259,7 +259,7 @@ class ValiditySidechainReclaimConsumedReorg(BitcoinTestFramework):
         assert_equal(sidechain_after_restart["queue_state"]["reclaimable_deposit_count"], 0)
 
         assert_raises_rpc_error(
-            -26,
+            -8,
             "deposit id is not pending",
             n0.sendstaledepositreclaim,
             sidechain_id,

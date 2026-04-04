@@ -103,6 +103,138 @@ def compute_escape_exit_root(exits):
     return compute_merkle_root(encoded_leaves, b"VSCE\x02", b"VSCE\x03", b"VSCE\x01")
 
 
+def encode_withdrawal_leaf(withdrawal):
+    return (
+        ser_uint256(int(withdrawal["withdrawal_id"], 16)) +
+        amount_to_sats(withdrawal["amount"]).to_bytes(8, "little") +
+        ser_uint256(int(withdrawal["destination_commitment"], 16))
+    )
+
+
+def build_withdrawal_proof(withdrawals, leaf_index):
+    assert leaf_index < len(withdrawals)
+
+    level = [hash256_uint256(b"VSCW\x02" + encode_withdrawal_leaf(withdrawal)) for withdrawal in withdrawals]
+    siblings = []
+    index = leaf_index
+    while len(level) > 1:
+        sibling_index = index - 1 if index & 1 else min(index + 1, len(level) - 1)
+        siblings.append(f"{level[sibling_index]:064x}")
+
+        next_level = []
+        for i in range(0, len(level), 2):
+            left = level[i]
+            right = level[i + 1] if i + 1 < len(level) else level[i]
+            next_level.append(hash256_uint256(b"VSCW\x03" + ser_uint256(left) + ser_uint256(right)))
+        level = next_level
+        index >>= 1
+
+    return {
+        "leaf_index": leaf_index,
+        "leaf_count": len(withdrawals),
+        "sibling_hashes": siblings,
+    }
+
+
+def build_verified_withdrawal_proof_entry(withdrawals, leaf_index):
+    withdrawal = withdrawals[leaf_index]
+    return {
+        "withdrawal_id": withdrawal["withdrawal_id"],
+        "script": withdrawal["script"],
+        "amount": withdrawal["amount"],
+        "proof": build_withdrawal_proof(withdrawals, leaf_index),
+    }
+
+
+def build_internal_merkle_proof(encoded_leaves, leaf_magic, node_magic, leaf_index):
+    assert leaf_index < len(encoded_leaves)
+
+    level = [hash256_uint256(leaf_magic + leaf) for leaf in encoded_leaves]
+    siblings = []
+    index = leaf_index
+    while len(level) > 1:
+        sibling_index = index - 1 if index & 1 else min(index + 1, len(level) - 1)
+        siblings.append(f"{level[sibling_index]:064x}")
+
+        next_level = []
+        for i in range(0, len(level), 2):
+            left = level[i]
+            right = level[i + 1] if i + 1 < len(level) else level[i]
+            next_level.append(hash256_uint256(node_magic + ser_uint256(left) + ser_uint256(right)))
+        level = next_level
+        index >>= 1
+
+    return siblings, f"{level[0]:064x}"
+
+
+def encode_balance_leaf(balance):
+    return (
+        ser_uint256(int(balance["asset_id"], 16)) +
+        amount_to_sats(balance["balance"]).to_bytes(8, "little")
+    )
+
+
+def build_balance_proof(balances, leaf_index):
+    encoded_leaves = [encode_balance_leaf(balance) for balance in balances]
+    sibling_hashes, root = build_internal_merkle_proof(encoded_leaves, b"VSCS\x01", b"VSCS\x02", leaf_index)
+    balance = balances[leaf_index]
+    return {
+        "asset_id": balance["asset_id"],
+        "balance": balance["balance"],
+        "leaf_index": leaf_index,
+        "leaf_count": len(balances),
+        "sibling_hashes": sibling_hashes,
+    }, root
+
+
+def encode_account_state_leaf(account):
+    return (
+        ser_uint256(int(account["account_id"], 16)) +
+        ser_uint256(int(account["spend_key_commitment"], 16)) +
+        ser_uint256(int(account["balance_root"], 16)) +
+        int(account["account_nonce"]).to_bytes(8, "little") +
+        int(account["last_forced_exit_nonce"]).to_bytes(8, "little")
+    )
+
+
+def build_account_state_proof(accounts, leaf_index):
+    encoded_leaves = [encode_account_state_leaf(account) for account in accounts]
+    sibling_hashes, root = build_internal_merkle_proof(encoded_leaves, b"VSCS\x03", b"VSCS\x04", leaf_index)
+    account = accounts[leaf_index]
+    return {
+        "account_id": account["account_id"],
+        "spend_key_commitment": account["spend_key_commitment"],
+        "balance_root": account["balance_root"],
+        "account_nonce": account["account_nonce"],
+        "last_forced_exit_nonce": account["last_forced_exit_nonce"],
+        "leaf_index": leaf_index,
+        "leaf_count": len(accounts),
+        "sibling_hashes": sibling_hashes,
+    }, root
+
+
+def compute_escape_exit_state_claim_key(sidechain_id, claim):
+    payload = (
+        b"VSCE\x04" +
+        bytes([sidechain_id]) +
+        ser_uint256(int(claim["account_proof"]["account_id"], 16)) +
+        ser_uint256(int(claim["exit_asset_id"], 16)) +
+        int(claim["required_account_nonce"]).to_bytes(8, "little") +
+        int(claim["required_last_forced_exit_nonce"]).to_bytes(8, "little")
+    )
+    return f"{hash256_uint256(payload):064x}"
+
+
+def compute_escape_exit_state_id(sidechain_id, claim):
+    payload = (
+        b"VSCE\x05" +
+        ser_uint256(int(compute_escape_exit_state_claim_key(sidechain_id, claim), 16)) +
+        amount_to_sats(claim["amount"]).to_bytes(8, "little") +
+        ser_uint256(int(compute_script_commitment(claim["script"]), 16))
+    )
+    return f"{hash256_uint256(payload):064x}"
+
+
 class ValiditySidechainMempoolConflicts(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
@@ -117,6 +249,7 @@ class ValiditySidechainMempoolConflicts(BitcoinTestFramework):
         node.generatetoaddress(110, node.getnewaddress())
 
         supported = get_supported_profile(node, "scaffold_onchain_da_v1")
+        toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
         sidechain_id = 19
 
         withdrawals = [
@@ -259,16 +392,12 @@ class ValiditySidechainMempoolConflicts(BitcoinTestFramework):
         node.generate(1)
         batch_height = node.getblockcount()
 
-        withdrawal_rpc_entries = [
-            {
-                "withdrawal_id": withdrawal["withdrawal_id"],
-                "script": withdrawal["script"],
-                "amount": withdrawal["amount"],
-            }
-            for withdrawal in withdrawals
+        withdrawal_proof_entries = [
+            build_verified_withdrawal_proof_entry(withdrawals, i)
+            for i in range(len(withdrawals))
         ]
-        self.log.info("Rejecting duplicate EXECUTE_VERIFIED_WITHDRAWALS in mempool for the same withdrawal ids.")
-        verified_withdrawal_res = node.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_rpc_entries)
+        self.log.info("Rejecting duplicate EXECUTE_VERIFIED_WITHDRAWALS in mempool for the same withdrawal ids through explicit proof mode.")
+        verified_withdrawal_res = node.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_proof_entries)
         assert verified_withdrawal_res["txid"] in node.getrawmempool()
         assert_raises_rpc_error(
             -26,
@@ -276,7 +405,7 @@ class ValiditySidechainMempoolConflicts(BitcoinTestFramework):
             node.sendverifiedwithdrawals,
             sidechain_id,
             1,
-            withdrawal_rpc_entries,
+            withdrawal_proof_entries,
         )
         node.generate(1)
 
@@ -317,6 +446,78 @@ class ValiditySidechainMempoolConflicts(BitcoinTestFramework):
         )
         node.generate(1)
 
+        self.log.info("Rejecting duplicate EXECUTE_ESCAPE_EXIT in mempool for state-proof claims that share the same claim key.")
+        state_proof_sidechain_id = 20
+        state_balance_leaves = [
+            {
+                "asset_id": "aa" * 32,
+                "balance": Decimal("0.18"),
+            }
+        ]
+        state_balance_proof, state_balance_root = build_balance_proof(state_balance_leaves, 0)
+        state_accounts = [
+            {
+                "account_id": "bb" * 32,
+                "spend_key_commitment": "cc" * 32,
+                "balance_root": state_balance_root,
+                "account_nonce": 7,
+                "last_forced_exit_nonce": 3,
+            }
+        ]
+        state_account_proof, state_root = build_account_state_proof(state_accounts, 0)
+        state_proof_config = build_register_config(
+            toy_supported,
+            initial_state_root=state_root,
+            initial_withdrawal_root="00" * 32,
+        )
+        node.sendvaliditysidechainregister(state_proof_sidechain_id, state_proof_config)
+        node.generate(1)
+        node.sendvaliditydeposit(
+            state_proof_sidechain_id,
+            "dd" * 32,
+            {"address": node.getnewaddress()},
+            Decimal("0.18"),
+        )
+        node.generate(1)
+        node.generate(state_proof_config["escape_hatch_delay"])
+
+        state_escape_claim = {
+            "exit_asset_id": state_balance_leaves[0]["asset_id"],
+            "script": build_script_destination(node),
+            "amount": Decimal("0.18"),
+            "required_account_nonce": state_accounts[0]["account_nonce"],
+            "required_last_forced_exit_nonce": state_accounts[0]["last_forced_exit_nonce"],
+            "account_proof": state_account_proof,
+            "balance_proof": state_balance_proof,
+        }
+        state_escape_claim["exit_id"] = compute_escape_exit_state_id(
+            state_proof_sidechain_id,
+            state_escape_claim,
+        )
+        state_escape_res = node.sendescapeexit(
+            state_proof_sidechain_id,
+            state_root,
+            [state_escape_claim],
+        )
+        assert state_escape_res["txid"] in node.getrawmempool()
+
+        replay_claim = dict(state_escape_claim)
+        replay_claim["amount"] = Decimal("0.10")
+        replay_claim["exit_id"] = compute_escape_exit_state_id(
+            state_proof_sidechain_id,
+            replay_claim,
+        )
+        assert replay_claim["exit_id"] != state_escape_claim["exit_id"]
+        assert_raises_rpc_error(
+            -26,
+            "validitysidechain-escape-exit-duplicate-mempool",
+            node.sendescapeexit,
+            state_proof_sidechain_id,
+            state_root,
+            [replay_claim],
+        )
+        node.generate(1)
+
         reclaim_deposit = {
             "deposit_id": deposit_one_id,
             "amount": deposit_one_amount,
@@ -346,6 +547,10 @@ class ValiditySidechainMempoolConflicts(BitcoinTestFramework):
         assert_equal(final_sidechain["queue_state"]["pending_force_exit_count"], 1)
         assert_equal(final_sidechain["queue_state"]["reclaimable_deposit_count"], 1)
         assert_equal(final_sidechain["escrow_balance"], 0)
+
+        state_proof_sidechain = get_sidechain(node, state_proof_sidechain_id)
+        assert_equal(state_proof_sidechain["executed_escape_exit_count"], 1)
+        assert_equal(state_proof_sidechain["escrow_balance"], 0)
 
 
 if __name__ == "__main__":

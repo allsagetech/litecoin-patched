@@ -125,6 +125,49 @@ def compute_withdrawal_root(withdrawals):
     return compute_merkle_root(encoded_leaves, b"VSCW\x02", b"VSCW\x03", b"VSCW\x01")
 
 
+def encode_withdrawal_leaf(withdrawal):
+    return (
+        ser_uint256(int(withdrawal["withdrawal_id"], 16)) +
+        amount_to_sats(withdrawal["amount"]).to_bytes(8, "little") +
+        ser_uint256(int(get_destination_commitment(withdrawal), 16))
+    )
+
+
+def build_withdrawal_proof(withdrawals, leaf_index):
+    assert leaf_index < len(withdrawals)
+
+    level = [hash256_uint256(b"VSCW\x02" + encode_withdrawal_leaf(withdrawal)) for withdrawal in withdrawals]
+    siblings = []
+    index = leaf_index
+    while len(level) > 1:
+        sibling_index = index - 1 if index & 1 else min(index + 1, len(level) - 1)
+        siblings.append(f"{level[sibling_index]:064x}")
+
+        next_level = []
+        for i in range(0, len(level), 2):
+            left = level[i]
+            right = level[i + 1] if i + 1 < len(level) else level[i]
+            next_level.append(hash256_uint256(b"VSCW\x03" + ser_uint256(left) + ser_uint256(right)))
+        level = next_level
+        index >>= 1
+
+    return {
+        "leaf_index": leaf_index,
+        "leaf_count": len(withdrawals),
+        "sibling_hashes": siblings,
+    }
+
+
+def build_verified_withdrawal_proof_entry(withdrawals, leaf_index):
+    withdrawal = withdrawals[leaf_index]
+    return {
+        "withdrawal_id": withdrawal["withdrawal_id"],
+        "script": withdrawal["script"],
+        "amount": withdrawal["amount"],
+        "proof": build_withdrawal_proof(withdrawals, leaf_index),
+    }
+
+
 def compute_escape_exit_root(exits):
     encoded_leaves = []
     for exit_leaf in exits:
@@ -134,6 +177,111 @@ def compute_escape_exit_root(exits):
             ser_uint256(int(get_destination_commitment(exit_leaf), 16))
         )
     return compute_merkle_root(encoded_leaves, b"VSCE\x02", b"VSCE\x03", b"VSCE\x01")
+
+
+def compute_internal_merkle_root(encoded_leaves, leaf_magic, node_magic):
+    if not encoded_leaves:
+        return "00" * 32
+
+    level = [hash256_uint256(leaf_magic + leaf) for leaf in encoded_leaves]
+    while len(level) > 1:
+        next_level = []
+        for i in range(0, len(level), 2):
+            left = level[i]
+            right = level[i + 1] if i + 1 < len(level) else level[i]
+            next_level.append(hash256_uint256(node_magic + ser_uint256(left) + ser_uint256(right)))
+        level = next_level
+
+    return f"{level[0]:064x}"
+
+
+def build_internal_merkle_proof(encoded_leaves, leaf_magic, node_magic, leaf_index):
+    assert leaf_index < len(encoded_leaves)
+
+    level = [hash256_uint256(leaf_magic + leaf) for leaf in encoded_leaves]
+    siblings = []
+    index = leaf_index
+    while len(level) > 1:
+        sibling_index = index - 1 if index & 1 else min(index + 1, len(level) - 1)
+        siblings.append(f"{level[sibling_index]:064x}")
+
+        next_level = []
+        for i in range(0, len(level), 2):
+            left = level[i]
+            right = level[i + 1] if i + 1 < len(level) else level[i]
+            next_level.append(hash256_uint256(node_magic + ser_uint256(left) + ser_uint256(right)))
+        level = next_level
+        index >>= 1
+
+    return siblings, f"{level[0]:064x}"
+
+
+def encode_balance_leaf(balance):
+    return (
+        ser_uint256(int(balance["asset_id"], 16)) +
+        amount_to_sats(balance["balance"]).to_bytes(8, "little")
+    )
+
+
+def build_balance_proof(balances, leaf_index):
+    encoded_leaves = [encode_balance_leaf(balance) for balance in balances]
+    sibling_hashes, root = build_internal_merkle_proof(encoded_leaves, b"VSCS\x01", b"VSCS\x02", leaf_index)
+    balance = balances[leaf_index]
+    return {
+        "asset_id": balance["asset_id"],
+        "balance": balance["balance"],
+        "leaf_index": leaf_index,
+        "leaf_count": len(balances),
+        "sibling_hashes": sibling_hashes,
+    }, root
+
+
+def encode_account_state_leaf(account):
+    return (
+        ser_uint256(int(account["account_id"], 16)) +
+        ser_uint256(int(account["spend_key_commitment"], 16)) +
+        ser_uint256(int(account["balance_root"], 16)) +
+        int(account["account_nonce"]).to_bytes(8, "little") +
+        int(account["last_forced_exit_nonce"]).to_bytes(8, "little")
+    )
+
+
+def build_account_state_proof(accounts, leaf_index):
+    encoded_leaves = [encode_account_state_leaf(account) for account in accounts]
+    sibling_hashes, root = build_internal_merkle_proof(encoded_leaves, b"VSCS\x03", b"VSCS\x04", leaf_index)
+    account = accounts[leaf_index]
+    return {
+        "account_id": account["account_id"],
+        "spend_key_commitment": account["spend_key_commitment"],
+        "balance_root": account["balance_root"],
+        "account_nonce": account["account_nonce"],
+        "last_forced_exit_nonce": account["last_forced_exit_nonce"],
+        "leaf_index": leaf_index,
+        "leaf_count": len(accounts),
+        "sibling_hashes": sibling_hashes,
+    }, root
+
+
+def compute_escape_exit_state_claim_key(sidechain_id, claim):
+    payload = (
+        b"VSCE\x04" +
+        bytes([sidechain_id]) +
+        ser_uint256(int(claim["account_proof"]["account_id"], 16)) +
+        ser_uint256(int(claim["exit_asset_id"], 16)) +
+        int(claim["required_account_nonce"]).to_bytes(8, "little") +
+        int(claim["required_last_forced_exit_nonce"]).to_bytes(8, "little")
+    )
+    return f"{hash256_uint256(payload):064x}"
+
+
+def compute_escape_exit_state_id(sidechain_id, claim):
+    payload = (
+        b"VSCE\x05" +
+        ser_uint256(int(compute_escape_exit_state_claim_key(sidechain_id, claim), 16)) +
+        amount_to_sats(claim["amount"]).to_bytes(8, "little") +
+        ser_uint256(int(get_destination_commitment(claim), 16))
+    )
+    return f"{hash256_uint256(payload):064x}"
 
 
 def compute_data_root(chunks):
@@ -294,8 +442,11 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(info["max_batch_data_chunks_limit"], 256)
         assert_equal(info["max_batch_queue_consumption_limit"], 1024)
         assert_equal(info["verified_withdrawal_execution_mode"], "profile_specific")
+        assert_equal(info["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(info["max_execution_fanout_limit"], 128)
         assert_equal(info["escape_exit_mode"], "profile_specific")
+        assert_equal(info["escape_exit_execution_mode"], "profile_specific")
+        assert_equal(info["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         supported = get_supported_profile(node, "scaffold_onchain_da_v1")
         transition_supported = get_supported_profile(node, "scaffold_transition_da_v1")
         toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
@@ -308,9 +459,15 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(supported["max_batch_data_chunks_limit"], 256)
         assert_equal(supported["max_batch_queue_consumption_limit"], 1024)
         assert_equal(supported["max_execution_fanout_limit"], 128)
+        assert_equal(supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
+        assert_equal(supported["escape_exit_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(transition_supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(transition_supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(transition_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_equal(transition_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
+        assert_equal(transition_supported["escape_exit_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(toy_supported["scaffolding_only"], False)
         assert_equal(toy_supported["requires_external_verifier_assets"], True)
         assert_equal(toy_supported["supports_external_prover"], True)
@@ -319,7 +476,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(toy_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
         assert_equal(toy_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
         assert_equal(toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(toy_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(toy_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(toy_supported["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(toy_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(toy_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(toy_supported["verifier_artifact_name"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_assets"]["required"], True)
@@ -339,7 +499,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(native_toy_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
         assert_equal(native_toy_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
         assert_equal(native_toy_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(native_toy_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(native_toy_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(native_toy_supported["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(native_toy_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(native_toy_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(native_toy_supported["verifier_artifact_name"], "native_blst_groth16_toy_batch_transition_v1")
         assert_equal(native_toy_supported["verifier_assets"]["required"], True)
@@ -365,7 +528,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["batch_queue_binding_mode"], "local_prefix_consensus_single_deposit_entry_experimental")
         assert_equal(real_supported["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
         assert_equal(real_supported["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
+        assert_equal(real_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(real_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_supported["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(real_supported["force_exit_request_mode"], "disabled_pending_real_queue_entry_proof")
         assert_equal(real_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["required"], True)
@@ -393,7 +559,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
         assert_equal(real_v2_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
         assert_equal(real_v2_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_v2_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(real_v2_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_v2_supported["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_v2_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(real_v2_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(real_v2_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v2")
         assert_equal(real_v2_supported["verifier_assets"]["required"], True)
@@ -470,7 +639,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         sidechain = get_sidechain_info(node, sidechain_id)
         assert_equal(register_res["sidechain_id"], sidechain_id)
         assert_equal(sidechain["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(sidechain["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(sidechain["escape_exit_mode"], "merkle_inclusion_scaffold")
+        assert_equal(sidechain["escape_exit_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(sidechain["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(sidechain["max_batch_data_chunks_limit"], 256)
         assert_equal(sidechain["max_batch_queue_consumption_limit"], 1024)
         assert_equal(sidechain["max_execution_fanout_limit"], 128)
@@ -522,7 +694,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         self.log.info("Rejecting reclaim before the deposit reclaim delay.")
         assert_raises_rpc_error(
-            -26,
+            -8,
             "deposit reclaim delay not reached",
             node.sendstaledepositreclaim,
             sidechain_id,
@@ -590,7 +762,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         missing_da_public_inputs["data_root"] = compute_data_root([bytes.fromhex("01")])
         missing_da_public_inputs["data_size"] = 1
         assert_raises_rpc_error(
-            -26,
+            -8,
             "data chunks missing for non-zero data_size",
             node.sendvaliditybatch,
             sidechain_id,
@@ -601,7 +773,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         oversized_da_public_inputs = dict(public_inputs)
         oversized_da_public_inputs["data_size"] = config["max_batch_data_bytes"] + 1
         assert_raises_rpc_error(
-            -26,
+            -8,
             "data size exceeds configured limit",
             node.sendvaliditybatch,
             sidechain_id,
@@ -613,7 +785,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         bad_da_root_public_inputs["data_root"] = "99" * 32
         bad_da_root_public_inputs["data_size"] = 1
         assert_raises_rpc_error(
-            -26,
+            -8,
             "data root does not match published chunks",
             node.sendvaliditybatch,
             sidechain_id,
@@ -646,7 +818,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         self.log.info("Rejecting a batch whose proof bytes exceed the configured limit.")
         assert_raises_rpc_error(
-            -26,
+            -8,
             "proof bytes exceed configured limit",
             node.sendvaliditybatch,
             sidechain_id,
@@ -670,7 +842,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert sidechain["accepted_batches"][0]["proof_size"] > 0
         batch_height = node.getblockcount()
 
-        self.log.info("Executing verified withdrawals through the new wallet RPC.")
+        self.log.info("Rejecting mixed verified-withdrawal proof and legacy inputs.")
         withdrawal_rpc_entries = [
             {
                 "withdrawal_id": withdrawal["withdrawal_id"],
@@ -679,7 +851,45 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             }
             for withdrawal in withdrawals
         ]
-        verified_withdrawal_res = node.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_rpc_entries)
+        withdrawal_proof_entries = [
+            build_verified_withdrawal_proof_entry(withdrawals, i)
+            for i in range(len(withdrawals))
+        ]
+        assert_raises_rpc_error(
+            -8,
+            "proof mode and legacy withdrawal inputs cannot be mixed",
+            node.sendverifiedwithdrawals,
+            sidechain_id,
+            1,
+            [withdrawal_proof_entries[0], withdrawal_rpc_entries[1]],
+        )
+
+        self.log.info("Rejecting explicit verified-withdrawal proofs that do not match the accepted batch root.")
+        bad_withdrawal_proof_entries = [
+            {
+                "withdrawal_id": entry["withdrawal_id"],
+                "script": entry["script"],
+                "amount": entry["amount"],
+                "proof": {
+                    "leaf_index": entry["proof"]["leaf_index"],
+                    "leaf_count": entry["proof"]["leaf_count"],
+                    "sibling_hashes": list(entry["proof"]["sibling_hashes"]),
+                },
+            }
+            for entry in withdrawal_proof_entries
+        ]
+        bad_withdrawal_proof_entries[0]["proof"]["sibling_hashes"][0] = "00" * 32
+        assert_raises_rpc_error(
+            -8,
+            "withdrawals[0] proof does not match the accepted batch withdrawal root",
+            node.sendverifiedwithdrawals,
+            sidechain_id,
+            1,
+            bad_withdrawal_proof_entries,
+        )
+
+        self.log.info("Executing verified withdrawals through the explicit proof RPC mode.")
+        verified_withdrawal_res = node.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_proof_entries)
         assert_equal(len(verified_withdrawal_res["accepted_batch_id"]), 64)
         assert_equal(verified_withdrawal_res["withdrawal_root"], config["initial_withdrawal_root"])
         assert_equal(verified_withdrawal_res["withdrawal_count"], len(withdrawals))
@@ -702,7 +912,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             for exit_leaf in escape_exits
         ]
         assert_raises_rpc_error(
-            -26,
+            -8,
             "escape hatch delay not reached",
             node.sendescapeexit,
             sidechain_id,
@@ -768,7 +978,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         transition_sidechain = get_sidechain_info(node, transition_sidechain_id)
         assert_equal(transition_sidechain["batch_verifier_mode"], "scaffold_transition_commitment_v1")
         assert_equal(transition_sidechain["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_sidechain["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(transition_sidechain["escape_exit_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_sidechain["escape_exit_execution_mode"], "merkle_inclusion_scaffold")
+        assert_equal(transition_sidechain["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(transition_sidechain["current_state_root"], transition_config["initial_state_root"])
         assert_equal(transition_sidechain["current_withdrawal_root"], transition_config["initial_withdrawal_root"])
 
@@ -841,7 +1054,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         non_scaffold_escape_sidechain = get_sidechain_info(node, non_scaffold_escape_sidechain_id)
         assert_equal(non_scaffold_escape_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
+        assert_equal(non_scaffold_escape_sidechain["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(non_scaffold_escape_sidechain["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(non_scaffold_escape_sidechain["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(non_scaffold_escape_sidechain["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(non_scaffold_escape_sidechain["current_state_root"], non_scaffold_escape_root)
         assert_equal(non_scaffold_escape_sidechain["escrow_balance"], amount_to_sats(Decimal("0.15")))
         non_scaffold_escape_res = node.sendescapeexit(
@@ -856,6 +1072,105 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         non_scaffold_escape_sidechain = get_sidechain_info(node, non_scaffold_escape_sidechain_id)
         assert_equal(non_scaffold_escape_sidechain["executed_escape_exit_count"], len(non_scaffold_escape_exits))
         assert_equal(non_scaffold_escape_sidechain["escrow_balance"], 0)
+
+        self.log.info("Executing state-proof escape exits on a non-scaffold profile and rejecting same-claim mempool duplicates.")
+        state_proof_escape_sidechain_id = get_unused_sidechain_id(
+            node,
+            preferred_id=11,
+            minimum=11,
+            reserved_ids={real_sidechain_id, non_scaffold_escape_sidechain_id},
+        )
+        state_balance_leaves = [
+            {
+                "asset_id": "cd" * 32,
+                "balance": Decimal("0.18"),
+            },
+        ]
+        state_balance_proof, state_balance_root = build_balance_proof(state_balance_leaves, 0)
+        state_accounts = [
+            {
+                "account_id": "ef" * 32,
+                "spend_key_commitment": "34" * 32,
+                "balance_root": state_balance_root,
+                "account_nonce": 7,
+                "last_forced_exit_nonce": 3,
+            },
+        ]
+        state_account_proof, state_root = build_account_state_proof(state_accounts, 0)
+        state_proof_escape_config = build_register_config(
+            real_supported,
+            initial_state_root=state_root,
+            initial_withdrawal_root="00" * 32,
+        )
+        node.sendvaliditysidechainregister(state_proof_escape_sidechain_id, state_proof_escape_config)
+        node.generate(1)
+        node.sendvaliditydeposit(
+            state_proof_escape_sidechain_id,
+            "56" * 32,
+            {"address": node.getnewaddress()},
+            Decimal("0.18"),
+        )
+        node.generate(1)
+        node.generate(state_proof_escape_config["escape_hatch_delay"])
+
+        state_proof_sidechain = get_sidechain_info(node, state_proof_escape_sidechain_id)
+        assert_equal(state_proof_sidechain["current_state_root"], state_root)
+        assert_equal(state_proof_sidechain["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(state_proof_sidechain["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(state_proof_sidechain["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
+        assert_equal(state_proof_sidechain["escrow_balance"], amount_to_sats(Decimal("0.18")))
+
+        state_escape_claim = {
+            "exit_asset_id": state_balance_leaves[0]["asset_id"],
+            "script": build_script_destination(node),
+            "amount": Decimal("0.18"),
+            "required_account_nonce": state_accounts[0]["account_nonce"],
+            "required_last_forced_exit_nonce": state_accounts[0]["last_forced_exit_nonce"],
+            "account_proof": state_account_proof,
+            "balance_proof": state_balance_proof,
+        }
+        state_escape_claim["exit_id"] = compute_escape_exit_state_id(
+            state_proof_escape_sidechain_id,
+            state_escape_claim,
+        )
+
+        state_escape_res = node.sendescapeexit(
+            state_proof_escape_sidechain_id,
+            state_root,
+            [state_escape_claim],
+        )
+        assert_equal(state_escape_res["state_root_reference"], state_root)
+        assert_equal(state_escape_res["exit_count"], 1)
+        assert state_escape_res["txid"] in node.getrawmempool()
+
+        replay_escape_claim = dict(state_escape_claim)
+        replay_escape_claim["amount"] = Decimal("0.10")
+        replay_escape_claim["exit_id"] = compute_escape_exit_state_id(
+            state_proof_escape_sidechain_id,
+            replay_escape_claim,
+        )
+        assert replay_escape_claim["exit_id"] != state_escape_claim["exit_id"]
+        assert_raises_rpc_error(
+            -26,
+            "validitysidechain-escape-exit-duplicate-mempool",
+            node.sendescapeexit,
+            state_proof_escape_sidechain_id,
+            state_root,
+            [replay_escape_claim],
+        )
+        node.generate(1)
+
+        state_proof_sidechain = get_sidechain_info(node, state_proof_escape_sidechain_id)
+        assert_equal(state_proof_sidechain["executed_escape_exit_count"], 1)
+        assert_equal(state_proof_sidechain["escrow_balance"], 0)
+        assert_raises_rpc_error(
+            -8,
+            "escape-exit claim already executed",
+            node.sendescapeexit,
+            state_proof_escape_sidechain_id,
+            state_root,
+            [replay_escape_claim],
+        )
 
         self.log.info("Registering the proposed Groth16 profile and replaying committed native proof vectors.")
         real_config = build_register_config(
@@ -872,7 +1187,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["batch_queue_binding_mode"], "local_prefix_consensus_single_deposit_entry_experimental")
         assert_equal(real_sidechain["batch_withdrawal_binding_mode"], "accepted_root_single_leaf_experimental")
         assert_equal(real_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_single_leaf_experimental")
+        assert_equal(real_sidechain["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(real_sidechain["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_sidechain["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_sidechain["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
         assert_equal(real_sidechain["force_exit_request_mode"], "disabled_pending_real_queue_entry_proof")
         assert_equal(real_sidechain["verifier_assets"]["required"], True)
         assert_equal(real_sidechain["verifier_assets"]["available"], True)
@@ -953,7 +1271,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_data_chunks = list(real_valid_vector.get("data_chunks_hex", []))
 
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -965,7 +1283,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             real_data_chunks,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -977,7 +1295,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             real_data_chunks,
         )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,
@@ -1058,7 +1376,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
                 real_data_chunks,
             )
         assert_raises_rpc_error(
-            -26,
+            -8,
             "Groth16",
             node.sendvaliditybatch,
             real_sidechain_id,

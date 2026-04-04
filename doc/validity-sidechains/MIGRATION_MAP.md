@@ -231,10 +231,13 @@ Current branch status:
   `sendvaliditybatch`, `sendforceexitrequest`, and
   `sendstaledepositreclaim` now exist for the scaffold path
 - `sendverifiedwithdrawals` now executes against accepted batch
-  `withdrawal_root` values across the current profiles
+  `withdrawal_root` values across the current profiles, and now also accepts
+  explicit Merkle proof objects in addition to the legacy ordered withdrawal
+  list
 - `sendescapeexit` now works on scaffold profiles plus an experimental
-  non-scaffold `current_state_root` Merkle mode, but that non-scaffold path
-  still stops short of final user-state proof semantics
+  non-scaffold `current_state_root` Merkle mode, now also accepts explicit
+  account/balance state-proof objects, but that non-scaffold path still stops
+  short of final user-state proof semantics
 
 ### `src/rpc/blockchain.cpp`
 

@@ -112,7 +112,7 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
             "data_size": 0,
         }
         assert_raises_rpc_error(
-            -26,
+            -8,
             "batch must consume all matured force-exit requests in reachable queue prefix",
             node.sendvaliditybatch,
             sidechain_id,

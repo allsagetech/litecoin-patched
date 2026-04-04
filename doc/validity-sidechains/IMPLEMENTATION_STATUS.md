@@ -128,6 +128,9 @@ This means:
   and the node can replay those committed vectors through the in-process
   `blst` verifier, but it still proves only the same toy arithmetic relation
   rather than the intended sidechain circuit
+- verifier-asset status still reports whether valid and invalid proof vectors
+  are present, but runtime verifier readiness now depends on the manifest and
+  verifying key rather than on bundled proof-vector fixtures
 - the repo now vendors `blst` under `external/blst/` as the selected native
   BLS12-381 pairing backend, and the node now compiles a portable in-process
   `blst` library plus a backend self-test wrapper for the proposed real profile
@@ -322,6 +325,14 @@ Currently available wallet/RPC send-paths:
 So far, the new path can exercise registration, queue insertion, batch
 submission, verified-withdrawal execution, force-exit request submission,
 stale-deposit recovery, and escape-exit execution from the wallet.
+`sendverifiedwithdrawals` now accepts either the legacy ordered withdrawal
+list or explicit Merkle proof objects, and `sendescapeexit` now accepts either
+legacy exit leaves or explicit account/balance state-proof objects.
+The wallet now also locally prevalidates stale-deposit reclaim,
+verified-withdrawal execution, and escape-exit execution against the active
+chainstate before transaction construction, so obvious delay/replay/root-state
+failures are rejected immediately instead of falling through to later mempool
+rejection.
 Non-scaffold profiles now also expose an experimental `current_state_root`
 Merkle mode for `EXECUTE_ESCAPE_EXIT`, but that path still stops short of the
 final user-state proof semantics.
@@ -374,7 +385,11 @@ It also now has functional wallet/RPC coverage for:
 - orphaned reclaim transactions staying out of mempool when a competing fork
   consumes the same deposit in an accepted batch
 - orphaned verified-withdrawal transactions staying out of mempool when the
-  winning fork already executed the same withdrawal ids
+  winning fork already executed the same withdrawal ids, including explicit
+  Merkle-proof RPC submissions
+- competing-fork rollback of state-proof escape-exit claim-key replay state so
+  losing-fork current-state-root exits can be restored or resubmitted after
+  restart without keeping stale nullifiers alive
 - competing-fork rollback of losing-fork registration and deposit state so
   orphaned sidechains disappear and the same sidechain id can be reused
 

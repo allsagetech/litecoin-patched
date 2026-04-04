@@ -416,6 +416,101 @@ BOOST_AUTO_TEST_CASE(escape_exit_state_script_roundtrip)
     BOOST_CHECK(decoded[1].account_proof.sibling_hashes[0] == exit_state_proofs[1].account_proof.sibling_hashes[0]);
 }
 
+BOOST_AUTO_TEST_CASE(balance_and_account_state_proof_helpers_roundtrip)
+{
+    const std::vector<ValiditySidechainBalanceLeaf> balances{
+        {uint256S("3030303030303030303030303030303030303030303030303030303030303030"), 2 * COIN},
+        {uint256S("3131313131313131313131313131313131313131313131313131313131313131"), 5 * COIN},
+        {uint256S("3232323232323232323232323232323232323232323232323232323232323232"), 7 * COIN},
+    };
+    const uint256 balance_root = ComputeValiditySidechainBalanceRoot(balances);
+
+    ValiditySidechainBalanceProof balance_proof;
+    BOOST_REQUIRE(BuildValiditySidechainBalanceProof(balances, /* leaf_index= */ 1, balance_proof));
+    BOOST_CHECK_EQUAL(balance_proof.leaf_index, 1U);
+    BOOST_CHECK_EQUAL(balance_proof.leaf_count, static_cast<uint32_t>(balances.size()));
+    BOOST_CHECK(balance_proof.balance.asset_id == balances[1].asset_id);
+    BOOST_CHECK_EQUAL(balance_proof.balance.balance, balances[1].balance);
+    BOOST_CHECK(VerifyValiditySidechainBalanceProof(balance_proof, balance_root));
+
+    ValiditySidechainBalanceProof tampered_balance_proof = balance_proof;
+    tampered_balance_proof.balance.balance += 1;
+    BOOST_CHECK(!VerifyValiditySidechainBalanceProof(tampered_balance_proof, balance_root));
+
+    const std::vector<ValiditySidechainAccountStateLeaf> accounts{
+        {
+            uint256S("3333333333333333333333333333333333333333333333333333333333333333"),
+            uint256S("3434343434343434343434343434343434343434343434343434343434343434"),
+            balance_root,
+            7,
+            3,
+        },
+        {
+            uint256S("3535353535353535353535353535353535353535353535353535353535353535"),
+            uint256S("3636363636363636363636363636363636363636363636363636363636363636"),
+            uint256S("3737373737373737373737373737373737373737373737373737373737373737"),
+            9,
+            4,
+        },
+    };
+    const uint256 account_root = ComputeValiditySidechainAccountStateRoot(accounts);
+
+    ValiditySidechainAccountStateProof account_proof;
+    BOOST_REQUIRE(BuildValiditySidechainAccountStateProof(accounts, /* leaf_index= */ 0, account_proof));
+    BOOST_CHECK_EQUAL(account_proof.leaf_index, 0U);
+    BOOST_CHECK_EQUAL(account_proof.leaf_count, static_cast<uint32_t>(accounts.size()));
+    BOOST_CHECK(account_proof.account.account_id == accounts[0].account_id);
+    BOOST_CHECK(account_proof.account.balance_root == accounts[0].balance_root);
+    BOOST_CHECK(VerifyValiditySidechainAccountStateProof(account_proof, account_root));
+
+    ValiditySidechainAccountStateProof tampered_account_proof = account_proof;
+    tampered_account_proof.account.account_nonce += 1;
+    BOOST_CHECK(!VerifyValiditySidechainAccountStateProof(tampered_account_proof, account_root));
+}
+
+BOOST_AUTO_TEST_CASE(escape_exit_state_claim_key_and_id_binding)
+{
+    ValiditySidechainEscapeExitStateProof proof;
+    proof.exit_asset_id = uint256S("3838383838383838383838383838383838383838383838383838383838383838");
+    proof.amount = 4 * COIN;
+    proof.destination_commitment = uint256S("3939393939393939393939393939393939393939393939393939393939393939");
+    proof.account_proof.account.account_id = uint256S("3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a");
+    proof.account_proof.account.spend_key_commitment = uint256S("3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b");
+    proof.account_proof.account.balance_root = uint256S("3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c");
+    proof.account_proof.account.account_nonce = 11;
+    proof.account_proof.account.last_forced_exit_nonce = 6;
+    proof.account_proof.leaf_index = 0;
+    proof.account_proof.leaf_count = 1;
+    proof.balance_proof.balance.asset_id = proof.exit_asset_id;
+    proof.balance_proof.balance.balance = 9 * COIN;
+    proof.balance_proof.leaf_index = 0;
+    proof.balance_proof.leaf_count = 1;
+    proof.required_account_nonce = proof.account_proof.account.account_nonce;
+    proof.required_last_forced_exit_nonce = proof.account_proof.account.last_forced_exit_nonce;
+
+    const uint8_t sidechain_id = 44;
+    const uint256 claim_key = ComputeValiditySidechainEscapeExitStateClaimKey(sidechain_id, proof);
+    const uint256 exit_id = ComputeValiditySidechainEscapeExitStateId(sidechain_id, proof);
+
+    ValiditySidechainEscapeExitStateProof amount_variant = proof;
+    amount_variant.amount += COIN;
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateClaimKey(sidechain_id, amount_variant) == claim_key);
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateId(sidechain_id, amount_variant) != exit_id);
+
+    ValiditySidechainEscapeExitStateProof destination_variant = proof;
+    destination_variant.destination_commitment = uint256S("3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d");
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateClaimKey(sidechain_id, destination_variant) == claim_key);
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateId(sidechain_id, destination_variant) != exit_id);
+
+    ValiditySidechainEscapeExitStateProof nonce_variant = proof;
+    nonce_variant.required_account_nonce += 1;
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateClaimKey(sidechain_id, nonce_variant) != claim_key);
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateId(sidechain_id, nonce_variant) != exit_id);
+
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateClaimKey(sidechain_id + 1, proof) != claim_key);
+    BOOST_CHECK(ComputeValiditySidechainEscapeExitStateId(sidechain_id + 1, proof) != exit_id);
+}
+
 BOOST_AUTO_TEST_CASE(escape_exit_state_proof_rejects_bad_length_prefix)
 {
     ValiditySidechainEscapeExitStateProof proof;

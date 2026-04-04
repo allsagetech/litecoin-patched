@@ -138,7 +138,7 @@ class ValiditySidechainBadArtifactsTest(BitcoinTestFramework):
         node.sendvaliditysidechainregister(sidechain_id, config)
         node.generate(1)
         assert_raises_rpc_error(
-            -26,
+            -8,
             expected_status,
             node.sendvaliditybatch,
             sidechain_id,

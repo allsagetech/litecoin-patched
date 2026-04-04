@@ -162,6 +162,61 @@ ValiditySidechainEscapeExitLeaf MakeEscapeExitLeaf(const uint256& exit_id, const
     return exit;
 }
 
+ValiditySidechainBalanceLeaf MakeBalanceLeaf(const uint256& asset_id, CAmount balance)
+{
+    ValiditySidechainBalanceLeaf leaf;
+    leaf.asset_id = asset_id;
+    leaf.balance = balance;
+    return leaf;
+}
+
+ValiditySidechainAccountStateLeaf MakeAccountStateLeaf(
+    const uint256& account_id,
+    const uint256& balance_root,
+    uint64_t account_nonce,
+    uint64_t last_forced_exit_nonce)
+{
+    ValiditySidechainAccountStateLeaf account;
+    account.account_id = account_id;
+    account.spend_key_commitment = uint256S("4747474747474747474747474747474747474747474747474747474747474747");
+    account.balance_root = balance_root;
+    account.account_nonce = account_nonce;
+    account.last_forced_exit_nonce = last_forced_exit_nonce;
+    return account;
+}
+
+ValiditySidechainEscapeExitStateProof BuildEscapeExitStateProofForTest(
+    uint8_t sidechain_id,
+    const std::vector<ValiditySidechainAccountStateLeaf>& accounts,
+    uint32_t account_index,
+    const std::vector<ValiditySidechainBalanceLeaf>& balances,
+    uint32_t balance_index,
+    const CScript& destination_script,
+    CAmount amount)
+{
+    if (account_index >= accounts.size() || balance_index >= balances.size()) {
+        BOOST_FAIL("invalid escape-exit state proof test indexes");
+        return {};
+    }
+
+    ValiditySidechainEscapeExitStateProof proof;
+    if (!BuildValiditySidechainAccountStateProof(accounts, account_index, proof.account_proof)) {
+        BOOST_FAIL("failed to build account state proof for test");
+        return {};
+    }
+    if (!BuildValiditySidechainBalanceProof(balances, balance_index, proof.balance_proof)) {
+        BOOST_FAIL("failed to build balance proof for test");
+        return {};
+    }
+    proof.exit_asset_id = balances[balance_index].asset_id;
+    proof.amount = amount;
+    proof.destination_commitment = Hash(destination_script);
+    proof.required_account_nonce = accounts[account_index].account_nonce;
+    proof.required_last_forced_exit_nonce = accounts[account_index].last_forced_exit_nonce;
+    proof.exit_id = ComputeValiditySidechainEscapeExitStateId(sidechain_id, proof);
+    return proof;
+}
+
 uint256 ComputeQueueConsumeRootForTest(
     uint8_t sidechain_id,
     const uint256& prior_root,
@@ -1743,6 +1798,149 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_supports_non_scaffold_current_state_ro
     BOOST_CHECK_EQUAL(sidechain->escrow_balance, 3 * COIN);
     BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 1U);
     BOOST_CHECK(state.HasExecutedEscapeExit(18, exits.front().exit_id));
+}
+
+BOOST_AUTO_TEST_CASE(execute_escape_exit_state_proofs_require_halt_and_track_claim_replay)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 21, /* registration_height= */ 700, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(21);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 9 * COIN;
+
+    const std::vector<ValiditySidechainBalanceLeaf> balances_a{
+        MakeBalanceLeaf(uint256S("5151515151515151515151515151515151515151515151515151515151515151"), 3 * COIN),
+    };
+    const std::vector<ValiditySidechainBalanceLeaf> balances_b{
+        MakeBalanceLeaf(uint256S("5252525252525252525252525252525252525252525252525252525252525252"), 4 * COIN),
+    };
+    const std::vector<ValiditySidechainAccountStateLeaf> accounts{
+        MakeAccountStateLeaf(
+            uint256S("5353535353535353535353535353535353535353535353535353535353535353"),
+            ComputeValiditySidechainBalanceRoot(balances_a),
+            /* account_nonce= */ 9,
+            /* last_forced_exit_nonce= */ 2),
+        MakeAccountStateLeaf(
+            uint256S("5454545454545454545454545454545454545454545454545454545454545454"),
+            ComputeValiditySidechainBalanceRoot(balances_b),
+            /* account_nonce= */ 5,
+            /* last_forced_exit_nonce= */ 1),
+    };
+    const uint256 state_root = ComputeValiditySidechainAccountStateRoot(accounts);
+    sidechain->current_state_root = state_root;
+
+    const CScript payout_a = CScript() << OP_3;
+    const CScript payout_b = CScript() << OP_4;
+    const std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs{
+        BuildEscapeExitStateProofForTest(/* sidechain_id= */ 21, accounts, /* account_index= */ 0, balances_a, /* balance_index= */ 0, payout_a, 2 * COIN),
+        BuildEscapeExitStateProofForTest(/* sidechain_id= */ 21, accounts, /* account_index= */ 1, balances_b, /* balance_index= */ 0, payout_b, 3 * COIN),
+    };
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 21, /* execution_height= */ 700 + config.escape_hatch_delay - 1, state_root, exit_state_proofs, &error));
+    BOOST_CHECK_EQUAL(error, "escape hatch delay not reached");
+
+    BOOST_REQUIRE(state.ExecuteEscapeExits(/* sidechain_id= */ 21, /* execution_height= */ 700 + config.escape_hatch_delay, state_root, exit_state_proofs, &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 4 * COIN);
+    BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 2U);
+    BOOST_CHECK(state.HasExecutedEscapeExit(21, exit_state_proofs[0].exit_id));
+    BOOST_CHECK(state.HasExecutedEscapeExit(21, exit_state_proofs[1].exit_id));
+
+    ValiditySidechainEscapeExitStateProof replay_variant =
+        BuildEscapeExitStateProofForTest(/* sidechain_id= */ 21, accounts, /* account_index= */ 0, balances_a, /* balance_index= */ 0, payout_a, 1 * COIN);
+    BOOST_REQUIRE(replay_variant.exit_id != exit_state_proofs[0].exit_id);
+    BOOST_CHECK(!state.ExecuteEscapeExits(
+        /* sidechain_id= */ 21,
+        /* execution_height= */ 700 + config.escape_hatch_delay,
+        state_root,
+        std::vector<ValiditySidechainEscapeExitStateProof>{replay_variant},
+        &error));
+    BOOST_CHECK_EQUAL(error, "escape-exit claim already executed");
+}
+
+BOOST_AUTO_TEST_CASE(execute_escape_exit_state_proofs_reject_invalid_state_witness)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 22, /* registration_height= */ 710, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(22);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 5 * COIN;
+
+    const std::vector<ValiditySidechainBalanceLeaf> balances{
+        MakeBalanceLeaf(uint256S("5555555555555555555555555555555555555555555555555555555555555555"), 3 * COIN),
+    };
+    const std::vector<ValiditySidechainAccountStateLeaf> accounts{
+        MakeAccountStateLeaf(
+            uint256S("5656565656565656565656565656565656565656565656565656565656565656"),
+            ComputeValiditySidechainBalanceRoot(balances),
+            /* account_nonce= */ 4,
+            /* last_forced_exit_nonce= */ 0),
+    };
+    const uint256 state_root = ComputeValiditySidechainAccountStateRoot(accounts);
+    sidechain->current_state_root = state_root;
+
+    ValiditySidechainEscapeExitStateProof proof =
+        BuildEscapeExitStateProofForTest(/* sidechain_id= */ 22, accounts, /* account_index= */ 0, balances, /* balance_index= */ 0, CScript() << OP_5, 2 * COIN);
+    proof.required_account_nonce += 1;
+    proof.exit_id = ComputeValiditySidechainEscapeExitStateId(/* scid= */ 22, proof);
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteEscapeExits(
+        /* sidechain_id= */ 22,
+        /* execution_height= */ 710 + config.escape_hatch_delay,
+        state_root,
+        std::vector<ValiditySidechainEscapeExitStateProof>{proof},
+        &error));
+    BOOST_CHECK_EQUAL(error, "escape-exit account nonce does not match account proof");
+}
+
+BOOST_AUTO_TEST_CASE(connect_block_handles_escape_exit_state_execution)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 23, /* registration_height= */ 720, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(23);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 6 * COIN;
+
+    const std::vector<ValiditySidechainBalanceLeaf> balances{
+        MakeBalanceLeaf(uint256S("5757575757575757575757575757575757575757575757575757575757575757"), 4 * COIN),
+    };
+    const std::vector<ValiditySidechainAccountStateLeaf> accounts{
+        MakeAccountStateLeaf(
+            uint256S("5858585858585858585858585858585858585858585858585858585858585858"),
+            ComputeValiditySidechainBalanceRoot(balances),
+            /* account_nonce= */ 6,
+            /* last_forced_exit_nonce= */ 2),
+    };
+    const uint256 state_root = ComputeValiditySidechainAccountStateRoot(accounts);
+    sidechain->current_state_root = state_root;
+
+    const CScript payout = CScript() << OP_6;
+    const ValiditySidechainEscapeExitStateProof proof =
+        BuildEscapeExitStateProofForTest(/* sidechain_id= */ 23, accounts, /* account_index= */ 0, balances, /* balance_index= */ 0, payout, 3 * COIN);
+
+    CMutableTransaction tx;
+    tx.vout.emplace_back(
+        /* nValueIn= */ 0,
+        BuildValiditySidechainEscapeExitStateScript(/* scid= */ 23, state_root, std::vector<ValiditySidechainEscapeExitStateProof>{proof}));
+    tx.vout.emplace_back(3 * COIN, payout);
+
+    CBlock block;
+    block.vtx.push_back(MakeTransactionRef(tx));
+
+    CBlockIndex index;
+    index.nHeight = 720 + config.escape_hatch_delay;
+
+    BlockValidationState validation_state;
+    BOOST_REQUIRE(state.ConnectBlock(block, &index, validation_state));
+    BOOST_CHECK(state.HasExecutedEscapeExit(23, proof.exit_id));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

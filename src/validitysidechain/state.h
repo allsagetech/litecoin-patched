@@ -370,6 +370,7 @@ struct ValiditySidechain
     std::map<uint256, ValiditySidechainPendingForceExit> pending_force_exits;
     std::set<uint256> executed_withdrawal_ids;
     std::set<uint256> executed_escape_exit_ids;
+    std::set<uint256> executed_escape_exit_claim_keys;
     uint64_t executed_withdrawal_count{0};
     uint64_t executed_escape_exit_count{0};
     std::map<uint32_t, ValiditySidechainAcceptedBatch> accepted_batches;
@@ -391,6 +392,7 @@ struct ValiditySidechain
                   obj.pending_force_exits,
                   obj.executed_withdrawal_ids,
                   obj.executed_escape_exit_ids,
+                  obj.executed_escape_exit_claim_keys,
                   obj.executed_withdrawal_count,
                   obj.executed_escape_exit_count,
                   obj.accepted_batches);
@@ -438,6 +440,12 @@ public:
         int execution_height,
         const uint256& state_root_reference,
         const std::vector<ValiditySidechainEscapeExitProof>& exit_proofs,
+        std::string* error = nullptr);
+    bool ExecuteEscapeExits(
+        uint8_t sidechain_id,
+        int execution_height,
+        const uint256& state_root_reference,
+        const std::vector<ValiditySidechainEscapeExitStateProof>& exit_state_proofs,
         std::string* error = nullptr);
     void Reset();
 };

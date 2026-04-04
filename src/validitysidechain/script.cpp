@@ -22,6 +22,12 @@ static constexpr unsigned char WITHDRAWAL_NODE_HASH_MAGIC[] = {'V', 'S', 'C', 'W
 static constexpr unsigned char ESCAPE_EXIT_ROOT_MAGIC[] = {'V', 'S', 'C', 'E', 0x01};
 static constexpr unsigned char ESCAPE_EXIT_LEAF_HASH_MAGIC[] = {'V', 'S', 'C', 'E', 0x02};
 static constexpr unsigned char ESCAPE_EXIT_NODE_HASH_MAGIC[] = {'V', 'S', 'C', 'E', 0x03};
+static constexpr unsigned char ESCAPE_EXIT_STATE_CLAIM_KEY_MAGIC[] = {'V', 'S', 'C', 'E', 0x04};
+static constexpr unsigned char ESCAPE_EXIT_STATE_ID_MAGIC[] = {'V', 'S', 'C', 'E', 0x05};
+static constexpr unsigned char BALANCE_LEAF_HASH_MAGIC[] = {'V', 'S', 'C', 'S', 0x01};
+static constexpr unsigned char BALANCE_NODE_HASH_MAGIC[] = {'V', 'S', 'C', 'S', 0x02};
+static constexpr unsigned char ACCOUNT_STATE_LEAF_HASH_MAGIC[] = {'V', 'S', 'C', 'S', 0x03};
+static constexpr unsigned char ACCOUNT_STATE_NODE_HASH_MAGIC[] = {'V', 'S', 'C', 'S', 0x04};
 static constexpr unsigned char FORCE_EXIT_HASH_MAGIC[] = {'V', 'S', 'C', 'X', 0x01};
 static constexpr unsigned char ACCEPTED_BATCH_ID_MAGIC[] = {'V', 'S', 'C', 'A', 0x01};
 static constexpr size_t UINT256_BYTES = sizeof(uint256);
@@ -191,6 +197,120 @@ static uint256 FinalizeEscapeExitRoot(uint32_t leaf_count, const uint256& merkle
     hw << leaf_count;
     hw << merkle_root;
     return hw.GetHash();
+}
+
+static uint256 ComputeBalanceMerkleParent(const uint256& left, const uint256& right)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)BALANCE_NODE_HASH_MAGIC, sizeof(BALANCE_NODE_HASH_MAGIC));
+    hw << left;
+    hw << right;
+    return hw.GetHash();
+}
+
+static uint256 ComputeAccountStateMerkleParent(const uint256& left, const uint256& right)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)ACCOUNT_STATE_NODE_HASH_MAGIC, sizeof(ACCOUNT_STATE_NODE_HASH_MAGIC));
+    hw << left;
+    hw << right;
+    return hw.GetHash();
+}
+
+static bool BuildMerkleProof(
+    std::vector<uint256> level_hashes,
+    uint32_t leaf_index,
+    uint256 (*parent_fn)(const uint256&, const uint256&),
+    std::vector<uint256>& out_sibling_hashes)
+{
+    if (level_hashes.empty() || leaf_index >= level_hashes.size()) {
+        return false;
+    }
+
+    out_sibling_hashes.clear();
+    uint32_t index = leaf_index;
+    while (level_hashes.size() > 1) {
+        const size_t sibling_index = (index & 1U) != 0
+            ? static_cast<size_t>(index - 1)
+            : std::min(static_cast<size_t>(index + 1), level_hashes.size() - 1);
+        out_sibling_hashes.push_back(level_hashes[sibling_index]);
+
+        std::vector<uint256> next_level;
+        next_level.reserve((level_hashes.size() + 1) / 2);
+        for (size_t i = 0; i < level_hashes.size(); i += 2) {
+            const uint256& left = level_hashes[i];
+            const uint256& right = (i + 1 < level_hashes.size()) ? level_hashes[i + 1] : level_hashes[i];
+            next_level.push_back(parent_fn(left, right));
+        }
+
+        index >>= 1;
+        level_hashes = std::move(next_level);
+    }
+
+    return true;
+}
+
+static bool VerifyMerkleProof(
+    uint32_t leaf_count,
+    uint32_t leaf_index,
+    const std::vector<uint256>& sibling_hashes,
+    uint256 current_hash,
+    uint256 (*parent_fn)(const uint256&, const uint256&),
+    const uint256& expected_root)
+{
+    if (leaf_count == 0 || leaf_index >= leaf_count) {
+        return false;
+    }
+
+    uint32_t width = leaf_count;
+    size_t expected_sibling_count = 0;
+    while (width > 1) {
+        ++expected_sibling_count;
+        width = (width + 1) / 2;
+    }
+    if (sibling_hashes.size() != expected_sibling_count) {
+        return false;
+    }
+
+    width = leaf_count;
+    uint32_t index = leaf_index;
+    for (const auto& sibling_hash : sibling_hashes) {
+        const bool is_right_child = (index & 1U) != 0;
+        const bool has_distinct_sibling = is_right_child || (index + 1 < width);
+        if (!has_distinct_sibling && sibling_hash != current_hash) {
+            return false;
+        }
+
+        current_hash = is_right_child
+            ? parent_fn(sibling_hash, current_hash)
+            : parent_fn(current_hash, sibling_hash);
+        index >>= 1;
+        width = (width + 1) / 2;
+    }
+
+    return index == 0 && width == 1 && current_hash == expected_root;
+}
+
+static uint256 ComputeMerkleRoot(
+    std::vector<uint256> level_hashes,
+    uint256 (*parent_fn)(const uint256&, const uint256&))
+{
+    if (level_hashes.empty()) {
+        return uint256();
+    }
+
+    while (level_hashes.size() > 1) {
+        std::vector<uint256> next_level;
+        next_level.reserve((level_hashes.size() + 1) / 2);
+        for (size_t i = 0; i < level_hashes.size(); i += 2) {
+            const uint256& left = level_hashes[i];
+            const uint256& right = (i + 1 < level_hashes.size()) ? level_hashes[i + 1] : level_hashes[i];
+            next_level.push_back(parent_fn(left, right));
+        }
+        level_hashes = std::move(next_level);
+    }
+
+    return level_hashes.front();
 }
 
 static ValiditySidechainScriptInfo::Kind DecodeTag(uint8_t tag)
@@ -957,6 +1077,69 @@ bool DecodeValiditySidechainBalanceProof(
     return true;
 }
 
+bool BuildValiditySidechainBalanceProof(
+    const std::vector<ValiditySidechainBalanceLeaf>& balances,
+    uint32_t leaf_index,
+    ValiditySidechainBalanceProof& out_proof)
+{
+    if (balances.empty() || leaf_index >= balances.size()) {
+        return false;
+    }
+
+    std::vector<uint256> level_hashes;
+    level_hashes.reserve(balances.size());
+    for (const auto& balance : balances) {
+        const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainBalanceLeaf(balance);
+        level_hashes.push_back(HashWithOptionalSidechainId(
+            BALANCE_LEAF_HASH_MAGIC,
+            sizeof(BALANCE_LEAF_HASH_MAGIC),
+            encoded_leaf));
+    }
+
+    ValiditySidechainBalanceProof proof;
+    proof.balance = balances[leaf_index];
+    proof.leaf_index = leaf_index;
+    proof.leaf_count = static_cast<uint32_t>(balances.size());
+    if (!BuildMerkleProof(std::move(level_hashes), leaf_index, ComputeBalanceMerkleParent, proof.sibling_hashes)) {
+        return false;
+    }
+
+    out_proof = std::move(proof);
+    return true;
+}
+
+bool VerifyValiditySidechainBalanceProof(
+    const ValiditySidechainBalanceProof& proof,
+    const uint256& expected_root)
+{
+    const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainBalanceLeaf(proof.balance);
+    const uint256 leaf_hash = HashWithOptionalSidechainId(
+        BALANCE_LEAF_HASH_MAGIC,
+        sizeof(BALANCE_LEAF_HASH_MAGIC),
+        encoded_leaf);
+    return VerifyMerkleProof(
+        proof.leaf_count,
+        proof.leaf_index,
+        proof.sibling_hashes,
+        leaf_hash,
+        ComputeBalanceMerkleParent,
+        expected_root);
+}
+
+uint256 ComputeValiditySidechainBalanceRoot(const std::vector<ValiditySidechainBalanceLeaf>& balances)
+{
+    std::vector<uint256> level_hashes;
+    level_hashes.reserve(balances.size());
+    for (const auto& balance : balances) {
+        const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainBalanceLeaf(balance);
+        level_hashes.push_back(HashWithOptionalSidechainId(
+            BALANCE_LEAF_HASH_MAGIC,
+            sizeof(BALANCE_LEAF_HASH_MAGIC),
+            encoded_leaf));
+    }
+    return ComputeMerkleRoot(std::move(level_hashes), ComputeBalanceMerkleParent);
+}
+
 std::vector<unsigned char> EncodeValiditySidechainAccountStateLeaf(const ValiditySidechainAccountStateLeaf& account)
 {
     std::vector<unsigned char> out;
@@ -1046,6 +1229,69 @@ bool DecodeValiditySidechainAccountStateProof(
 
     out_proof = std::move(proof);
     return true;
+}
+
+bool BuildValiditySidechainAccountStateProof(
+    const std::vector<ValiditySidechainAccountStateLeaf>& accounts,
+    uint32_t leaf_index,
+    ValiditySidechainAccountStateProof& out_proof)
+{
+    if (accounts.empty() || leaf_index >= accounts.size()) {
+        return false;
+    }
+
+    std::vector<uint256> level_hashes;
+    level_hashes.reserve(accounts.size());
+    for (const auto& account : accounts) {
+        const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainAccountStateLeaf(account);
+        level_hashes.push_back(HashWithOptionalSidechainId(
+            ACCOUNT_STATE_LEAF_HASH_MAGIC,
+            sizeof(ACCOUNT_STATE_LEAF_HASH_MAGIC),
+            encoded_leaf));
+    }
+
+    ValiditySidechainAccountStateProof proof;
+    proof.account = accounts[leaf_index];
+    proof.leaf_index = leaf_index;
+    proof.leaf_count = static_cast<uint32_t>(accounts.size());
+    if (!BuildMerkleProof(std::move(level_hashes), leaf_index, ComputeAccountStateMerkleParent, proof.sibling_hashes)) {
+        return false;
+    }
+
+    out_proof = std::move(proof);
+    return true;
+}
+
+bool VerifyValiditySidechainAccountStateProof(
+    const ValiditySidechainAccountStateProof& proof,
+    const uint256& expected_root)
+{
+    const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainAccountStateLeaf(proof.account);
+    const uint256 leaf_hash = HashWithOptionalSidechainId(
+        ACCOUNT_STATE_LEAF_HASH_MAGIC,
+        sizeof(ACCOUNT_STATE_LEAF_HASH_MAGIC),
+        encoded_leaf);
+    return VerifyMerkleProof(
+        proof.leaf_count,
+        proof.leaf_index,
+        proof.sibling_hashes,
+        leaf_hash,
+        ComputeAccountStateMerkleParent,
+        expected_root);
+}
+
+uint256 ComputeValiditySidechainAccountStateRoot(const std::vector<ValiditySidechainAccountStateLeaf>& accounts)
+{
+    std::vector<uint256> level_hashes;
+    level_hashes.reserve(accounts.size());
+    for (const auto& account : accounts) {
+        const std::vector<unsigned char> encoded_leaf = EncodeValiditySidechainAccountStateLeaf(account);
+        level_hashes.push_back(HashWithOptionalSidechainId(
+            ACCOUNT_STATE_LEAF_HASH_MAGIC,
+            sizeof(ACCOUNT_STATE_LEAF_HASH_MAGIC),
+            encoded_leaf));
+    }
+    return ComputeMerkleRoot(std::move(level_hashes), ComputeAccountStateMerkleParent);
 }
 
 std::vector<unsigned char> EncodeValiditySidechainEscapeExitLeaf(const ValiditySidechainEscapeExitLeaf& exit)
@@ -1259,6 +1505,32 @@ bool DecodeValiditySidechainEscapeExitStateMetadata(
 
     out_exit_state_proofs = std::move(exit_state_proofs);
     return true;
+}
+
+uint256 ComputeValiditySidechainEscapeExitStateClaimKey(
+    uint8_t scid,
+    const ValiditySidechainEscapeExitStateProof& proof)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)ESCAPE_EXIT_STATE_CLAIM_KEY_MAGIC, sizeof(ESCAPE_EXIT_STATE_CLAIM_KEY_MAGIC));
+    hw << scid;
+    hw << proof.account_proof.account.account_id;
+    hw << proof.exit_asset_id;
+    hw << proof.required_account_nonce;
+    hw << proof.required_last_forced_exit_nonce;
+    return hw.GetHash();
+}
+
+uint256 ComputeValiditySidechainEscapeExitStateId(
+    uint8_t scid,
+    const ValiditySidechainEscapeExitStateProof& proof)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)ESCAPE_EXIT_STATE_ID_MAGIC, sizeof(ESCAPE_EXIT_STATE_ID_MAGIC));
+    hw << ComputeValiditySidechainEscapeExitStateClaimKey(scid, proof);
+    hw << static_cast<int64_t>(proof.amount);
+    hw << proof.destination_commitment;
+    return hw.GetHash();
 }
 
 bool BuildValiditySidechainEscapeExitProof(

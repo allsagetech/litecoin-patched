@@ -869,6 +869,48 @@ namespace {
         return true;
     }
 
+    static bool MatchValidityEscapeExitPayouts(
+        const CTransaction& tx,
+        int marker_index,
+        const std::vector<ValiditySidechainEscapeExitStateProof>& exit_state_proofs,
+        CAmount* out_total = nullptr)
+    {
+        if (out_total != nullptr) {
+            *out_total = 0;
+        }
+        if (exit_state_proofs.empty()) {
+            return false;
+        }
+
+        const size_t start = static_cast<size_t>(marker_index) + 1;
+        if (tx.vout.size() < start + exit_state_proofs.size()) {
+            return false;
+        }
+
+        CAmount total = 0;
+        for (size_t i = 0; i < exit_state_proofs.size(); ++i) {
+            const CTxOut& txout = tx.vout[start + i];
+            const ValiditySidechainEscapeExitStateProof& exit = exit_state_proofs[i];
+            if (IsDrivechainOutput(txout.scriptPubKey) ||
+                txout.nValue != exit.amount ||
+                ComputeScriptCommitment(txout.scriptPubKey) != exit.destination_commitment) {
+                return false;
+            }
+            if (total > MAX_MONEY - exit.amount) {
+                return false;
+            }
+            total += exit.amount;
+        }
+
+        if (!MoneyRange(total)) {
+            return false;
+        }
+        if (out_total != nullptr) {
+            *out_total = total;
+        }
+        return true;
+    }
+
     static int CountValiditySidechainOutputs(const CTransaction& tx)
     {
         int count = 0;
@@ -1005,6 +1047,14 @@ namespace {
                 return false;
             }
         } else if (escape_exit_marker_index != -1) {
+            std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs;
+            if (DecodeValiditySidechainEscapeExitStateMetadata(escape_exit_info, exit_state_proofs)) {
+                if (!MatchValidityEscapeExitPayouts(tx, escape_exit_marker_index, exit_state_proofs, &out_credit)) {
+                    return false;
+                }
+                return MoneyRange(out_credit);
+            }
+
             std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
             if (!DecodeValiditySidechainEscapeExitMetadata(escape_exit_info, exit_proofs)) {
                 return false;
@@ -1251,13 +1301,27 @@ namespace {
                 continue;
             }
 
-            std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
-            if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
+            ++execute_count;
+            if (execute_count > 1) {
                 return false;
             }
 
-            ++execute_count;
-            if (execute_count > 1) {
+            std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs;
+            if (DecodeValiditySidechainEscapeExitStateMetadata(info, exit_state_proofs)) {
+                for (const auto& proof : exit_state_proofs) {
+                    const auto key = std::make_pair(
+                        info.sidechain_id,
+                        ComputeValiditySidechainEscapeExitStateClaimKey(info.sidechain_id, proof));
+                    if (!unique_keys.insert(key).second) {
+                        return false;
+                    }
+                    keys.push_back(key);
+                }
+                continue;
+            }
+
+            std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
+            if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
                 return false;
             }
 
@@ -1465,15 +1529,29 @@ namespace {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-marker-value");
                         }
 
+                        if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
+                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-confirmation-required");
+                        }
+
+                        std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs;
+                        if (DecodeValiditySidechainEscapeExitStateMetadata(info, exit_state_proofs)) {
+                            if (!MatchValidityEscapeExitPayouts(*tx, static_cast<int>(out_i), exit_state_proofs)) {
+                                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-payout-mismatch");
+                            }
+
+                            std::string error;
+                            if (!block_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, height, info.payload, exit_state_proofs, &error)) {
+                                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-invalid", error);
+                            }
+                            break;
+                        }
+
                         std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
                         if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-metadata-bad");
                         }
                         if (!MatchValidityEscapeExitPayouts(*tx, static_cast<int>(out_i), exit_proofs)) {
                             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-escape-exit-payout-mismatch");
-                        }
-                        if (registered_sidechains_in_block.count(info.sidechain_id) != 0) {
-                            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "validitysidechain-register-confirmation-required");
                         }
 
                         std::string error;
@@ -2211,15 +2289,29 @@ namespace {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-marker-value");
                     }
 
+                    if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
+                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-confirmation-required");
+                    }
+
+                    std::vector<ValiditySidechainEscapeExitStateProof> exit_state_proofs;
+                    if (DecodeValiditySidechainEscapeExitStateMetadata(info, exit_state_proofs)) {
+                        if (!MatchValidityEscapeExitPayouts(tx, static_cast<int>(out_i), exit_state_proofs)) {
+                            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-payout-mismatch");
+                        }
+
+                        std::string error;
+                        if (!tx_validitysidechain_state.ExecuteEscapeExits(info.sidechain_id, next_height, info.payload, exit_state_proofs, &error)) {
+                            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-invalid", error);
+                        }
+                        break;
+                    }
+
                     std::vector<ValiditySidechainEscapeExitProof> exit_proofs;
                     if (!DecodeValiditySidechainEscapeExitMetadata(info, exit_proofs)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-metadata-bad");
                     }
                     if (!MatchValidityEscapeExitPayouts(tx, static_cast<int>(out_i), exit_proofs)) {
                         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-escape-exit-payout-mismatch");
-                    }
-                    if (registered_sidechains_in_tx.count(info.sidechain_id) != 0) {
-                        return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "validitysidechain-register-confirmation-required");
                     }
 
                     std::string error;
