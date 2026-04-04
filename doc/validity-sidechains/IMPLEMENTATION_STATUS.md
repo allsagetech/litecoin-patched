@@ -385,6 +385,9 @@ It also now has functional wallet/RPC coverage for:
   escape-exit/nullifier state
 - competing-fork rollback of pending and matured force-exit request state so
   losing-fork censorship recovery data does not survive reorg
+- competing-fork rollback of accepted force-exit consumption batches so a
+  losing-fork batch does not hide a still-matured request and the same batch
+  can be restored or resubmitted after restart
 - competing-fork rollback of stale-deposit reclaim state so reclaimable
   deposits reappear deterministically after losing-fork rollback
 - orphaned reclaim transactions staying out of mempool when a competing fork
