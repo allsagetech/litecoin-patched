@@ -37,6 +37,20 @@ def get_sidechain(info, sidechain_id):
     return None
 
 
+def build_noop_batch(sidechain, batch_number):
+    return {
+        "batch_number": batch_number,
+        "prior_state_root": sidechain["current_state_root"],
+        "new_state_root": sidechain["current_state_root"],
+        "l1_message_root_before": sidechain["queue_state"]["root"],
+        "l1_message_root_after": sidechain["queue_state"]["root"],
+        "consumed_queue_messages": 0,
+        "withdrawal_root": sidechain["current_withdrawal_root"],
+        "data_root": sidechain["current_data_root"],
+        "data_size": 0,
+    }
+
+
 class ValiditySidechainRestartReorg(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
@@ -69,18 +83,12 @@ class ValiditySidechainRestartReorg(BitcoinTestFramework):
 
         sidechain = get_sidechain(node.getvaliditysidechaininfo(), sidechain_id)
         assert sidechain is not None
-        public_inputs = {
-            "batch_number": 1,
-            "prior_state_root": sidechain["current_state_root"],
-            "new_state_root": sidechain["current_state_root"],
-            "l1_message_root_before": sidechain["queue_state"]["root"],
-            "l1_message_root_after": sidechain["queue_state"]["root"],
-            "consumed_queue_messages": 0,
-            "withdrawal_root": sidechain["current_withdrawal_root"],
-            "data_root": sidechain["current_data_root"],
-            "data_size": 0,
-        }
-        node.sendvaliditybatch(sidechain_id, public_inputs)
+        node.sendvaliditybatch(sidechain_id, build_noop_batch(sidechain, 1))
+        node.generate(1)
+
+        sidechain = get_sidechain(node.getvaliditysidechaininfo(), sidechain_id)
+        assert sidechain is not None
+        node.sendvaliditybatch(sidechain_id, build_noop_batch(sidechain, 2))
         node.generate(1)
         node.generate(2)
 
@@ -88,8 +96,8 @@ class ValiditySidechainRestartReorg(BitcoinTestFramework):
         sidechain_before_restart = get_sidechain(info_before_restart, sidechain_id)
         assert sidechain_before_restart is not None
         assert_equal(sidechain_before_restart["escrow_balance"], 100000000)
-        assert_equal(sidechain_before_restart["latest_batch_number"], 1)
-        assert_equal(len(sidechain_before_restart["accepted_batches"]), 1)
+        assert_equal(sidechain_before_restart["latest_batch_number"], 2)
+        assert_equal(len(sidechain_before_restart["accepted_batches"]), 2)
         assert info_before_restart["state_cache"]["snapshots_written"] >= 1
 
         self.restart_node(0, extra_args=["-acceptnonstdtxn=1"])
@@ -107,10 +115,22 @@ class ValiditySidechainRestartReorg(BitcoinTestFramework):
             sidechain = get_sidechain(info, sidechain_id)
             assert sidechain is not None
             assert_equal(sidechain["escrow_balance"], 100000000)
-            assert_equal(sidechain["latest_batch_number"], 1)
-            assert_equal(len(sidechain["accepted_batches"]), 1)
+            assert_equal(sidechain["latest_batch_number"], 2)
+            assert_equal(len(sidechain["accepted_batches"]), 2)
 
-        self.log.info("Invalidating the batch block should roll batch state back while still avoiding fallback recompute.")
+        self.log.info("Invalidating the newest batch block should roll state back to the earlier accepted batch without fallback recompute.")
+        node.invalidateblock(node.getbestblockhash())
+        info = node.getvaliditysidechaininfo()
+        assert_equal(int(info["state_cache"]["recompute_fallbacks"]), recompute_fallbacks)
+        sidechain = get_sidechain(info, sidechain_id)
+        assert sidechain is not None
+        assert_equal(sidechain["escrow_balance"], 100000000)
+        assert_equal(sidechain["latest_batch_number"], 1)
+        assert_equal(len(sidechain["accepted_batches"]), 1)
+        assert_equal(sidechain["accepted_batches"][0]["batch_number"], 1)
+        assert_equal(sidechain["queue_state"]["pending_message_count"], 1)
+
+        self.log.info("Invalidating the earlier batch block should roll batch state back to the deposit-only view.")
         node.invalidateblock(node.getbestblockhash())
         info = node.getvaliditysidechaininfo()
         assert_equal(int(info["state_cache"]["recompute_fallbacks"]), recompute_fallbacks)
