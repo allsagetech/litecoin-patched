@@ -368,6 +368,8 @@ It also now has functional wallet/RPC coverage for:
 - malformed batch DA rejection for missing chunks, malformed chunk ordering,
   oversized payloads, oversized proof bytes, oversized DA chunk counts, and
   bad `data_root`
+- wallet-side rejection for oversized verified-withdrawal and escape-exit
+  execution fanout before transaction construction
 - forced-inclusion recovery by requiring matured force-exit requests to be
   consumed by the accepted queue prefix
 - verified withdrawal execution

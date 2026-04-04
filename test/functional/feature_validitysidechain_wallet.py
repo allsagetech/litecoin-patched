@@ -888,6 +888,29 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             bad_withdrawal_proof_entries,
         )
 
+        self.log.info("Rejecting verified-withdrawal proof submissions that exceed the execution fanout limit.")
+        oversized_withdrawal_proof_entries = [
+            {
+                "withdrawal_id": withdrawal_proof_entries[0]["withdrawal_id"],
+                "script": withdrawal_proof_entries[0]["script"],
+                "amount": withdrawal_proof_entries[0]["amount"],
+                "proof": {
+                    "leaf_index": withdrawal_proof_entries[0]["proof"]["leaf_index"],
+                    "leaf_count": withdrawal_proof_entries[0]["proof"]["leaf_count"],
+                    "sibling_hashes": list(withdrawal_proof_entries[0]["proof"]["sibling_hashes"]),
+                },
+            }
+            for _ in range(1025)
+        ]
+        assert_raises_rpc_error(
+            -8,
+            "withdrawal execution fanout exceeds consensus limit",
+            node.sendverifiedwithdrawals,
+            sidechain_id,
+            1,
+            oversized_withdrawal_proof_entries,
+        )
+
         self.log.info("Executing verified withdrawals through the explicit proof RPC mode.")
         verified_withdrawal_res = node.sendverifiedwithdrawals(sidechain_id, 1, withdrawal_proof_entries)
         assert_equal(len(verified_withdrawal_res["accepted_batch_id"]), 64)
@@ -1150,6 +1173,22 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             replay_escape_claim,
         )
         assert replay_escape_claim["exit_id"] != state_escape_claim["exit_id"]
+        oversized_state_escape_claims = [
+            {
+                **state_escape_claim,
+                "account_proof": dict(state_escape_claim["account_proof"]),
+                "balance_proof": dict(state_escape_claim["balance_proof"]),
+            }
+            for _ in range(1025)
+        ]
+        assert_raises_rpc_error(
+            -8,
+            "escape-exit execution fanout exceeds consensus limit",
+            node.sendescapeexit,
+            state_proof_escape_sidechain_id,
+            state_root,
+            oversized_state_escape_claims,
+        )
         assert_raises_rpc_error(
             -26,
             "validitysidechain-escape-exit-duplicate-mempool",
