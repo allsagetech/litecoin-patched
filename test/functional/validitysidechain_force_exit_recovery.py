@@ -93,8 +93,23 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         if current_height < target_height:
             node.generatetoaddress(target_height - current_height, node.getnewaddress())
 
-        sidechain = get_sidechain(node.getvaliditysidechaininfo(), sidechain_id)
+        info_before_restart = node.getvaliditysidechaininfo()
+        sidechain = get_sidechain(info_before_restart, sidechain_id)
         assert sidechain is not None
+        assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 1)
+        assert_equal(sidechain["queue_state"]["matured_force_exit_count"], 1)
+        assert_equal(sidechain["queue_state"]["head_index"], 0)
+        recompute_fallbacks = int(info_before_restart["state_cache"]["recompute_fallbacks"])
+
+        self.log.info("Restarting with a matured force-exit request still pending.")
+        self.restart_node(0, extra_args=["-acceptnonstdtxn=1"])
+        node = self.nodes[0]
+
+        info_after_restart = node.getvaliditysidechaininfo()
+        sidechain = get_sidechain(info_after_restart, sidechain_id)
+        assert sidechain is not None
+        assert_equal(int(info_after_restart["state_cache"]["recompute_fallbacks"]), recompute_fallbacks)
+        assert_equal(sidechain["queue_state"]["pending_message_count"], 1)
         assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 1)
         assert_equal(sidechain["queue_state"]["matured_force_exit_count"], 1)
         assert_equal(sidechain["queue_state"]["head_index"], 0)
@@ -140,6 +155,22 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         assert_equal(sidechain["accepted_batches"][0]["batch_number"], 1)
         assert_equal(sidechain["accepted_batches"][0]["consumed_queue_messages"], 1)
         assert_equal(sidechain["accepted_batches"][0]["published_in_txid"], batch_result["txid"])
+        assert_equal(sidechain["queue_state"]["head_index"], 1)
+        assert_equal(sidechain["queue_state"]["pending_message_count"], 0)
+        assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 0)
+        assert_equal(sidechain["queue_state"]["matured_force_exit_count"], 0)
+
+        self.log.info("Restarting after the batch consumes the matured request.")
+        self.restart_node(0, extra_args=["-acceptnonstdtxn=1"])
+        node = self.nodes[0]
+
+        info_after_consumption_restart = node.getvaliditysidechaininfo()
+        sidechain = get_sidechain(info_after_consumption_restart, sidechain_id)
+        assert sidechain is not None
+        assert_equal(int(info_after_consumption_restart["state_cache"]["recompute_fallbacks"]), recompute_fallbacks)
+        assert_equal(sidechain["latest_batch_number"], 1)
+        assert_equal(len(sidechain["accepted_batches"]), 1)
+        assert_equal(sidechain["accepted_batches"][0]["consumed_queue_messages"], 1)
         assert_equal(sidechain["queue_state"]["head_index"], 1)
         assert_equal(sidechain["queue_state"]["pending_message_count"], 0)
         assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 0)
