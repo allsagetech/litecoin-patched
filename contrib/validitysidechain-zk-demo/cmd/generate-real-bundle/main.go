@@ -21,7 +21,6 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	groth16bls12381 "github.com/consensys/gnark/backend/groth16/bls12-381"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"github.com/rs/zerolog"
 )
 
@@ -137,13 +136,13 @@ func resolveBundleSpec(profileName string) (bundleSpec, error) {
 			outputArtifactDir:           outputArtifactDirV2,
 			publicInputVersion:          realbatch.FinalPublicInputVersion,
 			circuitName:                 "poseidon_batch_transition_v2",
-			status:                      "experimental decomposed-input Poseidon Groth16 profile with full-width queue, withdrawal, and DA roots plus host-validated queue/withdrawal fixtures",
+			status:                      "experimental decomposed-input Poseidon Groth16 profile with full-width queue, withdrawal, and DA roots plus bounded in-circuit queue/withdrawal witnesses",
 			requireFieldSizedQueueRoots: false,
 			requireFieldSizedWithdrawal: false,
 			validNotes: []string{
 				"real Groth16 proof for the decomposed-input experimental poseidon batch transition circuit",
-				"includes one deterministic deposit queue entry fixture validated host-side and reused by surrounding node-side queue checks",
-				"includes one deterministic withdrawal leaf fixture validated host-side and reused by surrounding node-side withdrawal execution checks",
+				fmt.Sprintf("proves the ordered consumed queue prefix directly inside the circuit for up to %d witness entries", realbatch.FinalProfileMaxConsumedQueueEntries),
+				fmt.Sprintf("proves the ordered withdrawal witness set directly inside the circuit for up to %d witness leaves", realbatch.FinalProfileMaxWithdrawalLeaves),
 				"binds queue, withdrawal, and DA roots through 128-bit public-input limbs instead of single-field encodings",
 				"the queued roots and/or withdrawal root intentionally exceed the BLS12-381 scalar field to exercise the decomposed public-input layout",
 				"binds a non-empty published DA payload through data_root and data_size",
@@ -234,7 +233,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, circuit)
+	ccs, err := realbatch.CompileCircuit(spec.profileName, circuit)
 	if err != nil {
 		panic(err)
 	}

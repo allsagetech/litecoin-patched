@@ -461,8 +461,9 @@ Current branch status:
   final trustless semantics even though the validity-sidechain CI job now
   materializes that proving key transiently on the runner for auto-prover
   coverage, plus a committed `groth16_bls12_381_poseidon_v2` tuple with
-  `public_input_version = 5` and real native verifier/prover assets so the
-  codebase can distinguish the current scalar-limited bundle from the
+  `public_input_version = 5`, real native verifier assets, and a locally
+  regenerable prover path so the codebase can distinguish the current
+  scalar-limited bundle from the
   decomposed queue/withdrawal/DA root layout without mutating the committed
   `v1` assets
 - `EXECUTE_VERIFIED_WITHDRAWALS` now has fixed withdrawal-leaf encoding,
@@ -496,7 +497,9 @@ Current branch status:
 - the external prover helper now also follows that split: the old
   `groth16_bls12_381_poseidon_v1` path still rejects multi-entry queue and
   multi-leaf withdrawal witnesses, while `groth16_bls12_381_poseidon_v2`
-  derives and validates generic queue-prefix and withdrawal-root witnesses
+  derives and validates generic queue-prefix and withdrawal-root witnesses and
+  now also commits a bounded in-circuit witness relation for up to two
+  consumed queue entries and two withdrawal leaves
 - the decomposed `groth16_bls12_381_poseidon_v2` path now also has explicit
   reclaim coverage, proving matured deposits can be reclaimed under restart
   without dropping the full-width initial withdrawal root state

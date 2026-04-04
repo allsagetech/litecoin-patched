@@ -189,11 +189,11 @@ This means:
   verifier-asset layout, committed experimental proof material, and a native
   verifier core, but batch validation still cannot become trustless until the
   final intended sidechain circuit replaces the current deterministic
-  experimental transition semantics with host-validated queue/withdrawal
-  fixtures; attempts to push the current SHA-heavy single-entry queue and
-  single-leaf withdrawal witnesses directly into the experimental circuit
-  still introduce an extra `gnark` commitment/public-input wire, which breaks
-  the fixed 11-input native verifier layout this branch is pinned to
+  experimental transition semantics with the final sidechain state machine;
+  `groth16_bls12_381_poseidon_v1` still keeps host-validated single-entry /
+  single-leaf fixtures, while the decomposed `v2` profile now proves a bounded
+  in-circuit queue/withdrawal witness relation instead of leaving those roots
+  entirely host-validated
 - consensus now hard-rejects `groth16_bls12_381_poseidon_v1` batches with
   `consumed_queue_messages > 1`, matching the current experimental
   single-entry queue-fixture coverage instead of silently accepting broader
@@ -235,14 +235,17 @@ This means:
   for that decomposed successor layout, splitting
   `l1_message_root_before`, `l1_message_root_after`,
   `queue_prefix_commitment`, `withdrawal_root`, and `data_root` into
-  128-bit public-input limbs while leaving the current committed
+  128-bit public-input limbs while also proving a bounded queue-prefix and
+  withdrawal witness relation for up to two consumed queue entries and two
+  withdrawal leaves, leaving the current committed
   `groth16_bls12_381_poseidon_v1` bundle unchanged
 - the external prover helper now treats `groth16_bls12_381_poseidon_v2`
   according to that decomposed runtime surface instead of reusing the old
   single-entry/single-leaf witness checks: it derives and validates generic
-  consumed queue prefixes and generic withdrawal Merkle roots for `v2`, while
-  `groth16_bls12_381_poseidon_v1` remains explicitly single-entry and
-  single-leaf
+  consumed queue prefixes and generic withdrawal Merkle roots for `v2`, and
+  now also fails early above the committed two-entry / two-leaf proof witness
+  limits, while `groth16_bls12_381_poseidon_v1` remains explicitly single-entry
+  and single-leaf
 - the decomposed `groth16_bls12_381_poseidon_v2` runtime path now also has
   direct reclaim coverage in both state-unit and functional tests, proving a
   matured deposit can be reclaimed and persisted across restart while keeping

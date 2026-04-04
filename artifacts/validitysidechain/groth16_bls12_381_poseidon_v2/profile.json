@@ -3,7 +3,7 @@
   "curve": "bls12_381",
   "backend": "native_blst_groth16",
   "consensus_safe": false,
-  "status": "experimental decomposed-input Poseidon Groth16 profile with full-width queue, withdrawal, and DA roots plus host-validated queue/withdrawal fixtures",
+  "status": "experimental decomposed-input Poseidon Groth16 profile with full-width queue, withdrawal, and DA roots plus bounded in-circuit queue/withdrawal witnesses",
   "consensus_tuple": {
     "version": 1,
     "proof_system_id": 2,
