@@ -649,7 +649,7 @@ BOOST_AUTO_TEST_CASE(groth16_public_input_builder_supports_current_poseidon_layo
     public_inputs.consumed_queue_messages = 3;
     public_inputs.queue_prefix_commitment = uint256S("5555555555555555555555555555555555555555555555555555555555555555");
     public_inputs.withdrawal_root = uint256S("6666666666666666666666666666666666666666666666666666666666666666");
-    public_inputs.data_root = uint256S("7777777777777777777777777777777777777777777777777777777777777777");
+    public_inputs.data_root = uint256S("0707070707070707070707070707070707070707070707070707070707070707");
     public_inputs.data_size = 123;
 
     const std::vector<std::string> names{
