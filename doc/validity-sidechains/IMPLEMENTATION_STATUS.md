@@ -371,8 +371,9 @@ It also now has functional wallet/RPC coverage for:
 - wallet-side rejection for oversized verified-withdrawal and escape-exit
   execution fanout before transaction construction
 - forced-inclusion recovery by requiring matured force-exit requests to be
-  consumed by the accepted queue prefix, including restart persistence before
-  and after the consuming batch
+  consumed by the full reachable queue prefix, including restart persistence
+  before and after the consuming batch and the case where an earlier pending
+  deposit must be consumed first
 - verified withdrawal execution
 - escape-exit execution
 - stale-deposit reclaim

@@ -47,6 +47,45 @@ def compute_queue_consume_root(sidechain_id, prior_root_hex, queue_index, messag
     return f"{hash256_uint256(bytes(payload)):064x}"
 
 
+def compute_consumed_queue_root(sidechain_id, prior_root_hex, entries):
+    root = prior_root_hex
+    for entry in entries:
+        root = compute_queue_consume_root(
+            sidechain_id,
+            root,
+            entry["queue_index"],
+            entry["message_kind"],
+            entry["message_id"],
+            entry["message_hash"],
+        )
+    return root
+
+
+def compute_queue_prefix_commitment_step(sidechain_id, prior_commitment_hex, queue_index, message_kind, message_id_hex, message_hash_hex):
+    payload = bytearray(b"VSCQP\x01")
+    payload.append(sidechain_id)
+    payload.extend(ser_uint256(int(prior_commitment_hex, 16)))
+    payload.extend(struct.pack("<Q", queue_index))
+    payload.append(message_kind)
+    payload.extend(ser_uint256(int(message_id_hex, 16)))
+    payload.extend(ser_uint256(int(message_hash_hex, 16)))
+    return f"{hash256_uint256(bytes(payload)):064x}"
+
+
+def compute_queue_prefix_commitment(sidechain_id, entries):
+    commitment = "00" * 32
+    for entry in entries:
+        commitment = compute_queue_prefix_commitment_step(
+            sidechain_id,
+            commitment,
+            entry["queue_index"],
+            entry["message_kind"],
+            entry["message_id"],
+            entry["message_hash"],
+        )
+    return commitment
+
+
 def get_sidechain(info, sidechain_id):
     for sidechain in info["sidechains"]:
         if sidechain["id"] == sidechain_id:
@@ -71,8 +110,18 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         supported = node.getvaliditysidechaininfo()["supported_proof_configs"][0]
         config = build_register_config(supported)
 
-        self.log.info("Registering a validity sidechain and posting a force-exit request.")
+        self.log.info("Registering a validity sidechain, then queueing a deposit ahead of a force-exit request.")
         node.sendvaliditysidechainregister(sidechain_id, config)
+        node.generatetoaddress(1, node.getnewaddress())
+
+        deposit_result = node.sendvaliditydeposit(
+            sidechain_id,
+            "44" * 32,
+            {"address": node.getnewaddress()},
+            Decimal("1.0"),
+            7,
+            "33" * 32,
+        )
         node.generatetoaddress(1, node.getnewaddress())
 
         request_result = node.sendforceexitrequest(
@@ -86,6 +135,20 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         node.generatetoaddress(1, node.getnewaddress())
         request_hash = request_result["request_hash"]
         request_height = node.getblockcount()
+        consumed_entries = [
+            {
+                "queue_index": 0,
+                "message_kind": 1,
+                "message_id": deposit_result["deposit_id"],
+                "message_hash": deposit_result["deposit_message_hash"],
+            },
+            {
+                "queue_index": 1,
+                "message_kind": 2,
+                "message_id": request_hash,
+                "message_hash": request_hash,
+            },
+        ]
 
         self.log.info("Advancing to the force-inclusion deadline.")
         target_height = request_height + config["force_inclusion_delay"]
@@ -96,6 +159,8 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         info_before_restart = node.getvaliditysidechaininfo()
         sidechain = get_sidechain(info_before_restart, sidechain_id)
         assert sidechain is not None
+        assert_equal(sidechain["queue_state"]["pending_message_count"], 2)
+        assert_equal(sidechain["queue_state"]["pending_deposit_count"], 1)
         assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 1)
         assert_equal(sidechain["queue_state"]["matured_force_exit_count"], 1)
         assert_equal(sidechain["queue_state"]["head_index"], 0)
@@ -109,7 +174,8 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         sidechain = get_sidechain(info_after_restart, sidechain_id)
         assert sidechain is not None
         assert_equal(int(info_after_restart["state_cache"]["recompute_fallbacks"]), recompute_fallbacks)
-        assert_equal(sidechain["queue_state"]["pending_message_count"], 1)
+        assert_equal(sidechain["queue_state"]["pending_message_count"], 2)
+        assert_equal(sidechain["queue_state"]["pending_deposit_count"], 1)
         assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 1)
         assert_equal(sidechain["queue_state"]["matured_force_exit_count"], 1)
         assert_equal(sidechain["queue_state"]["head_index"], 0)
@@ -134,17 +200,38 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
             rejected_public_inputs,
         )
 
-        self.log.info("Submitting a batch that consumes the reachable force-exit queue prefix.")
-        accepted_public_inputs = dict(rejected_public_inputs)
-        accepted_public_inputs["l1_message_root_after"] = compute_queue_consume_root(
+        self.log.info("Rejecting a batch that consumes only the earlier deposit instead of the full reachable prefix.")
+        deposit_only_public_inputs = dict(rejected_public_inputs)
+        deposit_only_public_inputs["l1_message_root_after"] = compute_consumed_queue_root(
             sidechain_id,
             sidechain["queue_state"]["root"],
-            sidechain["queue_state"]["head_index"],
-            2,
-            request_hash,
-            request_hash,
+            consumed_entries[:1],
         )
-        accepted_public_inputs["consumed_queue_messages"] = 1
+        deposit_only_public_inputs["consumed_queue_messages"] = 1
+        deposit_only_public_inputs["queue_prefix_commitment"] = compute_queue_prefix_commitment(
+            sidechain_id,
+            consumed_entries[:1],
+        )
+        assert_raises_rpc_error(
+            -8,
+            "batch must consume all matured force-exit requests in reachable queue prefix",
+            node.sendvaliditybatch,
+            sidechain_id,
+            deposit_only_public_inputs,
+        )
+
+        self.log.info("Submitting a batch that consumes the full reachable deposit plus force-exit prefix.")
+        accepted_public_inputs = dict(rejected_public_inputs)
+        accepted_public_inputs["l1_message_root_after"] = compute_consumed_queue_root(
+            sidechain_id,
+            sidechain["queue_state"]["root"],
+            consumed_entries,
+        )
+        accepted_public_inputs["consumed_queue_messages"] = 2
+        accepted_public_inputs["queue_prefix_commitment"] = compute_queue_prefix_commitment(
+            sidechain_id,
+            consumed_entries,
+        )
         batch_result = node.sendvaliditybatch(sidechain_id, accepted_public_inputs)
         node.generatetoaddress(1, node.getnewaddress())
 
@@ -153,10 +240,11 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         assert_equal(sidechain["latest_batch_number"], 1)
         assert_equal(len(sidechain["accepted_batches"]), 1)
         assert_equal(sidechain["accepted_batches"][0]["batch_number"], 1)
-        assert_equal(sidechain["accepted_batches"][0]["consumed_queue_messages"], 1)
+        assert_equal(sidechain["accepted_batches"][0]["consumed_queue_messages"], 2)
         assert_equal(sidechain["accepted_batches"][0]["published_in_txid"], batch_result["txid"])
-        assert_equal(sidechain["queue_state"]["head_index"], 1)
+        assert_equal(sidechain["queue_state"]["head_index"], 2)
         assert_equal(sidechain["queue_state"]["pending_message_count"], 0)
+        assert_equal(sidechain["queue_state"]["pending_deposit_count"], 0)
         assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 0)
         assert_equal(sidechain["queue_state"]["matured_force_exit_count"], 0)
 
@@ -170,9 +258,10 @@ class ValiditySidechainForceExitRecovery(BitcoinTestFramework):
         assert_equal(int(info_after_consumption_restart["state_cache"]["recompute_fallbacks"]), recompute_fallbacks)
         assert_equal(sidechain["latest_batch_number"], 1)
         assert_equal(len(sidechain["accepted_batches"]), 1)
-        assert_equal(sidechain["accepted_batches"][0]["consumed_queue_messages"], 1)
-        assert_equal(sidechain["queue_state"]["head_index"], 1)
+        assert_equal(sidechain["accepted_batches"][0]["consumed_queue_messages"], 2)
+        assert_equal(sidechain["queue_state"]["head_index"], 2)
         assert_equal(sidechain["queue_state"]["pending_message_count"], 0)
+        assert_equal(sidechain["queue_state"]["pending_deposit_count"], 0)
         assert_equal(sidechain["queue_state"]["pending_force_exit_count"], 0)
         assert_equal(sidechain["queue_state"]["matured_force_exit_count"], 0)
 
