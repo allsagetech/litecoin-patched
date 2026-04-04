@@ -387,6 +387,10 @@ It also now has functional wallet/RPC coverage for:
 - orphaned verified-withdrawal transactions staying out of mempool when the
   winning fork already executed the same withdrawal ids, including explicit
   Merkle-proof RPC submissions
+- orphaned escape-exit transactions staying out of mempool when the winning
+  fork already executed the same legacy exit ids or current-state-root
+  state-proof claim keys, including same-claim submissions with different
+  deterministic `exit_id` values
 - competing-fork rollback of state-proof escape-exit claim-key replay state so
   losing-fork current-state-root exits can be restored or resubmitted after
   restart without keeping stale nullifiers alive

@@ -264,6 +264,7 @@ BASE_SCRIPTS = [
     'validitysidechain_registration_reorg.py',
     'validitysidechain_restart_reorg.py',
     'validitysidechain_reorg_state_rollback.py',
+    'validitysidechain_escape_exit_invalidated_reorg.py',
     'validitysidechain_withdrawal_invalidated_reorg.py',
     'drivechain_restart_state_persistence.py',
     'drivechain_bundle_replace_rules.py',
