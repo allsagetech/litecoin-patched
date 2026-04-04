@@ -1121,7 +1121,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         ]
         state_account_proof, state_root = build_account_state_proof(state_accounts, 0)
         state_proof_escape_config = build_register_config(
-            real_supported,
+            native_toy_supported,
             initial_state_root=state_root,
             initial_withdrawal_root="00" * 32,
         )
