@@ -391,6 +391,9 @@ It also now has functional wallet/RPC coverage for:
   consumed by the full reachable queue prefix, including restart persistence
   before and after the consuming batch and the case where an earlier pending
   deposit must be consumed first
+- explicit censorship-recovery coverage showing that a live sequencer cannot
+  bypass a matured force-exit request and that a halted sequencer still leaves
+  users with an escape-exit path
 - verified withdrawal execution
 - escape-exit execution
 - stale-deposit reclaim
