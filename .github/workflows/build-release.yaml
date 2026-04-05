@@ -679,6 +679,7 @@ jobs:
           run_one validitysidechain_registration_reorg.py
           run_one validitysidechain_restart_reorg.py
           run_one validitysidechain_reorg_state_rollback.py
+          run_one validitysidechain_long_range_batch_reorg.py
           run_one validitysidechain_escape_exit_invalidated_reorg.py
           run_one validitysidechain_withdrawal_invalidated_reorg.py
 
