@@ -1,10 +1,18 @@
 package realbatch
 
 import (
+	"bytes"
+	"encoding/binary"
 	"strings"
 	"testing"
 
+	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/nativegroth16"
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/toybatch"
+	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
+	groth16bls12381 "github.com/consensys/gnark/backend/groth16/bls12-381"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
 func TestValidateDerivedRequestV2AcceptsGenericQueueAndWithdrawalWitnesses(t *testing.T) {
@@ -38,6 +46,87 @@ func TestValidateDerivedRequestV2RejectsMismatchedGenericWithdrawalWitness(t *te
 	}
 	if err.Error() != "withdrawal_root does not match withdrawal_leaves witness" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPoseidonV2NativeArtifactsRemainVerifierCompatible(t *testing.T) {
+	request := buildV2RequestForTest(t)
+
+	circuit, err := NewCircuit(FinalProfileName)
+	if err != nil {
+		t.Fatalf("NewCircuit returned unexpected error: %v", err)
+	}
+	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, circuit)
+	if err != nil {
+		t.Fatalf("frontend.Compile returned unexpected error: %v", err)
+	}
+	pk, vk, err := groth16.Setup(ccs)
+	if err != nil {
+		t.Fatalf("groth16.Setup returned unexpected error: %v", err)
+	}
+
+	assignment, err := BuildAssignment(request)
+	if err != nil {
+		t.Fatalf("BuildAssignment returned unexpected error: %v", err)
+	}
+	witness, err := frontend.NewWitness(assignment, ecc.BLS12_381.ScalarField())
+	if err != nil {
+		t.Fatalf("frontend.NewWitness returned unexpected error: %v", err)
+	}
+	proof, err := groth16.Prove(ccs, pk, witness)
+	if err != nil {
+		t.Fatalf("groth16.Prove returned unexpected error: %v", err)
+	}
+
+	publicAssignment, err := BuildPublicAssignment(request)
+	if err != nil {
+		t.Fatalf("BuildPublicAssignment returned unexpected error: %v", err)
+	}
+	publicWitness, err := frontend.NewWitness(publicAssignment, ecc.BLS12_381.ScalarField(), frontend.PublicOnly())
+	if err != nil {
+		t.Fatalf("frontend.NewWitness(public) returned unexpected error: %v", err)
+	}
+
+	var rawProof bytes.Buffer
+	if _, err := proof.WriteTo(&rawProof); err != nil {
+		t.Fatalf("proof.WriteTo returned unexpected error: %v", err)
+	}
+	var nativeProof groth16bls12381.Proof
+	if _, err := nativeProof.ReadFrom(bytes.NewReader(rawProof.Bytes())); err != nil {
+		t.Fatalf("native proof ReadFrom returned unexpected error: %v", err)
+	}
+	encodedProof := nativegroth16.EncodeProof(&nativeProof)
+	decodedProof, err := nativegroth16.DecodeProof(encodedProof)
+	if err != nil {
+		t.Fatalf("DecodeProof returned unexpected error: %v", err)
+	}
+
+	var rawVK bytes.Buffer
+	if _, err := vk.WriteTo(&rawVK); err != nil {
+		t.Fatalf("vk.WriteTo returned unexpected error: %v", err)
+	}
+	var nativeVK groth16bls12381.VerifyingKey
+	if _, err := nativeVK.ReadFrom(bytes.NewReader(rawVK.Bytes())); err != nil {
+		t.Fatalf("native verifying key ReadFrom returned unexpected error: %v", err)
+	}
+	encodedVK := nativegroth16.EncodeVerificationKey(&nativeVK)
+
+	expectedPublicInputs, err := ManifestPublicInputs(FinalPublicInputVersion)
+	if err != nil {
+		t.Fatalf("ManifestPublicInputs returned unexpected error: %v", err)
+	}
+	const verifyingKeyMagicLen = 6
+	publicInputCount := binary.LittleEndian.Uint32(encodedVK[verifyingKeyMagicLen : verifyingKeyMagicLen+4])
+	if publicInputCount != uint32(len(expectedPublicInputs)) {
+		t.Fatalf("native verifying key exported %d public inputs, want %d", publicInputCount, len(expectedPublicInputs))
+	}
+
+	decodedVK, err := nativegroth16.DecodeVerificationKey(encodedVK)
+	if err != nil {
+		t.Fatalf("DecodeVerificationKey returned unexpected error: %v", err)
+	}
+	if err := groth16.Verify(decodedProof, decodedVK, publicWitness); err != nil {
+		t.Fatalf("groth16.Verify returned unexpected error: %v", err)
 	}
 }
 
