@@ -832,7 +832,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             "00" * (config["max_proof_bytes"] + 1),
         )
 
-        batch_res = node.sendvaliditybatch(sidechain_id, public_inputs)
+        auto_batch_public_inputs = dict(public_inputs)
+        del auto_batch_public_inputs["l1_message_root_after"]
+        batch_res = node.sendvaliditybatch(sidechain_id, auto_batch_public_inputs)
         assert_equal(batch_res["auto_scaffold_proof"], True)
         node.generate(1)
 
@@ -1341,7 +1343,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         )
         assert_raises_rpc_error(
             -8,
-            "Groth16",
+            "batch queue prefix commitment does not match consumed prefix",
             node.sendvaliditybatch,
             real_sidechain_id,
             {

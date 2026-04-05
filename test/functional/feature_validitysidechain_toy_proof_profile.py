@@ -980,7 +980,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         )
         assert_raises_rpc_error(
             -8,
-            "Groth16",
+            "batch queue prefix commitment does not match consumed prefix",
             node.sendvaliditybatch,
             real_sidechain_id,
             real_queue_prefix_mismatch_public_inputs,
@@ -1282,7 +1282,11 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
 
             real_v2_batch_res = node.sendvaliditybatch(
                 real_v2_auto_sidechain_id,
-                real_v2_public_inputs,
+                {
+                    key: value
+                    for key, value in real_v2_public_inputs.items()
+                    if key != "l1_message_root_after"
+                },
             )
             assert_equal(real_v2_batch_res["auto_scaffold_proof"], False)
             assert_equal(real_v2_batch_res["auto_external_proof"], True)

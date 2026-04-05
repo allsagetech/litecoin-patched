@@ -456,6 +456,12 @@ bool ComputeValiditySidechainQueuePrefixCommitment(
     uint32_t consumed_queue_messages,
     uint256& out_commitment,
     std::string* error = nullptr);
+bool ComputeValiditySidechainConsumedQueueRoot(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    uint32_t consumed_queue_messages,
+    uint256& out_root,
+    std::string* error = nullptr);
 bool GetValiditySidechainConsumedQueueEntries(
     const ValiditySidechain& sidechain,
     uint32_t consumed_queue_messages,

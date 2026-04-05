@@ -1474,7 +1474,10 @@ static ValiditySidechainBatchPublicInputs ParseValiditySidechainBatchPublicInput
     public_inputs.prior_state_root = ParseHashO(obj, "prior_state_root");
     public_inputs.new_state_root = ParseHashO(obj, "new_state_root");
     public_inputs.l1_message_root_before = ParseHashO(obj, "l1_message_root_before");
-    public_inputs.l1_message_root_after = ParseHashO(obj, "l1_message_root_after");
+    const UniValue& l1_message_root_after = find_value(obj, "l1_message_root_after");
+    public_inputs.l1_message_root_after = l1_message_root_after.isNull()
+        ? uint256()
+        : ParseHashO(obj, "l1_message_root_after");
     public_inputs.consumed_queue_messages = ParseUint32Value(
         find_value(obj, "consumed_queue_messages"),
         "public_inputs.consumed_queue_messages");
@@ -2331,7 +2334,7 @@ static RPCHelpMan sendvaliditybatch()
                     {"prior_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Prior finalized state root"},
                     {"new_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "New finalized state root"},
                     {"l1_message_root_before", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root before batch consumption"},
-                    {"l1_message_root_after", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Queue root after batch consumption"},
+                    {"l1_message_root_after", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional queue root after batch consumption. If omitted, the wallet computes it from the active chainstate."},
                     {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages. The scalar-limited experimental real profile supports at most one consumed deposit entry; decomposed-input profiles may consume generic queue prefixes."},
                     {"queue_prefix_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional commitment to the exact consumed queue prefix. If omitted, the wallet computes it from the active chainstate."},
                     {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Withdrawal root"},
@@ -2383,6 +2386,10 @@ static RPCHelpMan sendvaliditybatch()
             }
 
             const UniValue& public_inputs_obj = request.params[1].get_obj();
+            const bool l1_message_root_after_omitted =
+                find_value(public_inputs_obj, "l1_message_root_after").isNull();
+            const bool queue_prefix_commitment_omitted =
+                find_value(public_inputs_obj, "queue_prefix_commitment").isNull();
             ValiditySidechainBatchPublicInputs public_inputs =
                 ParseValiditySidechainBatchPublicInputsObject(public_inputs_obj);
             std::vector<ValiditySidechainWithdrawalLeaf> experimental_withdrawal_leaves;
@@ -2411,17 +2418,6 @@ static RPCHelpMan sendvaliditybatch()
                     RPC_INVALID_PARAMETER,
                     "experimental real profile currently supports at most one withdrawal leaf witness");
             }
-            if (find_value(public_inputs_obj, "queue_prefix_commitment").isNull()) {
-                std::string queue_error;
-                if (!ComputeValiditySidechainQueuePrefixCommitment(
-                        sidechain,
-                        sidechain_id,
-                        public_inputs.consumed_queue_messages,
-                        public_inputs.queue_prefix_commitment,
-                        &queue_error)) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, queue_error);
-                }
-            }
             const std::vector<std::vector<unsigned char>> data_chunks =
                 (request.params.size() > 3 && !request.params[3].isNull())
                     ? ParseHexArray(request.params[3], "data_chunks")
@@ -2430,6 +2426,23 @@ static RPCHelpMan sendvaliditybatch()
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     "batch data chunk count exceeds consensus limit");
+            }
+            std::string derived_queue_error;
+            uint256 expected_l1_message_root_after;
+            if (!ComputeValiditySidechainConsumedQueueRoot(
+                    sidechain,
+                    sidechain_id,
+                    public_inputs.consumed_queue_messages,
+                    expected_l1_message_root_after,
+                    &derived_queue_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, derived_queue_error);
+            }
+            if (l1_message_root_after_omitted) {
+                public_inputs.l1_message_root_after = expected_l1_message_root_after;
+            } else if (public_inputs.l1_message_root_after != expected_l1_message_root_after) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "batch queue root after does not match consumed prefix");
             }
             std::vector<ValiditySidechainQueueEntry> consumed_queue_entries;
             std::string queue_entries_error;
@@ -2447,6 +2460,31 @@ static RPCHelpMan sendvaliditybatch()
                             RPC_INVALID_PARAMETER,
                             "experimental real profile currently supports consumed deposit queue entries only");
                     }
+                }
+            }
+            uint256 expected_queue_prefix_commitment;
+            if (!ComputeValiditySidechainQueuePrefixCommitment(
+                    sidechain,
+                    sidechain_id,
+                    public_inputs.consumed_queue_messages,
+                    expected_queue_prefix_commitment,
+                    &derived_queue_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, derived_queue_error);
+            }
+            if (queue_prefix_commitment_omitted) {
+                public_inputs.queue_prefix_commitment = expected_queue_prefix_commitment;
+            } else if (public_inputs.queue_prefix_commitment != expected_queue_prefix_commitment) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "batch queue prefix commitment does not match consumed prefix");
+            }
+            if (!experimental_withdrawal_leaves.empty()) {
+                const uint256 expected_withdrawal_root =
+                    ComputeValiditySidechainWithdrawalRoot(experimental_withdrawal_leaves);
+                if (public_inputs.withdrawal_root != expected_withdrawal_root) {
+                    throw JSONRPCError(
+                        RPC_INVALID_PARAMETER,
+                        "withdrawal_root does not match withdrawal_leaves witness");
                 }
             }
 
