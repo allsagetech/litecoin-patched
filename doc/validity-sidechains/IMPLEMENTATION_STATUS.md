@@ -428,6 +428,9 @@ It also now has functional wallet/RPC coverage for:
 - competing-fork rollback of longer losing-fork accepted-batch history plus
   executed withdrawals, including restart with an empty mempool and manual
   replay of the same batch sequence afterward
+- competing-fork rollback of longer losing-fork legacy and state-proof
+  escape-exit history, including restart and restored-or-resubmitted replay of
+  both exit variants afterward
 - competing-fork rollback of losing-fork registration and deposit state so
   orphaned sidechains disappear and the same sidechain id can be reused
 
