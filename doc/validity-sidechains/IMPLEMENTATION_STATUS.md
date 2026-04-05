@@ -394,6 +394,9 @@ It also now has functional wallet/RPC coverage for:
 - explicit censorship-recovery coverage showing that a live sequencer cannot
   bypass a matured force-exit request and that a halted sequencer still leaves
   users with an escape-exit path
+- exact-bound functional coverage for the maximum queue-consumption limit, the
+  maximum DA payload plus chunk-count limits, and the maximum verified-
+  withdrawal execution fanout limit
 - verified withdrawal execution
 - escape-exit execution
 - stale-deposit reclaim

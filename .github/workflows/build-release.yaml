@@ -665,6 +665,7 @@ jobs:
           run_one feature_validitysidechain_toy_proof_profile.py
           run_one validitysidechain_mempool_conflicts.py
           run_one validitysidechain_censorship_recovery.py
+          run_one validitysidechain_resource_bounds.py
           run_one validitysidechain_force_exit_recovery.py
           run_one validitysidechain_force_exit_reorg.py
           run_one validitysidechain_force_exit_consumed_reorg.py

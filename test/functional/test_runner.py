@@ -253,6 +253,7 @@ BASE_SCRIPTS = [
     'feature_validitysidechain_toy_proof_profile.py',
     'validitysidechain_mempool_conflicts.py',
     'validitysidechain_censorship_recovery.py',
+    'validitysidechain_resource_bounds.py',
     'validitysidechain_force_exit_recovery.py',
     'validitysidechain_force_exit_reorg.py',
     'validitysidechain_force_exit_consumed_reorg.py',
