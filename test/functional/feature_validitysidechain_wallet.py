@@ -832,8 +832,11 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             "00" * (config["max_proof_bytes"] + 1),
         )
 
-        auto_batch_public_inputs = dict(public_inputs)
-        del auto_batch_public_inputs["l1_message_root_after"]
+        auto_batch_public_inputs = {
+            "batch_number": public_inputs["batch_number"],
+            "new_state_root": public_inputs["new_state_root"],
+            "consumed_queue_messages": public_inputs["consumed_queue_messages"],
+        }
         batch_res = node.sendvaliditybatch(sidechain_id, auto_batch_public_inputs)
         assert_equal(batch_res["auto_scaffold_proof"], True)
         node.generate(1)

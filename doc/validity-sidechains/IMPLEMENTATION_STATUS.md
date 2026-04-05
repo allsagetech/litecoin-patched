@@ -337,11 +337,14 @@ stale-deposit recovery, and escape-exit execution from the wallet.
 `sendverifiedwithdrawals` now accepts either the legacy ordered withdrawal
 list or explicit Merkle proof objects, and `sendescapeexit` now accepts either
 legacy exit leaves or explicit account/balance state-proof objects.
-`sendvaliditybatch` now also auto-derives `l1_message_root_after` and
+`sendvaliditybatch` now also auto-derives `prior_state_root`,
+`l1_message_root_before`, `l1_message_root_after`, and
 `queue_prefix_commitment` from the active chainstate when callers omit them,
-and it rejects mismatched queue-prefix or withdrawal-witness metadata before
-proof construction instead of falling through to later generic verifier
-errors.
+and it can now also derive profile-appropriate `withdrawal_root`, `data_root`,
+and `data_size` values from withdrawal witnesses or DA chunks where the current
+wallet surface has enough information. It also rejects mismatched queue-prefix
+or withdrawal-witness metadata before proof construction instead of falling
+through to later generic verifier errors.
 The wallet now also locally prevalidates stale-deposit reclaim,
 verified-withdrawal execution, and escape-exit execution against the active
 chainstate before transaction construction, so obvious delay/replay/root-state

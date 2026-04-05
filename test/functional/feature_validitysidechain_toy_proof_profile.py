@@ -1283,9 +1283,10 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             real_v2_batch_res = node.sendvaliditybatch(
                 real_v2_auto_sidechain_id,
                 {
-                    key: value
-                    for key, value in real_v2_public_inputs.items()
-                    if key != "l1_message_root_after"
+                    "batch_number": real_v2_public_inputs["batch_number"],
+                    "new_state_root": real_v2_public_inputs["new_state_root"],
+                    "consumed_queue_messages": real_v2_public_inputs["consumed_queue_messages"],
+                    "withdrawal_leaves": real_v2_public_inputs["withdrawal_leaves"],
                 },
             )
             assert_equal(real_v2_batch_res["auto_scaffold_proof"], False)
