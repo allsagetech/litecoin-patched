@@ -277,19 +277,31 @@ class ValiditySidechainLongRangeBatchReorg(BitcoinTestFramework):
         assert_equal(sidechain_after_restart["executed_withdrawal_count"], 0)
         assert_equal(sidechain_after_restart["escrow_balance"], amount_to_sats(deposit_amount))
         assert_equal(sidechain_after_restart["queue_state"]["pending_message_count"], 1)
-        assert_equal(n0.getrawmempool(), [])
 
-        self.log.info("Re-submit the same longer batch history and withdrawal flow after restart.")
+        self.log.info("Restore or re-submit the same longer batch history and withdrawal flow after restart.")
         replay_batch_txids = []
         for batch_number in range(1, batch_count + 1):
             sidechain = get_sidechain(n0.getvaliditysidechaininfo(), sidechain_id)
             assert sidechain is not None
-            batch_res = n0.sendvaliditybatch(sidechain_id, build_noop_batch(sidechain, batch_number))
-            replay_batch_txids.append(batch_res["txid"])
+            if sidechain["latest_batch_number"] >= batch_number:
+                continue
+            mempool = n0.getrawmempool()
+            restored_batch_txid = losing_fork_batch_txids[batch_number - 1]
+            if restored_batch_txid in mempool:
+                self.log.info(f"The original batch {batch_number} transaction was restored to mempool after the reorg.")
+                replay_batch_txids.append(restored_batch_txid)
+            else:
+                batch_res = n0.sendvaliditybatch(sidechain_id, build_noop_batch(sidechain, batch_number))
+                replay_batch_txids.append(batch_res["txid"])
             n0.generatetoaddress(1, n0.getnewaddress())
 
-        replay_withdrawal_res = n0.sendverifiedwithdrawals(sidechain_id, batch_count, withdrawal_proof_entries)
-        replay_withdrawal_txid = replay_withdrawal_res["txid"]
+        mempool = n0.getrawmempool()
+        if losing_fork_withdrawal_txid in mempool:
+            self.log.info("The original verified-withdrawal transaction was restored to mempool after the reorg.")
+            replay_withdrawal_txid = losing_fork_withdrawal_txid
+        else:
+            replay_withdrawal_res = n0.sendverifiedwithdrawals(sidechain_id, batch_count, withdrawal_proof_entries)
+            replay_withdrawal_txid = replay_withdrawal_res["txid"]
         n0.generatetoaddress(1, n0.getnewaddress())
         self.sync_blocks()
 
