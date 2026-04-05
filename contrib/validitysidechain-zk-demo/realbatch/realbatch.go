@@ -10,12 +10,9 @@ import (
 	"strings"
 
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/toybatch"
-	"github.com/consensys/gnark/constraint"
-	"github.com/consensys/gnark-crypto/ecc"
 	bls12381fr "github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	poseidon2native "github.com/consensys/gnark-crypto/ecc/bls12-381/fr/poseidon2"
 	"github.com/consensys/gnark/frontend"
-	"github.com/consensys/gnark/frontend/cs/r1cs"
 	gnarkhash "github.com/consensys/gnark/std/hash"
 	sha2circuit "github.com/consensys/gnark/std/hash/sha2"
 	"github.com/consensys/gnark/std/math/bits"
@@ -27,8 +24,6 @@ const ProfileName = "groth16_bls12_381_poseidon_v1"
 const FinalProfileName = "groth16_bls12_381_poseidon_v2"
 const ExperimentalPublicInputVersion uint8 = 2
 const FinalPublicInputVersion uint8 = 5
-const FinalProfileMaxConsumedQueueEntries = 2
-const FinalProfileMaxWithdrawalLeaves = 2
 
 var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
 var queuePrefixCommitmentMagic = []uint8{'V', 'S', 'C', 'Q', 'P', 0x01}
@@ -93,57 +88,6 @@ type PoseidonBatchTransitionCircuitDecomposedPublicInputs struct {
 	DataRootLo                frontend.Variable `gnark:",public"`
 	DataRootHi                frontend.Variable `gnark:",public"`
 	DataSize                  frontend.Variable `gnark:",public"`
-
-	ConsumedQueueEntries [FinalProfileMaxConsumedQueueEntries]GenericConsumedQueueEntryWitness
-	WithdrawalLeaves     [FinalProfileMaxWithdrawalLeaves]GenericWithdrawalLeafWitness
-}
-
-type GenericConsumedQueueEntryWitness struct {
-	Present     frontend.Variable
-	QueueIndex  frontend.Variable
-	MessageKind frontend.Variable
-	MessageID   [32]uints.U8
-	MessageHash [32]uints.U8
-}
-
-type GenericWithdrawalLeafWitness struct {
-	Present               frontend.Variable
-	WithdrawalID          [32]uints.U8
-	Amount                frontend.Variable
-	DestinationCommitment [32]uints.U8
-}
-
-type noCommitR1CSBuilder struct {
-	frontend.Builder[constraint.U64]
-}
-
-func (b *noCommitR1CSBuilder) SetKeyValue(key, value any) {
-	if store, ok := b.Builder.(interface{ SetKeyValue(any, any) }); ok {
-		store.SetKeyValue(key, value)
-	}
-}
-
-func (b *noCommitR1CSBuilder) GetKeyValue(key any) any {
-	if store, ok := b.Builder.(interface{ GetKeyValue(any) any }); ok {
-		return store.GetKeyValue(key)
-	}
-	return nil
-}
-
-func newNoCommitR1CSBuilder(field *big.Int, config frontend.CompileConfig) (frontend.Builder[constraint.U64], error) {
-	builder, err := r1cs.NewBuilder[constraint.U64](field, config)
-	if err != nil {
-		return nil, err
-	}
-	return &noCommitR1CSBuilder{Builder: builder}, nil
-}
-
-func CompileCircuit(profileName string, circuit frontend.Circuit) (constraint.ConstraintSystem, error) {
-	var builder frontend.NewBuilder = r1cs.NewBuilder[constraint.U64]
-	if profileName == FinalProfileName {
-		builder = newNoCommitR1CSBuilder
-	}
-	return frontend.Compile(ecc.BLS12_381.ScalarField(), builder, circuit)
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
@@ -179,35 +123,6 @@ func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 }
 
 func (c *PoseidonBatchTransitionCircuitDecomposedPublicInputs) Define(api frontend.API) error {
-	bapi, err := uints.NewBytes(api)
-	if err != nil {
-		return err
-	}
-	u64api, err := uints.New[uints.U64](api)
-	if err != nil {
-		return err
-	}
-	l1MessageRootBefore := limbs128ToLittleEndianBytes(api, bapi, c.L1MessageRootBeforeLo, c.L1MessageRootBeforeHi)
-	l1MessageRootAfter := limbs128ToLittleEndianBytes(api, bapi, c.L1MessageRootAfterLo, c.L1MessageRootAfterHi)
-	queuePrefixCommitment := limbs128ToLittleEndianBytes(api, bapi, c.QueuePrefixCommitmentLo, c.QueuePrefixCommitmentHi)
-	withdrawalRoot := limbs128ToLittleEndianBytes(api, bapi, c.WithdrawalRootLo, c.WithdrawalRootHi)
-
-	if err := assertGenericQueueWitness(
-		api,
-		bapi,
-		u64api,
-		c.SidechainID,
-		l1MessageRootBefore,
-		l1MessageRootAfter,
-		queuePrefixCommitment,
-		c.ConsumedQueueMessages,
-		c.ConsumedQueueEntries[:]); err != nil {
-		return err
-	}
-	if err := assertGenericWithdrawalWitness(api, bapi, u64api, withdrawalRoot, c.WithdrawalLeaves[:]); err != nil {
-		return err
-	}
-
 	transitionHasher, err := newPoseidonHasher(api)
 	if err != nil {
 		return err
@@ -264,7 +179,7 @@ func BuildAssignment(request toybatch.CommandRequest) (frontend.Circuit, error) 
 		}
 		return &assignment, nil
 	case FinalProfileName:
-		assignment, err := buildDecomposedAssignment(request)
+		assignment, err := buildDecomposedPublicAssignment(request)
 		if err != nil {
 			return nil, err
 		}
@@ -439,26 +354,6 @@ func buildExperimentalPublicAssignment(request toybatch.CommandRequest) (Poseido
 	}, nil
 }
 
-func buildDecomposedAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuitDecomposedPublicInputs, error) {
-	assignment, err := buildDecomposedPublicAssignment(request)
-	if err != nil {
-		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
-	}
-
-	consumedQueueEntries, err := buildGenericConsumedQueueWitnesses(request)
-	if err != nil {
-		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
-	}
-	withdrawalLeaves, err := buildGenericWithdrawalLeafWitnesses(request)
-	if err != nil {
-		return PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, err
-	}
-
-	assignment.ConsumedQueueEntries = consumedQueueEntries
-	assignment.WithdrawalLeaves = withdrawalLeaves
-	return assignment, nil
-}
-
 func buildDecomposedPublicAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuitDecomposedPublicInputs, error) {
 	sidechainID, err := parseUintAsField(request.SidechainID, "sidechain_id")
 	if err != nil {
@@ -523,116 +418,6 @@ func buildDecomposedPublicAssignment(request toybatch.CommandRequest) (PoseidonB
 		DataRootHi:              dataRootHi,
 		DataSize:                dataSize,
 	}, nil
-}
-
-func buildGenericConsumedQueueWitnesses(request toybatch.CommandRequest) ([FinalProfileMaxConsumedQueueEntries]GenericConsumedQueueEntryWitness, error) {
-	var witnesses [FinalProfileMaxConsumedQueueEntries]GenericConsumedQueueEntryWitness
-
-	for i := range witnesses {
-		witnesses[i] = zeroGenericConsumedQueueEntryWitness()
-	}
-
-	if len(request.ConsumedQueueEntries) != int(request.PublicInputs.ConsumedQueueMessages) {
-		return witnesses, fmt.Errorf("consumed_queue_entries length must match consumed_queue_messages")
-	}
-	if len(request.ConsumedQueueEntries) > FinalProfileMaxConsumedQueueEntries {
-		return witnesses, fmt.Errorf("consumed_queue_entries length exceeds v2 circuit witness limit of %d", FinalProfileMaxConsumedQueueEntries)
-	}
-
-	for index, entry := range request.ConsumedQueueEntries {
-		if entry.MessageKind != 1 && entry.MessageKind != 2 {
-			return witnesses, fmt.Errorf("consumed_queue_entries[%d].message_kind must be 1 or 2", index)
-		}
-		queueIndex, err := parseUintAsField(entry.QueueIndex, fmt.Sprintf("consumed_queue_entries[%d].queue_index", index))
-		if err != nil {
-			return witnesses, err
-		}
-		messageKind, err := parseUintAsField(uint64(entry.MessageKind), fmt.Sprintf("consumed_queue_entries[%d].message_kind", index))
-		if err != nil {
-			return witnesses, err
-		}
-		messageID, err := parseUint256LittleEndianBytes(entry.MessageID, fmt.Sprintf("consumed_queue_entries[%d].message_id", index))
-		if err != nil {
-			return witnesses, err
-		}
-		messageHash, err := parseUint256LittleEndianBytes(entry.MessageHash, fmt.Sprintf("consumed_queue_entries[%d].message_hash", index))
-		if err != nil {
-			return witnesses, err
-		}
-		witnesses[index] = GenericConsumedQueueEntryWitness{
-			Present:     new(big.Int).SetUint64(1),
-			QueueIndex:  queueIndex,
-			MessageKind: messageKind,
-			MessageID:   messageID,
-			MessageHash: messageHash,
-		}
-	}
-
-	return witnesses, nil
-}
-
-func buildGenericWithdrawalLeafWitnesses(request toybatch.CommandRequest) ([FinalProfileMaxWithdrawalLeaves]GenericWithdrawalLeafWitness, error) {
-	var witnesses [FinalProfileMaxWithdrawalLeaves]GenericWithdrawalLeafWitness
-
-	for i := range witnesses {
-		witnesses[i] = zeroGenericWithdrawalLeafWitness()
-	}
-
-	if len(request.WithdrawalLeaves) > FinalProfileMaxWithdrawalLeaves {
-		return witnesses, fmt.Errorf("withdrawal_leaves length exceeds v2 circuit witness limit of %d", FinalProfileMaxWithdrawalLeaves)
-	}
-
-	for index, leaf := range request.WithdrawalLeaves {
-		withdrawalID, err := parseUint256LittleEndianBytes(leaf.WithdrawalID, fmt.Sprintf("withdrawal_leaves[%d].withdrawal_id", index))
-		if err != nil {
-			return witnesses, err
-		}
-		destinationCommitment, err := parseUint256LittleEndianBytes(
-			leaf.DestinationCommitment,
-			fmt.Sprintf("withdrawal_leaves[%d].destination_commitment", index))
-		if err != nil {
-			return witnesses, err
-		}
-		amount, err := parseAmountSatsField(leaf.Amount, fmt.Sprintf("withdrawal_leaves[%d].amount", index))
-		if err != nil {
-			return witnesses, err
-		}
-		witnesses[index] = GenericWithdrawalLeafWitness{
-			Present:               new(big.Int).SetUint64(1),
-			WithdrawalID:          withdrawalID,
-			Amount:                amount,
-			DestinationCommitment: destinationCommitment,
-		}
-	}
-
-	return witnesses, nil
-}
-
-func zeroGenericConsumedQueueEntryWitness() GenericConsumedQueueEntryWitness {
-	return GenericConsumedQueueEntryWitness{
-		Present:     new(big.Int),
-		QueueIndex:  new(big.Int),
-		MessageKind: new(big.Int),
-		MessageID:   zeroAssignedByteArray32(),
-		MessageHash: zeroAssignedByteArray32(),
-	}
-}
-
-func zeroGenericWithdrawalLeafWitness() GenericWithdrawalLeafWitness {
-	return GenericWithdrawalLeafWitness{
-		Present:               new(big.Int),
-		WithdrawalID:          zeroAssignedByteArray32(),
-		Amount:                new(big.Int),
-		DestinationCommitment: zeroAssignedByteArray32(),
-	}
-}
-
-func zeroAssignedByteArray32() [32]uints.U8 {
-	var out [32]uints.U8
-	for i := range out {
-		out[i] = uints.NewU8(0)
-	}
-	return out
 }
 
 func ManifestPublicInputs(publicInputVersion uint8) ([]string, error) {
@@ -836,9 +621,6 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 func ValidateDerivedRequest(request toybatch.CommandRequest) error {
 	derived, err := DeriveRequest(request)
 	if err != nil {
-		return err
-	}
-	if err := validateWitnessBoundsForProfile(request); err != nil {
 		return err
 	}
 	if err := validatePublishedDataWitness(request); err != nil {
@@ -1192,172 +974,6 @@ func assertExperimentalWithdrawalWitness(api frontend.API, circuit *PoseidonBatc
 	return nil
 }
 
-func validateWitnessBoundsForProfile(request toybatch.CommandRequest) error {
-	if request.ProfileName != FinalProfileName {
-		return nil
-	}
-	if len(request.ConsumedQueueEntries) > FinalProfileMaxConsumedQueueEntries {
-		return fmt.Errorf("consumed_queue_entries length exceeds v2 circuit witness limit of %d", FinalProfileMaxConsumedQueueEntries)
-	}
-	if len(request.WithdrawalLeaves) > FinalProfileMaxWithdrawalLeaves {
-		return fmt.Errorf("withdrawal_leaves length exceeds v2 circuit witness limit of %d", FinalProfileMaxWithdrawalLeaves)
-	}
-	return nil
-}
-
-func assertGenericQueueWitness(
-	api frontend.API,
-	bapi *uints.Bytes,
-	u64api *uints.BinaryField[uints.U64],
-	sidechainID frontend.Variable,
-	l1MessageRootBefore [32]uints.U8,
-	l1MessageRootAfter [32]uints.U8,
-	queuePrefixCommitment [32]uints.U8,
-	consumedQueueMessages frontend.Variable,
-	entries []GenericConsumedQueueEntryWitness,
-) error {
-	expectedAfter := l1MessageRootBefore
-	expectedPrefix := zeroByteArray32()
-	totalPresent := frontend.Variable(0)
-	previousPresent := frontend.Variable(1)
-
-	for i := range entries {
-		entry := entries[i]
-		api.AssertIsBoolean(entry.Present)
-		api.AssertIsLessOrEqual(entry.Present, previousPresent)
-		previousPresent = entry.Present
-		assertQueueMessageKindWhenPresent(api, entry.Present, entry.MessageKind)
-
-		consumePreimage := buildQueueStepPreimage(
-			bapi,
-			u64api,
-			queueConsumeMagic,
-			sidechainID,
-			expectedAfter,
-			entry.QueueIndex,
-			entry.MessageKind,
-			entry.MessageID,
-			entry.MessageHash,
-		)
-		consumedRoot, err := doubleSHA256(api, consumePreimage)
-		if err != nil {
-			return err
-		}
-
-		prefixPreimage := buildQueueStepPreimage(
-			bapi,
-			u64api,
-			queuePrefixCommitmentMagic,
-			sidechainID,
-			expectedPrefix,
-			entry.QueueIndex,
-			entry.MessageKind,
-			entry.MessageID,
-			entry.MessageHash,
-		)
-		prefixRoot, err := doubleSHA256(api, prefixPreimage)
-		if err != nil {
-			return err
-		}
-
-		expectedAfter = selectByteArray32(bapi, entry.Present, consumedRoot, expectedAfter)
-		expectedPrefix = selectByteArray32(bapi, entry.Present, prefixRoot, expectedPrefix)
-		totalPresent = api.Add(totalPresent, entry.Present)
-	}
-
-	api.AssertIsEqual(totalPresent, consumedQueueMessages)
-	assertByteArray32Equal(bapi, expectedAfter, l1MessageRootAfter)
-	assertByteArray32Equal(bapi, expectedPrefix, queuePrefixCommitment)
-	return nil
-}
-
-func assertGenericWithdrawalWitness(
-	api frontend.API,
-	bapi *uints.Bytes,
-	u64api *uints.BinaryField[uints.U64],
-	withdrawalRoot [32]uints.U8,
-	leaves []GenericWithdrawalLeafWitness,
-) error {
-	if len(leaves) != FinalProfileMaxWithdrawalLeaves {
-		return fmt.Errorf("unexpected v2 withdrawal witness slot count %d", len(leaves))
-	}
-
-	leafCount := frontend.Variable(0)
-	previousPresent := frontend.Variable(1)
-	leafHashes := make([][32]uints.U8, len(leaves))
-
-	for i := range leaves {
-		leaf := leaves[i]
-		api.AssertIsBoolean(leaf.Present)
-		api.AssertIsLessOrEqual(leaf.Present, previousPresent)
-		previousPresent = leaf.Present
-
-		leafHash, err := buildWithdrawalLeafHash(api, u64api, leaf)
-		if err != nil {
-			return err
-		}
-		leafHashes[i] = leafHash
-		leafCount = api.Add(leafCount, leaf.Present)
-	}
-
-	zeroRoot := zeroByteArray32()
-	parent01, err := buildWithdrawalNodeHash(api, leafHashes[0], leafHashes[1])
-	if err != nil {
-		return err
-	}
-	isCount1 := api.IsZero(api.Sub(leafCount, 1))
-	isCount2 := api.IsZero(api.Sub(leafCount, 2))
-
-	merkleRoot := selectByteArray32(
-		bapi,
-		isCount2,
-		parent01,
-		selectByteArray32(bapi, isCount1, leafHashes[0], zeroRoot),
-	)
-
-	rootPreimage := make([]uints.U8, 0, len(withdrawalRootMagic)+4+32)
-	rootPreimage = append(rootPreimage, uints.NewU8Array(withdrawalRootMagic)...)
-	rootPreimage = append(rootPreimage, packUint32LittleEndian(api, bapi, leafCount)...)
-	rootPreimage = append(rootPreimage, merkleRoot[:]...)
-	expectedRoot, err := doubleSHA256(api, rootPreimage)
-	if err != nil {
-		return err
-	}
-
-	assertByteArray32Equal(bapi, expectedRoot, withdrawalRoot)
-	return nil
-}
-
-func assertQueueMessageKindWhenPresent(api frontend.API, present frontend.Variable, messageKind frontend.Variable) {
-	invalidKind := api.Mul(api.Sub(messageKind, 1), api.Sub(messageKind, 2))
-	api.AssertIsEqual(api.Mul(present, invalidKind), 0)
-}
-
-func buildWithdrawalLeafHash(
-	api frontend.API,
-	u64api *uints.BinaryField[uints.U64],
-	leaf GenericWithdrawalLeafWitness,
-) ([32]uints.U8, error) {
-	leafPreimage := make([]uints.U8, 0, len(withdrawalLeafMagic)+32+8+32)
-	leafPreimage = append(leafPreimage, uints.NewU8Array(withdrawalLeafMagic)...)
-	leafPreimage = append(leafPreimage, leaf.WithdrawalID[:]...)
-	leafPreimage = append(leafPreimage, u64api.UnpackLSB(u64api.ValueOf(leaf.Amount))...)
-	leafPreimage = append(leafPreimage, leaf.DestinationCommitment[:]...)
-	return doubleSHA256(api, leafPreimage)
-}
-
-func buildWithdrawalNodeHash(
-	api frontend.API,
-	left [32]uints.U8,
-	right [32]uints.U8,
-) ([32]uints.U8, error) {
-	parentPreimage := make([]uints.U8, 0, len(withdrawalNodeMagic)+64)
-	parentPreimage = append(parentPreimage, uints.NewU8Array(withdrawalNodeMagic)...)
-	parentPreimage = append(parentPreimage, left[:]...)
-	parentPreimage = append(parentPreimage, right[:]...)
-	return doubleSHA256(api, parentPreimage)
-}
-
 func buildQueueStepPreimage(
 	bapi *uints.Bytes,
 	u64api *uints.BinaryField[uints.U64],
@@ -1436,22 +1052,6 @@ func fieldToLittleEndianBytes(api frontend.API, bapi *uints.Bytes, value fronten
 	bitsLE := bits.ToBinary(api, value, bits.WithNbDigits(256))
 	for i := 0; i < 32; i++ {
 		out[i] = bapi.ValueOf(bits.FromBinary(api, bitsLE[i*8:(i+1)*8]))
-	}
-	return out
-}
-
-func limbs128ToLittleEndianBytes(
-	api frontend.API,
-	bapi *uints.Bytes,
-	lo frontend.Variable,
-	hi frontend.Variable,
-) [32]uints.U8 {
-	var out [32]uints.U8
-	loBits := bits.ToBinary(api, lo, bits.WithNbDigits(128))
-	hiBits := bits.ToBinary(api, hi, bits.WithNbDigits(128))
-	for i := 0; i < 16; i++ {
-		out[i] = bapi.ValueOf(bits.FromBinary(api, loBits[i*8:(i+1)*8]))
-		out[16+i] = bapi.ValueOf(bits.FromBinary(api, hiBits[i*8:(i+1)*8]))
 	}
 	return out
 }

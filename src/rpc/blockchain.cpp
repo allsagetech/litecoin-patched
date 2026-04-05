@@ -1792,14 +1792,6 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(config));
-    const uint32_t batch_queue_witness_limit = GetValiditySidechainBatchProofQueueWitnessLimit(config);
-    if (batch_queue_witness_limit > 0) {
-        result.pushKV("batch_proof_queue_witness_limit", static_cast<int64_t>(batch_queue_witness_limit));
-    }
-    const uint32_t batch_withdrawal_witness_limit = GetValiditySidechainBatchProofWithdrawalWitnessLimit(config);
-    if (batch_withdrawal_witness_limit > 0) {
-        result.pushKV("batch_proof_withdrawal_witness_limit", static_cast<int64_t>(batch_withdrawal_witness_limit));
-    }
     result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(config));
     result.pushKV("verified_withdrawal_rpc_input_mode", GetValiditySidechainVerifiedWithdrawalRpcInputMode());
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(config));
@@ -1927,14 +1919,6 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(sidechain.config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(sidechain.config));
-    const uint32_t batch_queue_witness_limit = GetValiditySidechainBatchProofQueueWitnessLimit(sidechain.config);
-    if (batch_queue_witness_limit > 0) {
-        result.pushKV("batch_proof_queue_witness_limit", static_cast<int64_t>(batch_queue_witness_limit));
-    }
-    const uint32_t batch_withdrawal_witness_limit = GetValiditySidechainBatchProofWithdrawalWitnessLimit(sidechain.config);
-    if (batch_withdrawal_witness_limit > 0) {
-        result.pushKV("batch_proof_withdrawal_witness_limit", static_cast<int64_t>(batch_withdrawal_witness_limit));
-    }
     result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(sidechain.config));
     result.pushKV("verified_withdrawal_rpc_input_mode", GetValiditySidechainVerifiedWithdrawalRpcInputMode());
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(sidechain.config));

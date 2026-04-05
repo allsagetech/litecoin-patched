@@ -149,3 +149,9 @@ db4/
 osx_volname
 dist/
 *.background.tiff
+
+# Local developer build and test outputs
+/build-wsl-validity/
+/testtmp/
+__pycache__/
+/test/functional/test_framework/litecoin_scrypt/build/

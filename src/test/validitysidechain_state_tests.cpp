@@ -396,8 +396,8 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_native_backend_ready_wh
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
     BOOST_CHECK(status.requires_external_assets);
     BOOST_CHECK(status.assets_present);
-    BOOST_CHECK(status.prover_assets_present);
-    BOOST_CHECK_GT(status.proving_key_bytes, 0U);
+    BOOST_CHECK(!status.prover_assets_present);
+    BOOST_CHECK_EQUAL(status.proving_key_bytes, 0U);
     BOOST_CHECK(status.backend_ready);
     BOOST_CHECK(status.native_backend_available);
     BOOST_CHECK(status.native_backend_self_test_passed);
@@ -562,9 +562,9 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_uses_generic_queue_and_withdraw
     BOOST_CHECK(!IsValiditySidechainSingleEntryExperimentalQueueProfile(config));
     BOOST_CHECK(AllowsValiditySidechainForceExitRequests(config));
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainForceExitRequestMode(config)), "enabled_local_queue_consensus");
-    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainBatchQueueBindingMode(config)), "proof_bound_prefix_commitment_bounded_experimental");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainBatchQueueBindingMode(config)), "local_prefix_consensus_count_only");
     BOOST_CHECK(!IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config));
-    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainBatchWithdrawalBindingMode(config)), "accepted_root_bounded_witness_experimental");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainBatchWithdrawalBindingMode(config)), "accepted_root_generic");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainVerifiedWithdrawalExecutionMode(config)), "withdrawal_root_merkle_inclusion");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "merkle_inclusion_current_state_root_experimental");
 }

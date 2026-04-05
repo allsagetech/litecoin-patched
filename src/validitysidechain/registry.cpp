@@ -10,9 +10,6 @@
 namespace {
 
 static constexpr char POSEIDON_PROFILE_PREFIX[] = "groth16_bls12_381_poseidon_v";
-static constexpr char POSEIDON_PROFILE_NAME_V2[] = "groth16_bls12_381_poseidon_v2";
-static constexpr uint32_t POSEIDON_PROFILE_V2_MAX_PROVEN_QUEUE_ENTRIES = 2;
-static constexpr uint32_t POSEIDON_PROFILE_V2_MAX_PROVEN_WITHDRAWAL_LEAVES = 2;
 
 static bool FailValidation(std::string* error, const char* message)
 {
@@ -53,12 +50,6 @@ static bool UsesDecomposedPoseidonPublicInputs(const SupportedValiditySidechainC
 {
     return IsRealGroth16PoseidonProfile(supported) &&
            supported.public_input_version >= 5;
-}
-
-static bool IsBoundedWitnessPoseidonV2Profile(const SupportedValiditySidechainConfig& supported)
-{
-    return supported.profile_name != nullptr &&
-           std::string(supported.profile_name) == POSEIDON_PROFILE_NAME_V2;
 }
 
 static bool IsExperimentalScalarLimitedGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
@@ -349,25 +340,7 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
         return "local_prefix_consensus_single_deposit_entry_experimental";
     }
-    if (IsBoundedWitnessPoseidonV2Profile(*supported)) {
-        return "proof_bound_prefix_commitment_bounded_experimental";
-    }
     return "local_prefix_consensus_count_only";
-}
-
-uint32_t GetValiditySidechainBatchProofQueueWitnessLimit(const ValiditySidechainConfig& config)
-{
-    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
-    if (supported == nullptr || supported->scaffolding_only) {
-        return 0;
-    }
-    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
-        return 1;
-    }
-    if (IsBoundedWitnessPoseidonV2Profile(*supported)) {
-        return POSEIDON_PROFILE_V2_MAX_PROVEN_QUEUE_ENTRIES;
-    }
-    return 0;
 }
 
 bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config)
@@ -387,25 +360,7 @@ const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidecha
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
         return "accepted_root_single_leaf_experimental";
     }
-    if (IsBoundedWitnessPoseidonV2Profile(*supported)) {
-        return "accepted_root_bounded_witness_experimental";
-    }
     return "accepted_root_generic";
-}
-
-uint32_t GetValiditySidechainBatchProofWithdrawalWitnessLimit(const ValiditySidechainConfig& config)
-{
-    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
-    if (supported == nullptr || supported->scaffolding_only) {
-        return 0;
-    }
-    if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
-        return 1;
-    }
-    if (IsBoundedWitnessPoseidonV2Profile(*supported)) {
-        return POSEIDON_PROFILE_V2_MAX_PROVEN_WITHDRAWAL_LEAVES;
-    }
-    return 0;
 }
 
 const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config)

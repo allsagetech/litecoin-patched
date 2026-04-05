@@ -41,8 +41,6 @@ static constexpr char POSEIDON_PROFILE_NAME_V2[] = "groth16_bls12_381_poseidon_v
 static constexpr char POSEIDON_PROFILE_PREFIX[] = "groth16_bls12_381_poseidon_v";
 static constexpr uint8_t POSEIDON_FINAL_DECOMPOSED_PUBLIC_INPUT_VERSION = 5;
 static constexpr size_t GROTH16_DECOMPOSED_LIMB_BYTES = 16;
-static constexpr size_t POSEIDON_PROFILE_V2_MAX_PROVEN_QUEUE_ENTRIES = 2;
-static constexpr size_t POSEIDON_PROFILE_V2_MAX_PROVEN_WITHDRAWAL_LEAVES = 2;
 
 struct ValiditySidechainScaffoldProofEnvelope
 {
@@ -993,16 +991,6 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config) &&
         withdrawal_leaves.size() > 1) {
         return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");
-    }
-    if (supported->profile_name != nullptr &&
-        std::string(supported->profile_name) == POSEIDON_PROFILE_NAME_V2 &&
-        consumed_queue_entries.size() > POSEIDON_PROFILE_V2_MAX_PROVEN_QUEUE_ENTRIES) {
-        return FailValidation(error, "decomposed experimental real profile supports at most two consumed queue entries for auto prover");
-    }
-    if (supported->profile_name != nullptr &&
-        std::string(supported->profile_name) == POSEIDON_PROFILE_NAME_V2 &&
-        withdrawal_leaves.size() > POSEIDON_PROFILE_V2_MAX_PROVEN_WITHDRAWAL_LEAVES) {
-        return FailValidation(error, "decomposed experimental real profile supports at most two withdrawal leaf witnesses for auto prover");
     }
     {
         const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(*supported);

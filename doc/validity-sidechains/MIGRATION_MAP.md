@@ -497,9 +497,7 @@ Current branch status:
 - the external prover helper now also follows that split: the old
   `groth16_bls12_381_poseidon_v1` path still rejects multi-entry queue and
   multi-leaf withdrawal witnesses, while `groth16_bls12_381_poseidon_v2`
-  derives and validates generic queue-prefix and withdrawal-root witnesses and
-  now also commits a bounded in-circuit witness relation for up to two
-  consumed queue entries and two withdrawal leaves
+  derives and validates generic queue-prefix and withdrawal-root witnesses
 - the decomposed `groth16_bls12_381_poseidon_v2` path now also has explicit
   reclaim coverage, proving matured deposits can be reclaimed under restart
   without dropping the full-width initial withdrawal root state

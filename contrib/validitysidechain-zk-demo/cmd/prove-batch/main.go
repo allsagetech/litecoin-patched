@@ -128,7 +128,7 @@ func proveRealProfile(request toybatch.CommandRequest) {
 		emit(toybatch.CommandResult{Error: err.Error()})
 		return
 	}
-	ccs, err := realbatch.CompileCircuit(request.ProfileName, circuit)
+	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, circuit)
 	if err != nil {
 		emit(toybatch.CommandResult{Error: err.Error()})
 		return

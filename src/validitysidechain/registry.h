@@ -47,10 +47,8 @@ bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidech
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config);
-uint32_t GetValiditySidechainBatchProofQueueWitnessLimit(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config);
-uint32_t GetValiditySidechainBatchProofWithdrawalWitnessLimit(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config);
 
