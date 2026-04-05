@@ -425,8 +425,14 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_v2_supported["supports_external_prover"], True)
         assert_equal(real_v2_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
-        assert_equal(real_v2_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
-        assert_equal(real_v2_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
+        assert_equal(
+            real_v2_supported["batch_queue_binding_mode"],
+            "local_prefix_consensus_committed_public_inputs_experimental",
+        )
+        assert_equal(
+            real_v2_supported["batch_withdrawal_binding_mode"],
+            "accepted_root_generic_public_input_experimental",
+        )
         assert_equal(real_v2_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(real_v2_supported["verifier_assets"]["required"], True)
         assert_equal(real_v2_supported["verifier_assets"]["available"], True)

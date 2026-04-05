@@ -340,6 +340,9 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
         return "local_prefix_consensus_single_deposit_entry_experimental";
     }
+    if (UsesDecomposedPoseidonPublicInputs(*supported)) {
+        return "local_prefix_consensus_committed_public_inputs_experimental";
+    }
     return "local_prefix_consensus_count_only";
 }
 
@@ -359,6 +362,9 @@ const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidecha
     }
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
         return "accepted_root_single_leaf_experimental";
+    }
+    if (UsesDecomposedPoseidonPublicInputs(*supported)) {
+        return "accepted_root_generic_public_input_experimental";
     }
     return "accepted_root_generic";
 }

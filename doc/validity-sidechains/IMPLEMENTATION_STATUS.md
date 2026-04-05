@@ -235,17 +235,23 @@ This means:
   for that decomposed successor layout, splitting
   `l1_message_root_before`, `l1_message_root_after`,
   `queue_prefix_commitment`, `withdrawal_root`, and `data_root` into
-  128-bit public-input limbs while also proving a bounded queue-prefix and
-  withdrawal witness relation for up to two consumed queue entries and two
-  withdrawal leaves, leaving the current committed
+  128-bit public-input limbs while keeping the current native-verifier-safe
+  experimental transition shape, leaving the current committed
   `groth16_bls12_381_poseidon_v1` bundle unchanged
 - the external prover helper now treats `groth16_bls12_381_poseidon_v2`
   according to that decomposed runtime surface instead of reusing the old
   single-entry/single-leaf witness checks: it derives and validates generic
-  consumed queue prefixes and generic withdrawal Merkle roots for `v2`, and
-  now also fails early above the committed two-entry / two-leaf proof witness
-  limits, while `groth16_bls12_381_poseidon_v1` remains explicitly single-entry
-  and single-leaf
+  consumed queue prefixes and generic withdrawal Merkle roots for `v2`, but
+  those generic witness relations are still host-validated by the auto-prover
+  helper and Litecoin consensus checks rather than proven in-circuit, while
+  `groth16_bls12_381_poseidon_v1` remains explicitly single-entry and
+  single-leaf
+- `getvaliditysidechaininfo` now reports that same decomposed `v2` profile as
+  `batch_queue_binding_mode = "local_prefix_consensus_committed_public_inputs_experimental"`
+  and
+  `batch_withdrawal_binding_mode = "accepted_root_generic_public_input_experimental"`
+  so node observability no longer implies the reverted bounded-witness `v2`
+  experiment is still the active path
 - the decomposed `groth16_bls12_381_poseidon_v2` runtime path now also has
   direct reclaim coverage in both state-unit and functional tests, proving a
   matured deposit can be reclaimed and persisted across restart while keeping

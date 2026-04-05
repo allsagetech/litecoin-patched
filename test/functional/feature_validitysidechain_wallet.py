@@ -556,8 +556,14 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["verifier_backend"], "native_blst_groth16")
         assert_equal(real_v2_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v2")
         assert_equal(real_v2_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
-        assert_equal(real_v2_supported["batch_queue_binding_mode"], "local_prefix_consensus_count_only")
-        assert_equal(real_v2_supported["batch_withdrawal_binding_mode"], "accepted_root_generic")
+        assert_equal(
+            real_v2_supported["batch_queue_binding_mode"],
+            "local_prefix_consensus_committed_public_inputs_experimental",
+        )
+        assert_equal(
+            real_v2_supported["batch_withdrawal_binding_mode"],
+            "accepted_root_generic_public_input_experimental",
+        )
         assert_equal(real_v2_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_v2_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(real_v2_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
