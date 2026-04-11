@@ -47,6 +47,12 @@ response on stdout for the experimental external-profile integration in
 profile-derived public inputs the prover path uses for test and tooling
 workflows.
 
+For the real Poseidon profiles, the request contract now also carries the
+node's current chainstate roots and the canonical withdrawal-witness policy,
+so the external prover helper rejects requests whose `prior_state_root`,
+`l1_message_root_before`, or witness usage no longer match the node's active
+view.
+
 `verify-batch` now supports both the toy external profile and the experimental
 native real bundles `groth16_bls12_381_poseidon_v1` and
 `groth16_bls12_381_poseidon_v2`.

@@ -43,14 +43,19 @@ type WithdrawalLeaf struct {
 }
 
 type CommandRequest struct {
-	ProfileName          string               `json:"profile_name"`
-	ArtifactDir          string               `json:"artifact_dir"`
-	SidechainID          uint64               `json:"sidechain_id"`
-	PublicInputs         BatchPublicInputs    `json:"public_inputs"`
-	ConsumedQueueEntries []ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
-	WithdrawalLeaves     []WithdrawalLeaf     `json:"withdrawal_leaves,omitempty"`
-	DataChunksHex        []string             `json:"data_chunks_hex,omitempty"`
-	ProofBytesHex        string               `json:"proof_bytes_hex,omitempty"`
+	ProfileName                           string               `json:"profile_name"`
+	ArtifactDir                           string               `json:"artifact_dir"`
+	SidechainID                           uint64               `json:"sidechain_id"`
+	PublicInputs                          BatchPublicInputs    `json:"public_inputs"`
+	CurrentStateRoot                      string               `json:"current_state_root,omitempty"`
+	CurrentWithdrawalRoot                 string               `json:"current_withdrawal_root,omitempty"`
+	CurrentDataRoot                       string               `json:"current_data_root,omitempty"`
+	CurrentL1MessageRoot                  string               `json:"current_l1_message_root,omitempty"`
+	RequireWithdrawalWitnessOnRootChange  bool                 `json:"require_withdrawal_witness_on_root_change,omitempty"`
+	ConsumedQueueEntries                  []ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
+	WithdrawalLeaves                      []WithdrawalLeaf     `json:"withdrawal_leaves,omitempty"`
+	DataChunksHex                         []string             `json:"data_chunks_hex,omitempty"`
+	ProofBytesHex                         string               `json:"proof_bytes_hex,omitempty"`
 }
 
 type CommandResult struct {

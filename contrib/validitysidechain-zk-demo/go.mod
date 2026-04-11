@@ -1,6 +1,6 @@
 module github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo
 
-go 1.24.0
+go 1.24
 
 require (
 	github.com/consensys/gnark v0.14.0

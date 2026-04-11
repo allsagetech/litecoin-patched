@@ -311,7 +311,10 @@ BOOST_FIXTURE_TEST_SUITE(validitysidechain_state_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 {
     const auto& supported_configs = GetSupportedValiditySidechainConfigs();
+    const SupportedValiditySidechainConfig* canonical = GetCanonicalValiditySidechainConfig();
     BOOST_REQUIRE_EQUAL(supported_configs.size(), 6U);
+    BOOST_REQUIRE(canonical != nullptr);
+    BOOST_CHECK_EQUAL(std::string(canonical->profile_name), "groth16_bls12_381_poseidon_v2");
     BOOST_CHECK_EQUAL(std::string(supported_configs.front().profile_name), "scaffold_onchain_da_v1");
     BOOST_CHECK(supported_configs.front().scaffolding_only);
     BOOST_CHECK_EQUAL(
@@ -356,6 +359,20 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK(ValidateValiditySidechainConfig(config, &error));
     BOOST_CHECK(error.empty());
     BOOST_REQUIRE(FindSupportedValiditySidechainConfig(config) != nullptr);
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 0))),
+        "scaffold_migration");
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 2))),
+        "toy_migration");
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 4))),
+        "experimental_real_migration");
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 5))),
+        "canonical_target");
+    BOOST_CHECK(!IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 4)));
+    BOOST_CHECK(IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 5)));
 }
 
 BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist)
@@ -564,13 +581,14 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_uses_generic_queue_and_withdraw
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainForceExitRequestMode(config)), "enabled_local_queue_consensus");
     BOOST_CHECK_EQUAL(
         std::string(GetValiditySidechainBatchQueueBindingMode(config)),
-        "local_prefix_consensus_committed_public_inputs_experimental");
+        "local_prefix_consensus_committed_public_inputs");
     BOOST_CHECK(!IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config));
     BOOST_CHECK_EQUAL(
         std::string(GetValiditySidechainBatchWithdrawalBindingMode(config)),
-        "accepted_root_generic_public_input_experimental");
+        "accepted_root_generic_public_input");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainVerifiedWithdrawalExecutionMode(config)), "withdrawal_root_merkle_inclusion");
-    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "merkle_inclusion_current_state_root_experimental");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "account_balance_state_proof_claims");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitRpcInputMode(config)), "explicit_state_proofs");
 }
 
 BOOST_AUTO_TEST_CASE(register_sidechain_initializes_state_and_rejects_duplicates)
@@ -914,6 +932,59 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_scaffold_state_or_queue_changes)
         BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 6, /* accepted_height= */ 312, public_inputs, proof_bytes, {}, &error));
         BOOST_CHECK_EQUAL(error, "batch queue root after does not match consumed prefix");
     }
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_validates_queue_contract_before_proof_parsing)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 31, /* registration_height= */ 310, config));
+
+    const CScript refund_script = CScript() << OP_TRUE;
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f"),
+        refund_script);
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 31, /* deposit_height= */ 311, deposit));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(31);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.consumed_queue_messages = 1;
+    public_inputs.l1_message_root_after = sidechain->queue_state.root;
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(
+        /* sidechain_id= */ 31,
+        /* accepted_height= */ 312,
+        public_inputs,
+        std::vector<unsigned char>{0x01},
+        {},
+        &error));
+    BOOST_CHECK_EQUAL(error, "batch queue root after does not match consumed prefix");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_validates_groth16_public_inputs_before_proof_parsing)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 32, /* registration_height= */ 320, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(32);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.new_state_root = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(
+        /* sidechain_id= */ 32,
+        /* accepted_height= */ 321,
+        public_inputs,
+        std::vector<unsigned char>{0x01},
+        {},
+        &error));
+    BOOST_CHECK_EQUAL(error, "Groth16 public input new_state_root does not fit BLS12-381 scalar field");
 }
 
 BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
@@ -1778,10 +1849,10 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_rejects_fanout_above_consensus_limit)
     BOOST_CHECK_EQUAL(error, "escape-exit execution fanout exceeds consensus limit");
 }
 
-BOOST_AUTO_TEST_CASE(execute_escape_exits_supports_non_scaffold_current_state_root_mode)
+BOOST_AUTO_TEST_CASE(execute_escape_exits_supports_noncanonical_non_scaffold_current_state_root_mode)
 {
     ValiditySidechainState state;
-    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 3);
     BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 18, /* registration_height= */ 620, config));
 
     ValiditySidechain* sidechain = state.GetSidechain(18);
@@ -1802,6 +1873,29 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_supports_non_scaffold_current_state_ro
     BOOST_CHECK_EQUAL(sidechain->escrow_balance, 3 * COIN);
     BOOST_CHECK_EQUAL(sidechain->executed_escape_exit_count, 1U);
     BOOST_CHECK(state.HasExecutedEscapeExit(18, exits.front().exit_id));
+}
+
+BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_rejects_legacy_escape_exit_leaf_mode)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 24, /* registration_height= */ 620, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(24);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 4 * COIN;
+
+    const CScript payout = CScript() << OP_16;
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        MakeEscapeExitLeaf(uint256S("4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f4f"), payout, 1 * COIN),
+    };
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    const std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
+    sidechain->current_state_root = escape_root;
+
+    std::string error;
+    BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 24, /* execution_height= */ 620 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
+    BOOST_CHECK_EQUAL(error, "escape-exit execution requires explicit account/balance state proofs for this profile");
 }
 
 BOOST_AUTO_TEST_CASE(execute_escape_exit_state_proofs_require_halt_and_track_claim_replay)

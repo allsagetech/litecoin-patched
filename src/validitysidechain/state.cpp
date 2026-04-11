@@ -641,6 +641,104 @@ static bool ComputeRequiredConsumedQueueMessages(
     return true;
 }
 
+static bool ValidateBatchPublicInputsAgainstQueueState(
+    const ValiditySidechain& sidechain,
+    uint8_t sidechain_id,
+    int accepted_height,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    std::vector<ValiditySidechainQueueEntry>& out_consumed_queue_entries,
+    std::string* error)
+{
+    if (public_inputs.prior_state_root != sidechain.current_state_root) {
+        if (error != nullptr) {
+            *error = "prior state root does not match current state root";
+        }
+        return false;
+    }
+    if (public_inputs.l1_message_root_before != sidechain.queue_state.root) {
+        if (error != nullptr) {
+            *error = "batch queue root before does not match current queue root";
+        }
+        return false;
+    }
+    if (!ValidateConsumedQueueMessageCount(public_inputs.consumed_queue_messages, error)) {
+        return false;
+    }
+    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config) &&
+        public_inputs.consumed_queue_messages > 1) {
+        if (error != nullptr) {
+            *error = "experimental real profile currently supports at most one consumed queue message";
+        }
+        return false;
+    }
+    if (!GetValiditySidechainConsumedQueueEntries(
+            sidechain,
+            public_inputs.consumed_queue_messages,
+            out_consumed_queue_entries,
+            error)) {
+        return false;
+    }
+    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)) {
+        for (const auto& entry : out_consumed_queue_entries) {
+            if (entry.message_kind != ValiditySidechainQueueEntry::MESSAGE_DEPOSIT) {
+                if (error != nullptr) {
+                    *error = "experimental real profile currently supports consumed deposit queue entries only";
+                }
+                return false;
+            }
+        }
+    }
+
+    uint32_t required_consumed_queue_messages = 0;
+    if (!ComputeRequiredConsumedQueueMessages(
+            sidechain,
+            accepted_height,
+            required_consumed_queue_messages,
+            error)) {
+        return false;
+    }
+    if (public_inputs.consumed_queue_messages < required_consumed_queue_messages) {
+        if (error != nullptr) {
+            *error = "batch must consume all matured force-exit requests in reachable queue prefix";
+        }
+        return false;
+    }
+
+    uint256 expected_l1_message_root_after;
+    if (!ComputeConsumedQueueRoot(
+            sidechain,
+            sidechain_id,
+            public_inputs.consumed_queue_messages,
+            expected_l1_message_root_after,
+            error)) {
+        return false;
+    }
+    if (expected_l1_message_root_after != public_inputs.l1_message_root_after) {
+        if (error != nullptr) {
+            *error = "batch queue root after does not match consumed prefix";
+        }
+        return false;
+    }
+
+    uint256 expected_queue_prefix_commitment;
+    if (!ComputeQueuePrefixCommitment(
+            sidechain,
+            sidechain_id,
+            public_inputs.consumed_queue_messages,
+            expected_queue_prefix_commitment,
+            error)) {
+        return false;
+    }
+    if (expected_queue_prefix_commitment != public_inputs.queue_prefix_commitment) {
+        if (error != nullptr) {
+            *error = "batch queue prefix commitment does not match consumed prefix";
+        }
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 bool ComputeValiditySidechainQueuePrefixCommitment(
@@ -1096,49 +1194,15 @@ bool ValiditySidechainState::AcceptBatch(
         }
         return false;
     }
-    if (public_inputs.prior_state_root != sidechain->current_state_root) {
-        if (error != nullptr) {
-            *error = "prior state root does not match current state root";
-        }
-        return false;
-    }
-    if (public_inputs.l1_message_root_before != sidechain->queue_state.root) {
-        if (error != nullptr) {
-            *error = "batch queue root before does not match current queue root";
-        }
-        return false;
-    }
-    if (!ValidateConsumedQueueMessageCount(public_inputs.consumed_queue_messages, error)) {
-        return false;
-    }
-    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain->config) &&
-        public_inputs.consumed_queue_messages > 1) {
-        if (error != nullptr) {
-            *error = "experimental real profile currently supports at most one consumed queue message";
-        }
-        return false;
-    }
     std::vector<ValiditySidechainQueueEntry> consumed_queue_entries;
-    std::string queue_error;
-    if (!GetValiditySidechainConsumedQueueEntries(
+    if (!ValidateBatchPublicInputsAgainstQueueState(
             *sidechain,
-            public_inputs.consumed_queue_messages,
+            sidechain_id,
+            accepted_height,
+            public_inputs,
             consumed_queue_entries,
-            &queue_error)) {
-        if (error != nullptr) {
-            *error = queue_error;
-        }
+            error)) {
         return false;
-    }
-    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain->config)) {
-        for (const auto& entry : consumed_queue_entries) {
-            if (entry.message_kind != ValiditySidechainQueueEntry::MESSAGE_DEPOSIT) {
-                if (error != nullptr) {
-                    *error = "experimental real profile currently supports consumed deposit queue entries only";
-                }
-                return false;
-            }
-        }
     }
 
     ValiditySidechainBatchVerifierMode verifier_mode;
@@ -1161,48 +1225,7 @@ bool ValiditySidechainState::AcceptBatch(
         return false;
     }
     (void)verifier_mode;
-
-    uint256 expected_l1_message_root_after;
-    uint256 expected_queue_prefix_commitment;
-    uint32_t required_consumed_queue_messages = 0;
-    if (!ComputeRequiredConsumedQueueMessages(*sidechain, accepted_height, required_consumed_queue_messages, &queue_error)) {
-        if (error != nullptr) {
-            *error = queue_error;
-        }
-        return false;
-    }
-    if (public_inputs.consumed_queue_messages < required_consumed_queue_messages) {
-        if (error != nullptr) {
-            *error = "batch must consume all matured force-exit requests in reachable queue prefix";
-        }
-        return false;
-    }
-
-    if (!ComputeConsumedQueueRoot(*sidechain, sidechain_id, public_inputs.consumed_queue_messages, expected_l1_message_root_after, &queue_error)) {
-        if (error != nullptr) {
-            *error = queue_error;
-        }
-        return false;
-    }
-    if (!ComputeQueuePrefixCommitment(*sidechain, sidechain_id, public_inputs.consumed_queue_messages, expected_queue_prefix_commitment, &queue_error)) {
-        if (error != nullptr) {
-            *error = queue_error;
-        }
-        return false;
-    }
-    if (expected_l1_message_root_after != public_inputs.l1_message_root_after) {
-        if (error != nullptr) {
-            *error = "batch queue root after does not match consumed prefix";
-        }
-        return false;
-    }
-    if (expected_queue_prefix_commitment != public_inputs.queue_prefix_commitment) {
-        if (error != nullptr) {
-            *error = "batch queue prefix commitment does not match consumed prefix";
-        }
-        return false;
-    }
-
+    std::string queue_error;
     if (!ConsumeQueuePrefix(*sidechain, sidechain_id, public_inputs.consumed_queue_messages, &queue_error)) {
         if (error != nullptr) {
             *error = queue_error;
@@ -1353,6 +1376,12 @@ bool ValiditySidechainState::ExecuteEscapeExits(
     if (sidechain == nullptr || !sidechain->is_active) {
         if (error != nullptr) {
             *error = "unknown validity sidechain";
+        }
+        return false;
+    }
+    if (RequiresValiditySidechainEscapeExitStateProofs(sidechain->config)) {
+        if (error != nullptr) {
+            *error = "escape-exit execution requires explicit account/balance state proofs for this profile";
         }
         return false;
     }

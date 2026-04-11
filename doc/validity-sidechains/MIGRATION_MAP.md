@@ -475,9 +475,11 @@ Current branch status:
   gating, escrow decrement, executed-exit replay protection, and mempool
   duplicate tracking
 - `EXECUTE_ESCAPE_EXIT` now uses deterministic Merkle-style proof objects
-  against `current_state_root`; scaffold profiles and the current experimental
-  non-scaffold mode both use that path, but the final user-state circuit-backed
-  escape-exit semantics are still outstanding
+  against `current_state_root`; scaffold profiles and migration-only
+  non-scaffold profiles still accept the legacy leaf-list mode, while the
+  canonical `groth16_bls12_381_poseidon_v2` profile now requires explicit
+  account/balance state proofs from the wallet RPC, but the final user-state
+  circuit-backed escape-exit semantics are still outstanding
 - `getvaliditysidechaininfo` exposes the scaffold proof-config registry and
   registration, force-exit, batch-validation, withdrawal, and escape-exit
   plumbing availability, and its top-level status summary now reports
@@ -520,9 +522,20 @@ Current branch status:
 - wallet send-path RPCs now exist for validity-sidechain registration,
   deposits, batches, verified withdrawals, force-exit requests,
   stale-deposit reclaim, and escape exits
+- new wallet-side registrations on scaffold, toy, and legacy Poseidon proof
+  tuples now require explicit `-validityallowmigrationprofiles=1`, while the
+  canonical `groth16_bls12_381_poseidon_v2` profile remains available for new
+  registrations without any migration opt-in
+- canonical `groth16_bls12_381_poseidon_v2` batch submission now also treats
+  withdrawal-root changes as witness-backed operator actions: the wallet
+  rejects non-current `withdrawal_root` values unless matching
+  `withdrawal_leaves` are supplied
 - the legacy `getdrivechaininfo`, `senddrivechainbundle`, and
   `senddrivechainexecute` RPC surfaces are now explicitly marked deprecated,
-  while the underlying legacy consensus path remains active during migration
+  with the legacy withdrawal RPCs requiring explicit
+  `-deprecatedrpc=senddrivechainbundle` and
+  `-deprecatedrpc=senddrivechainexecute` opt-ins while the underlying legacy
+  consensus path remains active during migration
 - validity-sidechain tip snapshots now persist across connect/load/disconnect,
   and ancestor snapshot replay now uses persisted by-hash validity-sidechain
   snapshots during rollback/restart recovery, with competing-fork rollback

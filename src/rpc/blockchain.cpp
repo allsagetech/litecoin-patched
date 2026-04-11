@@ -1738,11 +1738,6 @@ static const char* GetValiditySidechainVerifiedWithdrawalRpcInputMode()
     return "ordered_leaf_list_or_explicit_merkle_proofs";
 }
 
-static const char* GetValiditySidechainEscapeExitRpcInputMode()
-{
-    return "legacy_leaf_list_or_explicit_state_proofs";
-}
-
 static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySidechainConfig& supported)
 {
     ValiditySidechainConfig config;
@@ -1761,6 +1756,12 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("profile_name", supported.profile_name);
+    result.pushKV("profile_lifecycle", GetValiditySidechainProfileLifecycle(config));
+    result.pushKV("canonical_target", IsCanonicalValiditySidechainProfile(config));
+    result.pushKV("recommended_for_new_registrations", IsCanonicalValiditySidechainProfile(config));
+    result.pushKV("migration_only", !IsCanonicalValiditySidechainProfile(config));
+    result.pushKV("registration_default_allowed", IsCanonicalValiditySidechainProfile(config));
+    result.pushKV("registration_requires_explicit_opt_in", !IsCanonicalValiditySidechainProfile(config));
     result.pushKV("verifier_artifact_name", supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name);
     result.pushKV("verifier_backend", supported.verifier_backend == nullptr ? "" : supported.verifier_backend);
     result.pushKV("scaffolding_only", supported.scaffolding_only);
@@ -1796,7 +1797,7 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("verified_withdrawal_rpc_input_mode", GetValiditySidechainVerifiedWithdrawalRpcInputMode());
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(config));
     result.pushKV("escape_exit_execution_mode", GetValiditySidechainEscapeExitExecutionMode(config));
-    result.pushKV("escape_exit_rpc_input_mode", GetValiditySidechainEscapeExitRpcInputMode());
+    result.pushKV("escape_exit_rpc_input_mode", GetValiditySidechainEscapeExitRpcInputMode(config));
     result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
     return result;
 }
@@ -1902,6 +1903,9 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("id", static_cast<int>(sidechain.id));
+    result.pushKV("profile_lifecycle", GetValiditySidechainProfileLifecycle(sidechain.config));
+    result.pushKV("canonical_target", IsCanonicalValiditySidechainProfile(sidechain.config));
+    result.pushKV("migration_only", !IsCanonicalValiditySidechainProfile(sidechain.config));
     result.pushKV("registration_height", sidechain.registration_height);
     result.pushKV("is_active", sidechain.is_active);
     result.pushKV("escrow_balance", sidechain.escrow_balance);
@@ -1923,7 +1927,7 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("verified_withdrawal_rpc_input_mode", GetValiditySidechainVerifiedWithdrawalRpcInputMode());
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(sidechain.config));
     result.pushKV("escape_exit_execution_mode", GetValiditySidechainEscapeExitExecutionMode(sidechain.config));
-    result.pushKV("escape_exit_rpc_input_mode", GetValiditySidechainEscapeExitRpcInputMode());
+    result.pushKV("escape_exit_rpc_input_mode", GetValiditySidechainEscapeExitRpcInputMode(sidechain.config));
     result.pushKV("verifier_assets", ValiditySidechainVerifierAssetsToJSON(assets_status));
     result.pushKV("config", ValiditySidechainConfigToJSON(sidechain.config));
     result.pushKV("queue_state", ValiditySidechainQueueStateToJSON(sidechain.queue_state));
@@ -1990,10 +1994,23 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     for (const auto& supported : GetSupportedValiditySidechainConfigs()) {
         supported_configs.push_back(SupportedValiditySidechainConfigToJSON(supported));
     }
+    const SupportedValiditySidechainConfig* canonical_supported = GetCanonicalValiditySidechainConfig();
 
     result.pushKV("implementation_status", "scaffolding");
     result.pushKV("trustless_enforced", false);
     result.pushKV("activation_candidate", false);
+    result.pushKV(
+        "canonical_profile_name",
+        canonical_supported != nullptr && canonical_supported->profile_name != nullptr
+            ? canonical_supported->profile_name
+            : "");
+    result.pushKV(
+        "recommended_profile_name",
+        canonical_supported != nullptr && canonical_supported->profile_name != nullptr
+            ? canonical_supported->profile_name
+            : "");
+    result.pushKV("migration_profiles_retained", true);
+    result.pushKV("migration_profile_registration_requires_opt_in", true);
     result.pushKV("legacy_drivechain_withdrawal_path_active", true);
     result.pushKV("legacy_drivechain_rpc_deprecated", true);
     result.pushKV("state_persistence_enabled", true);
@@ -2014,7 +2031,7 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
     result.pushKV("escape_exit_available", true);
     result.pushKV("escape_exit_mode", "profile_specific");
     result.pushKV("escape_exit_execution_mode", "profile_specific");
-    result.pushKV("escape_exit_rpc_input_mode", GetValiditySidechainEscapeExitRpcInputMode());
+    result.pushKV("escape_exit_rpc_input_mode", "profile_specific");
     const ValiditySidechainStateCacheStats cache_stats = GetValiditySidechainStateCacheStats();
     UniValue cache(UniValue::VOBJ);
     cache.pushKV("entries", static_cast<int64_t>(cache_stats.cache_entries));

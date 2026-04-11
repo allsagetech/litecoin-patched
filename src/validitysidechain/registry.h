@@ -42,6 +42,9 @@ const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidecha
 const SupportedValiditySidechainConfig* FindSupportedValiditySidechainConfig(const ValiditySidechainConfig& config);
 bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std::string* error = nullptr);
 bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& config);
+const SupportedValiditySidechainConfig* GetCanonicalValiditySidechainConfig();
+bool IsCanonicalValiditySidechainProfile(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainProfileLifecycle(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainDepositAdmissionMode(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidechainConfig& config);
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config);
@@ -50,6 +53,8 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
 bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config);
+bool RequiresValiditySidechainEscapeExitStateProofs(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainEscapeExitRpcInputMode(const ValiditySidechainConfig& config);
 
 #endif // BITCOIN_VALIDITYSIDECHAIN_REGISTRY_H

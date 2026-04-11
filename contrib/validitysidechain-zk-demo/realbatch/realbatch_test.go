@@ -49,6 +49,46 @@ func TestValidateDerivedRequestV2RejectsMismatchedGenericWithdrawalWitness(t *te
 	}
 }
 
+func TestValidateDerivedRequestV2RejectsCurrentStateRootMismatch(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.CurrentStateRoot = strings.Repeat("fe", 32)
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for mismatched current_state_root")
+	}
+	if err.Error() != "prior_state_root does not match current_state_root" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV2RejectsCurrentQueueRootMismatch(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.CurrentL1MessageRoot = strings.Repeat("fd", 32)
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for mismatched current_l1_message_root")
+	}
+	if err.Error() != "l1_message_root_before does not match current_l1_message_root" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV2RejectsWithdrawalRootChangeWithoutWitnessUnderPolicy(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.WithdrawalLeaves = nil
+	request.PublicInputs.WithdrawalRoot = strings.Repeat("cc", 32)
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for missing withdrawal witness under policy")
+	}
+	if err.Error() != "withdrawal_root changes require withdrawal_leaves witness under current witness policy" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPoseidonV2NativeArtifactsRemainVerifierCompatible(t *testing.T) {
 	request := buildV2RequestForTest(t)
 
@@ -136,9 +176,14 @@ func buildV2RequestForTest(t *testing.T) toybatch.CommandRequest {
 	request := toybatch.CommandRequest{
 		ProfileName: FinalProfileName,
 		SidechainID: 57,
+		CurrentStateRoot: strings.Repeat("01", 32),
+		CurrentWithdrawalRoot: strings.Repeat("02", 32),
+		CurrentDataRoot: "0",
+		CurrentL1MessageRoot: strings.Repeat("ab", 32),
+		RequireWithdrawalWitnessOnRootChange: true,
 		PublicInputs: toybatch.BatchPublicInputs{
 			BatchNumber:           1,
-			PriorStateRoot:        "1",
+			PriorStateRoot:        strings.Repeat("01", 32),
 			NewStateRoot:          "0",
 			L1MessageRootBefore:   strings.Repeat("ab", 32),
 			L1MessageRootAfter:    "0",

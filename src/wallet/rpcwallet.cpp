@@ -1075,6 +1075,35 @@ static std::string SendToDrivechainScript(
     return SendToDrivechainOutputs(wallet, recipients, coin_control, preflight_mempool_accept);
 }
 
+static void RequireDeprecatedLegacyDrivechainRpc(const char* method)
+{
+    if (IsDeprecatedRPCEnabled(method)) {
+        return;
+    }
+    throw JSONRPCError(
+        RPC_METHOD_DEPRECATED,
+        strprintf(
+            "%s is a deprecated legacy drivechain withdrawal RPC. Restart litecoind with -deprecatedrpc=%s to use it while the migration path still exists.",
+            method,
+            method));
+}
+
+static void RequireValiditySidechainMigrationProfileRegistrationOptIn(const ValiditySidechainConfig& config)
+{
+    if (IsCanonicalValiditySidechainProfile(config) || gArgs.GetBoolArg("-validityallowmigrationprofiles", false)) {
+        return;
+    }
+
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    const SupportedValiditySidechainConfig* canonical_supported = GetCanonicalValiditySidechainConfig();
+    throw JSONRPCError(
+        RPC_INVALID_PARAMETER,
+        strprintf(
+            "profile %s is retained only for migration/testing. Restart litecoind with -validityallowmigrationprofiles=1 to register migration-only profiles, or use the canonical %s profile for new registrations.",
+            supported != nullptr && supported->profile_name != nullptr ? supported->profile_name : "unsupported_profile",
+            canonical_supported != nullptr && canonical_supported->profile_name != nullptr ? canonical_supported->profile_name : "recommended_profile"));
+}
+
 static bool IsDrivechainRegisterSidechainExistsError(const UniValue& err)
 {
     if (!err.isObject()) return false;
@@ -1720,6 +1749,7 @@ static RPCHelpMan senddrivechainbundle()
         "DEPRECATED legacy RPC.\n"
         "Create, fund, sign and broadcast a drivechain BUNDLE_COMMIT transaction.\n"
         "This remains available only while the legacy drivechain withdrawal path is still active.\n"
+        "Restart litecoind with -deprecatedrpc=senddrivechainbundle to use it.\n"
         "This publishes a bundle hash for a sidechain.\n"
         "The sidechain must already exist (created by a prior confirmed REGISTER).\n"
         "Commit outputs are always created with zero value to avoid burning funds.\n",
@@ -1741,6 +1771,8 @@ static RPCHelpMan senddrivechainbundle()
                            "1, \"0000...0000\", [\"rltc1q...\", \"rltc1q...\"]")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            RequireDeprecatedLegacyDrivechainRpc("senddrivechainbundle");
+
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
             if (!wallet) return NullUniValue;
             CWallet* const pwallet = wallet.get();
@@ -1875,7 +1907,8 @@ static RPCHelpMan senddrivechainexecute()
         "senddrivechainexecute",
         "DEPRECATED legacy RPC.\n"
         "Create, fund, sign and broadcast a Drivechain EXECUTE transaction paying exact withdrawals.\n"
-        "This remains available only while the legacy drivechain withdrawal path is still active.\n",
+        "This remains available only while the legacy drivechain withdrawal path is still active.\n"
+        "Restart litecoind with -deprecatedrpc=senddrivechainexecute to use it.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"bundle_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Committed bundle hash (32 bytes hex)"},
@@ -1903,6 +1936,8 @@ static RPCHelpMan senddrivechainexecute()
                 "'[{\"address\":\"ltc1q...\",\"amount\":1.0}]' true")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            RequireDeprecatedLegacyDrivechainRpc("senddrivechainexecute");
+
             std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
             if (!wallet) return NullUniValue;
             CWallet* const pwallet = wallet.get();
@@ -1960,7 +1995,8 @@ static RPCHelpMan sendvaliditysidechainregister()
     return RPCHelpMan{
         "sendvaliditysidechainregister",
         "Create, fund, sign and broadcast a validity-sidechain REGISTER transaction.\n"
-        "The config must match one of the node's supported proof configuration profiles.\n",
+        "The config must match one of the node's supported proof configuration profiles.\n"
+        "Migration-only profiles require -validityallowmigrationprofiles=1; new registrations should use the canonical groth16_bls12_381_poseidon_v2 profile.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"config", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Validity-sidechain config",
@@ -1991,6 +2027,10 @@ static RPCHelpMan sendvaliditysidechainregister()
                 {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
                 {RPCResult::Type::NUM, "sidechain_id", "Registered sidechain id"},
                 {RPCResult::Type::STR_HEX, "config_hash", "Configuration hash"},
+                {RPCResult::Type::STR, "profile_lifecycle", "Lifecycle label for the selected proof profile"},
+                {RPCResult::Type::BOOL, "canonical_target", "Whether this registration used the canonical end-state profile"},
+                {RPCResult::Type::BOOL, "migration_only", "Whether this registration used a migration-only profile"},
+                {RPCResult::Type::STR, "recommended_profile_name", "Recommended profile name for new registrations"},
             }},
         RPCExamples{
             HelpExampleCli("sendvaliditysidechainregister",
@@ -2013,6 +2053,7 @@ static RPCHelpMan sendvaliditysidechainregister()
             if (!ValidateValiditySidechainConfig(config, &validation_error)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, validation_error);
             }
+            RequireValiditySidechainMigrationProfileRegistrationOptIn(config);
 
             CAmount amount = 0;
             if (request.params.size() > 2 && !request.params[2].isNull()) {
@@ -2039,9 +2080,18 @@ static RPCHelpMan sendvaliditysidechainregister()
                 subtract_fee_from_amount);
 
             UniValue result(UniValue::VOBJ);
+            const SupportedValiditySidechainConfig* canonical_supported = GetCanonicalValiditySidechainConfig();
             result.pushKV("txid", txid);
             result.pushKV("sidechain_id", static_cast<int>(sidechain_id));
             result.pushKV("config_hash", ComputeValiditySidechainConfigHash(config).GetHex());
+            result.pushKV("profile_lifecycle", GetValiditySidechainProfileLifecycle(config));
+            result.pushKV("canonical_target", IsCanonicalValiditySidechainProfile(config));
+            result.pushKV("migration_only", !IsCanonicalValiditySidechainProfile(config));
+            result.pushKV(
+                "recommended_profile_name",
+                canonical_supported != nullptr && canonical_supported->profile_name != nullptr
+                    ? canonical_supported->profile_name
+                    : "");
             return result;
         },
     };
@@ -2340,7 +2390,9 @@ static RPCHelpMan sendvaliditybatch()
     return RPCHelpMan{
         "sendvaliditybatch",
         "Create, fund, sign and broadcast a validity-sidechain COMMIT_VALIDITY_BATCH transaction.\n"
-        "If proof_bytes is omitted and the sidechain profile supports local auto proof generation, the wallet builds proof bytes automatically.\n",
+        "If proof_bytes is omitted and the sidechain profile supports local auto proof generation, the wallet builds proof bytes automatically.\n"
+        "The canonical Groth16 v2 profile also requires explicit withdrawal_leaves witness whenever a batch changes withdrawal_root.\n"
+        "For that profile, omitting withdrawal_leaves keeps the current withdrawal root, while an explicit empty array commits the canonical empty-withdrawal root.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"public_inputs", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Batch public inputs",
@@ -2420,11 +2472,15 @@ static RPCHelpMan sendvaliditybatch()
             std::vector<ValiditySidechainWithdrawalLeaf> experimental_withdrawal_leaves;
             std::vector<CRecipient> experimental_payout_recipients;
             const UniValue& withdrawal_leaves = find_value(public_inputs_obj, "withdrawal_leaves");
+            const bool withdrawal_leaves_supplied = !withdrawal_leaves.isNull();
             if (!withdrawal_leaves.isNull()) {
-                ParseValidityWithdrawalLeaves(
-                    withdrawal_leaves,
-                    experimental_withdrawal_leaves,
-                    experimental_payout_recipients);
+                RPCTypeCheckArgument(withdrawal_leaves, UniValue::VARR);
+                if (!withdrawal_leaves.empty()) {
+                    ParseValidityWithdrawalLeaves(
+                        withdrawal_leaves,
+                        experimental_withdrawal_leaves,
+                        experimental_payout_recipients);
+                }
             }
             if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config) &&
                 public_inputs.consumed_queue_messages > 1) {
@@ -2547,9 +2603,13 @@ static RPCHelpMan sendvaliditybatch()
                         public_inputs.withdrawal_root = sidechain.current_withdrawal_root;
                         break;
                     case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1:
-                    case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2:
                         public_inputs.withdrawal_root =
                             ComputeValiditySidechainWithdrawalRoot(experimental_withdrawal_leaves);
+                        break;
+                    case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2:
+                        public_inputs.withdrawal_root = !withdrawal_leaves_supplied
+                            ? sidechain.current_withdrawal_root
+                            : ComputeValiditySidechainWithdrawalRoot(experimental_withdrawal_leaves);
                         break;
                     default:
                         throw JSONRPCError(
@@ -2565,6 +2625,13 @@ static RPCHelpMan sendvaliditybatch()
                         RPC_INVALID_PARAMETER,
                         "withdrawal_root does not match withdrawal_leaves witness");
                 }
+            }
+            if (IsCanonicalValiditySidechainProfile(sidechain.config) &&
+                !withdrawal_leaves_supplied &&
+                public_inputs.withdrawal_root != sidechain.current_withdrawal_root) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "canonical profile withdrawal_root changes require withdrawal_leaves witness");
             }
 
             std::vector<unsigned char> proof_bytes;
@@ -2591,6 +2658,10 @@ static RPCHelpMan sendvaliditybatch()
                             sidechain.config,
                             sidechain_id,
                             public_inputs,
+                            sidechain.current_state_root,
+                            sidechain.current_withdrawal_root,
+                            sidechain.current_data_root,
+                            sidechain.queue_state.root,
                             consumed_queue_entries,
                             experimental_withdrawal_leaves,
                             data_chunks,
@@ -2828,7 +2899,7 @@ static RPCHelpMan sendescapeexit()
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_ESCAPE_EXIT transaction.\n"
         "Legacy callers may provide an ordered list of escape-exit leaves, and the wallet will deterministically build Merkle proofs that must match the referenced state root.\n"
         "Callers that already have account/balance witnesses may instead provide explicit state-proof objects, which the wallet encodes directly and binds to a deterministic claim id.\n"
-        "Scaffold profiles use scaffold Merkle inclusion, and supported non-scaffold profiles expose an experimental current-state-root Merkle mode pending final user-state proof semantics.\n",
+        "Scaffold profiles use scaffold Merkle inclusion, migration profiles still accept the legacy current-state-root Merkle mode, and the canonical Groth16 v2 profile requires explicit account/balance state proofs.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"state_root_reference", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Current finalized state root reference"},
@@ -2892,6 +2963,12 @@ static RPCHelpMan sendescapeexit()
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     "escape-exit execution fanout exceeds consensus limit");
+            }
+            if (RequiresValiditySidechainEscapeExitStateProofs(sidechain.config) &&
+                input_mode == ValidityEscapeExitInputMode::LEGACY_LEAF_LIST) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "escape-exit execution requires explicit account/balance state proofs for this profile");
             }
 
             std::vector<CRecipient> recipients;

@@ -158,7 +158,7 @@ jobs:
 
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [[ "${GITHUB_REF_NAME:-}" == v* ]]; then
             release_tag="${GITHUB_REF_NAME}"
-            release_name="Litecoin Core Drivechain ${release_tag} (Windows x86_64)"
+            release_name="Litecoin Core Validity Sidechains ${release_tag} (Windows x86_64)"
             release_prerelease="false"
             case "${release_tag,,}" in
               *rc*|*alpha*|*beta*)
@@ -167,12 +167,12 @@ jobs:
             esac
           else
             release_tag="v${version}-nightly-${short_sha}"
-            release_name="Litecoin Core Drivechain v${version} Nightly (Windows x86_64) ${short_sha}"
+            release_name="Litecoin Core Validity Sidechains v${version} Nightly (Windows x86_64) ${short_sha}"
             release_prerelease="true"
           fi
 
           release_asset_suffix="${release_tag#v}-win64"
-          dist_dir_name="litecoin-core-drivechain-${release_asset_suffix}"
+          dist_dir_name="litecoin-core-validity-sidechains-${release_asset_suffix}"
           dist_archive_name="${dist_dir_name}.zip"
 
           echo "LITECOIN_CORE_VERSION=${version}" >> "$GITHUB_ENV"
@@ -217,7 +217,7 @@ jobs:
           set -euo pipefail
 
           cat > artifacts/BUILD-METADATA.txt <<EOF
-          project=litecoin-core-drivechain
+          project=litecoin-core-validity-sidechains
           version=${LITECOIN_CORE_VERSION}
           commit=${GITHUB_SHA}
           short_commit=${SHORT_SHA}
@@ -230,7 +230,7 @@ jobs:
           python3 contrib/devtools/generate_spdx_sbom.py \
             --input-dir artifacts \
             --output artifacts/SBOM.spdx.json \
-            --package-name litecoin-core-drivechain \
+            --package-name litecoin-core-validity-sidechains \
             --package-version "${LITECOIN_CORE_VERSION}-${SHORT_SHA}"
 
           (
@@ -277,7 +277,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: litecoin-core-drivechain-${{ env.RELEASE_ASSET_SUFFIX }}
+          name: litecoin-core-validity-sidechains-${{ env.RELEASE_ASSET_SUFFIX }}
           if-no-files-found: error
           path: |
             artifacts/${{ env.DIST_ARCHIVE_NAME }}
@@ -292,7 +292,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: steps.signing_key.outputs.enabled == 'true'
         with:
-          name: litecoin-core-drivechain-${{ env.RELEASE_ASSET_SUFFIX }}-signature
+          name: litecoin-core-validity-sidechains-${{ env.RELEASE_ASSET_SUFFIX }}-signature
           if-no-files-found: error
           path: artifacts/SHA256SUMS.asc
 

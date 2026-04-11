@@ -619,6 +619,9 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 }
 
 func ValidateDerivedRequest(request toybatch.CommandRequest) error {
+	if err := validateCurrentChainstateBinding(request); err != nil {
+		return err
+	}
 	derived, err := DeriveRequest(request)
 	if err != nil {
 		return err
@@ -637,6 +640,24 @@ func ValidateDerivedRequest(request toybatch.CommandRequest) error {
 	}
 	if normalizeHex(request.PublicInputs.WithdrawalRoot) != normalizeHex(derived.PublicInputs.WithdrawalRoot) {
 		return fmt.Errorf("withdrawal_root does not match derived Poseidon transition")
+	}
+	return nil
+}
+
+func validateCurrentChainstateBinding(request toybatch.CommandRequest) error {
+	if request.CurrentStateRoot != "" &&
+		normalizeHex(request.PublicInputs.PriorStateRoot) != normalizeHex(request.CurrentStateRoot) {
+		return fmt.Errorf("prior_state_root does not match current_state_root")
+	}
+	if request.CurrentL1MessageRoot != "" &&
+		normalizeHex(request.PublicInputs.L1MessageRootBefore) != normalizeHex(request.CurrentL1MessageRoot) {
+		return fmt.Errorf("l1_message_root_before does not match current_l1_message_root")
+	}
+	if request.RequireWithdrawalWitnessOnRootChange &&
+		len(request.WithdrawalLeaves) == 0 &&
+		request.CurrentWithdrawalRoot != "" &&
+		normalizeHex(request.PublicInputs.WithdrawalRoot) != normalizeHex(request.CurrentWithdrawalRoot) {
+		return fmt.Errorf("withdrawal_root changes require withdrawal_leaves witness under current witness policy")
 	}
 	return nil
 }

@@ -98,6 +98,16 @@ def pad_field_hex(raw_value):
     return raw_value.lower().rjust(64, "0")
 
 
+BLS12_381_SCALAR_FIELD_MAX = int(
+    "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000",
+    16,
+)
+
+
+def fits_bls12_381_scalar_field(root_hex):
+    return int(root_hex, 16) <= BLS12_381_SCALAR_FIELD_MAX
+
+
 def compute_merkle_root(encoded_leaves, leaf_magic, node_magic, root_magic):
     if not encoded_leaves:
         return f"{hash256_uint256(root_magic + struct.pack('<I', 0) + ser_uint256(0)):064x}"
@@ -260,6 +270,43 @@ def build_account_state_proof(accounts, leaf_index):
         "leaf_count": len(accounts),
         "sibling_hashes": sibling_hashes,
     }, root
+
+
+def build_scalar_field_account_state_fixture(
+    amount,
+    *,
+    asset_id,
+    account_id,
+    spend_key_commitment,
+    account_nonce_start,
+    last_forced_exit_nonce,
+    max_attempts=64,
+):
+    balance_leaves = [{
+        "asset_id": asset_id,
+        "balance": amount,
+    }]
+    balance_proof, balance_root = build_balance_proof(balance_leaves, 0)
+
+    for nonce_offset in range(max_attempts):
+        account = {
+            "account_id": account_id,
+            "spend_key_commitment": spend_key_commitment,
+            "balance_root": balance_root,
+            "account_nonce": account_nonce_start + nonce_offset,
+            "last_forced_exit_nonce": last_forced_exit_nonce,
+        }
+        account_proof, state_root = build_account_state_proof([account], 0)
+        if fits_bls12_381_scalar_field(state_root):
+            return {
+                "balance_leaves": balance_leaves,
+                "balance_proof": balance_proof,
+                "account": account,
+                "account_proof": account_proof,
+                "state_root": state_root,
+            }
+
+    raise AssertionError("failed to derive a canonical account-state root inside the BLS12-381 scalar field")
 
 
 def compute_escape_exit_state_claim_key(sidechain_id, claim):
@@ -434,6 +481,12 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         node.generatetoaddress(101, mining_address)
 
         info = node.getvaliditysidechaininfo()
+        assert_equal(info["implementation_status"], "scaffolding")
+        assert_equal(info["canonical_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(info["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(info["migration_profiles_retained"], True)
+        assert_equal(info["migration_profile_registration_requires_opt_in"], True)
+        assert_equal(info["legacy_drivechain_rpc_deprecated"], True)
         assert_equal(info["deposit_admission_mode"], "profile_specific")
         assert_equal(info["force_exit_request_mode"], "profile_specific")
         assert_equal(info["batch_validation_mode"], "profile_specific")
@@ -446,13 +499,49 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(info["max_execution_fanout_limit"], 128)
         assert_equal(info["escape_exit_mode"], "profile_specific")
         assert_equal(info["escape_exit_execution_mode"], "profile_specific")
-        assert_equal(info["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
+        assert_equal(info["escape_exit_rpc_input_mode"], "profile_specific")
         supported = get_supported_profile(node, "scaffold_onchain_da_v1")
         transition_supported = get_supported_profile(node, "scaffold_transition_da_v1")
         toy_supported = get_supported_profile(node, "gnark_groth16_toy_batch_transition_v1")
         native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
         real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
         real_v2_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v2")
+        assert_equal(supported["profile_lifecycle"], "scaffold_migration")
+        assert_equal(supported["canonical_target"], False)
+        assert_equal(supported["recommended_for_new_registrations"], False)
+        assert_equal(supported["migration_only"], True)
+        assert_equal(supported["registration_default_allowed"], False)
+        assert_equal(supported["registration_requires_explicit_opt_in"], True)
+        assert_equal(transition_supported["profile_lifecycle"], "scaffold_migration")
+        assert_equal(transition_supported["canonical_target"], False)
+        assert_equal(transition_supported["recommended_for_new_registrations"], False)
+        assert_equal(transition_supported["migration_only"], True)
+        assert_equal(transition_supported["registration_default_allowed"], False)
+        assert_equal(transition_supported["registration_requires_explicit_opt_in"], True)
+        assert_equal(toy_supported["profile_lifecycle"], "toy_migration")
+        assert_equal(toy_supported["canonical_target"], False)
+        assert_equal(toy_supported["recommended_for_new_registrations"], False)
+        assert_equal(toy_supported["migration_only"], True)
+        assert_equal(toy_supported["registration_default_allowed"], False)
+        assert_equal(toy_supported["registration_requires_explicit_opt_in"], True)
+        assert_equal(native_toy_supported["profile_lifecycle"], "toy_migration")
+        assert_equal(native_toy_supported["canonical_target"], False)
+        assert_equal(native_toy_supported["recommended_for_new_registrations"], False)
+        assert_equal(native_toy_supported["migration_only"], True)
+        assert_equal(native_toy_supported["registration_default_allowed"], False)
+        assert_equal(native_toy_supported["registration_requires_explicit_opt_in"], True)
+        assert_equal(real_supported["profile_lifecycle"], "experimental_real_migration")
+        assert_equal(real_supported["canonical_target"], False)
+        assert_equal(real_supported["recommended_for_new_registrations"], False)
+        assert_equal(real_supported["migration_only"], True)
+        assert_equal(real_supported["registration_default_allowed"], False)
+        assert_equal(real_supported["registration_requires_explicit_opt_in"], True)
+        assert_equal(real_v2_supported["profile_lifecycle"], "canonical_target")
+        assert_equal(real_v2_supported["canonical_target"], True)
+        assert_equal(real_v2_supported["recommended_for_new_registrations"], True)
+        assert_equal(real_v2_supported["migration_only"], False)
+        assert_equal(real_v2_supported["registration_default_allowed"], True)
+        assert_equal(real_v2_supported["registration_requires_explicit_opt_in"], False)
         assert_equal(supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["force_exit_request_mode"], "enabled_local_queue_consensus")
@@ -558,17 +647,17 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
         assert_equal(
             real_v2_supported["batch_queue_binding_mode"],
-            "local_prefix_consensus_committed_public_inputs_experimental",
+            "local_prefix_consensus_committed_public_inputs",
         )
         assert_equal(
             real_v2_supported["batch_withdrawal_binding_mode"],
-            "accepted_root_generic_public_input_experimental",
+            "accepted_root_generic_public_input",
         )
         assert_equal(real_v2_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_v2_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
-        assert_equal(real_v2_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
-        assert_equal(real_v2_supported["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
-        assert_equal(real_v2_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
+        assert_equal(real_v2_supported["escape_exit_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v2_supported["escape_exit_execution_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v2_supported["escape_exit_rpc_input_mode"], "explicit_state_proofs")
         assert_equal(real_v2_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(real_v2_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v2")
         assert_equal(real_v2_supported["verifier_assets"]["required"], True)
@@ -594,12 +683,52 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             initial_state_root=pad_field_hex(real_valid_vector["public_inputs"]["prior_state_root"]),
             initial_withdrawal_root="ff" * 32,
         )
-        node.sendvaliditysidechainregister(real_v2_sidechain_id, real_v2_config)
+        real_v2_register_res = node.sendvaliditysidechainregister(real_v2_sidechain_id, real_v2_config)
         node.generate(1)
         real_v2_sidechain = get_sidechain_info(node, real_v2_sidechain_id)
+        assert_equal(real_v2_register_res["profile_lifecycle"], "canonical_target")
+        assert_equal(real_v2_register_res["canonical_target"], True)
+        assert_equal(real_v2_register_res["migration_only"], False)
+        assert_equal(real_v2_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_sidechain["profile_lifecycle"], "canonical_target")
+        assert_equal(real_v2_sidechain["canonical_target"], True)
+        assert_equal(real_v2_sidechain["migration_only"], False)
         assert_equal(real_v2_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_sidechain["batch_queue_binding_mode"], "local_prefix_consensus_committed_public_inputs")
+        assert_equal(real_v2_sidechain["batch_withdrawal_binding_mode"], "accepted_root_generic_public_input")
+        assert_equal(real_v2_sidechain["escape_exit_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v2_sidechain["escape_exit_execution_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v2_sidechain["escape_exit_rpc_input_mode"], "explicit_state_proofs")
         assert_equal(real_v2_sidechain["current_withdrawal_root"], real_v2_config["initial_withdrawal_root"])
         assert_equal(real_v2_sidechain["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_raises_rpc_error(
+            -8,
+            "canonical profile withdrawal_root changes require withdrawal_leaves witness",
+            node.sendvaliditybatch,
+            real_v2_sidechain_id,
+            {
+                "batch_number": 1,
+                "new_state_root": real_v2_sidechain["current_state_root"],
+                "consumed_queue_messages": 0,
+                "withdrawal_root": "01" * 32,
+            },
+            "00",
+        )
+        empty_withdrawal_root = compute_withdrawal_root([])
+        assert empty_withdrawal_root != real_v2_sidechain["current_withdrawal_root"]
+        assert_raises_rpc_error(
+            -8,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_v2_sidechain_id,
+            {
+                "batch_number": 1,
+                "new_state_root": real_v2_sidechain["current_state_root"],
+                "consumed_queue_messages": 0,
+                "withdrawal_leaves": [],
+            },
+            "00",
+        )
 
         withdrawals = [
             {
@@ -644,6 +773,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         sidechain = get_sidechain_info(node, sidechain_id)
         assert_equal(register_res["sidechain_id"], sidechain_id)
+        assert_equal(register_res["profile_lifecycle"], "scaffold_migration")
+        assert_equal(register_res["canonical_target"], False)
+        assert_equal(register_res["migration_only"], True)
+        assert_equal(register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
         assert_equal(sidechain["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(sidechain["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(sidechain["escape_exit_mode"], "merkle_inclusion_scaffold")
@@ -1221,6 +1354,91 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             state_root,
             [replay_escape_claim],
         )
+
+        self.log.info("Requiring explicit state-proof escape exits on the canonical Groth16 v2 profile.")
+        canonical_escape_sidechain_id = get_unused_sidechain_id(
+            node,
+            preferred_id=12,
+            minimum=12,
+            reserved_ids={real_sidechain_id, non_scaffold_escape_sidechain_id, state_proof_escape_sidechain_id},
+        )
+        canonical_escape_fixture = build_scalar_field_account_state_fixture(
+            Decimal("0.12"),
+            asset_id="de" * 32,
+            account_id="fa" * 32,
+            spend_key_commitment="78" * 32,
+            account_nonce_start=11,
+            last_forced_exit_nonce=4,
+        )
+        canonical_balance_leaves = canonical_escape_fixture["balance_leaves"]
+        canonical_balance_proof = canonical_escape_fixture["balance_proof"]
+        canonical_account = canonical_escape_fixture["account"]
+        canonical_account_proof = canonical_escape_fixture["account_proof"]
+        canonical_state_root = canonical_escape_fixture["state_root"]
+        canonical_escape_config = build_register_config(
+            real_v2_supported,
+            initial_state_root=canonical_state_root,
+            initial_withdrawal_root="00" * 32,
+        )
+        node.sendvaliditysidechainregister(canonical_escape_sidechain_id, canonical_escape_config)
+        node.generate(1)
+        node.sendvaliditydeposit(
+            canonical_escape_sidechain_id,
+            "9a" * 32,
+            {"address": node.getnewaddress()},
+            Decimal("0.12"),
+        )
+        node.generate(1)
+        node.generate(canonical_escape_config["escape_hatch_delay"])
+
+        canonical_escape_sidechain = get_sidechain_info(node, canonical_escape_sidechain_id)
+        assert_equal(canonical_escape_sidechain["current_state_root"], canonical_state_root)
+        assert_equal(canonical_escape_sidechain["escape_exit_mode"], "account_balance_state_proof_claims")
+        assert_equal(canonical_escape_sidechain["escape_exit_execution_mode"], "account_balance_state_proof_claims")
+        assert_equal(canonical_escape_sidechain["escape_exit_rpc_input_mode"], "explicit_state_proofs")
+        assert_equal(canonical_escape_sidechain["escrow_balance"], amount_to_sats(Decimal("0.12")))
+
+        canonical_legacy_escape_exits = [
+            {
+                "exit_id": "bc" * 32,
+                "script": build_script_destination(node),
+                "amount": Decimal("0.12"),
+            },
+        ]
+        assert_raises_rpc_error(
+            -8,
+            "escape-exit execution requires explicit account/balance state proofs for this profile",
+            node.sendescapeexit,
+            canonical_escape_sidechain_id,
+            canonical_state_root,
+            canonical_legacy_escape_exits,
+        )
+
+        canonical_escape_claim = {
+            "exit_asset_id": canonical_balance_leaves[0]["asset_id"],
+            "script": build_script_destination(node),
+            "amount": Decimal("0.12"),
+            "required_account_nonce": canonical_account["account_nonce"],
+            "required_last_forced_exit_nonce": canonical_account["last_forced_exit_nonce"],
+            "account_proof": canonical_account_proof,
+            "balance_proof": canonical_balance_proof,
+        }
+        canonical_escape_claim["exit_id"] = compute_escape_exit_state_id(
+            canonical_escape_sidechain_id,
+            canonical_escape_claim,
+        )
+        canonical_escape_res = node.sendescapeexit(
+            canonical_escape_sidechain_id,
+            canonical_state_root,
+            [canonical_escape_claim],
+        )
+        assert_equal(canonical_escape_res["state_root_reference"], canonical_state_root)
+        assert_equal(canonical_escape_res["exit_count"], 1)
+        node.generate(1)
+
+        canonical_escape_sidechain = get_sidechain_info(node, canonical_escape_sidechain_id)
+        assert_equal(canonical_escape_sidechain["executed_escape_exit_count"], 1)
+        assert_equal(canonical_escape_sidechain["escrow_balance"], 0)
 
         self.log.info("Registering the proposed Groth16 profile and replaying committed native proof vectors.")
         real_config = build_register_config(

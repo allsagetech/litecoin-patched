@@ -152,5 +152,5 @@ Example usage:
     python3 contrib/devtools/generate_spdx_sbom.py \
       --input-dir artifacts \
       --output artifacts/SBOM.spdx.json \
-      --package-name litecoin-core-drivechain \
+      --package-name litecoin-core-validity-sidechains \
       --package-version 0.1.0

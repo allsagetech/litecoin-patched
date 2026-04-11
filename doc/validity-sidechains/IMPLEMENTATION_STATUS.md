@@ -246,10 +246,15 @@ This means:
   helper and Litecoin consensus checks rather than proven in-circuit, while
   `groth16_bls12_381_poseidon_v1` remains explicitly single-entry and
   single-leaf
+- batch acceptance now derives the reachable consumed queue prefix, required
+  force-exit coverage, `l1_message_root_after`, and `queue_prefix_commitment`
+  from active chainstate before running proof verification, so the canonical
+  `v2` proof is checked against chain-derived committed public inputs instead
+  of verifying first and reconciling queue semantics afterward
 - `getvaliditysidechaininfo` now reports that same decomposed `v2` profile as
-  `batch_queue_binding_mode = "local_prefix_consensus_committed_public_inputs_experimental"`
+  `batch_queue_binding_mode = "local_prefix_consensus_committed_public_inputs"`
   and
-  `batch_withdrawal_binding_mode = "accepted_root_generic_public_input_experimental"`
+  `batch_withdrawal_binding_mode = "accepted_root_generic_public_input"`
   so node observability no longer implies the reverted bounded-witness `v2`
   experiment is still the active path
 - the decomposed `groth16_bls12_381_poseidon_v2` runtime path now also has
@@ -276,6 +281,15 @@ This means:
   it reports `deposit_admission_mode = "single_pending_entry_scalar_field_experimental"`
   and auto-picks a compatible nonce when callers omit one, instead of leaving
   operators to trial-and-error random nonces against mempool rejection
+- `sendvaliditysidechainregister` now treats non-canonical proof profiles as
+  migration-only registration targets: scaffold, toy, and legacy Poseidon
+  tuples require `-validityallowmigrationprofiles=1`, while new registrations
+  can use `groth16_bls12_381_poseidon_v2` without any extra node opt-in
+- `sendvaliditybatch` now treats canonical `groth16_bls12_381_poseidon_v2`
+  withdrawal-root changes as witness-backed operator actions: the wallet
+  rejects non-current `withdrawal_root` values unless callers also provide
+  matching `withdrawal_leaves`, so canonical batches no longer present
+  free-form withdrawal roots through the supported RPC path
 - the remaining trustless blocker is no longer the generic pairing equation;
   it is the absence of the final sidechain proof semantics for the intended
   profile
@@ -310,8 +324,10 @@ Current legacy status:
 
 - the drivechain consensus path is still compiled and active
 - `getdrivechaininfo` still exists, but is marked deprecated
-- `senddrivechainbundle` still exists, but is marked deprecated
-- `senddrivechainexecute` still exists, but is marked deprecated
+- `senddrivechainbundle` still exists, but is marked deprecated and now
+  requires `-deprecatedrpc=senddrivechainbundle`
+- `senddrivechainexecute` still exists, but is marked deprecated and now
+  requires `-deprecatedrpc=senddrivechainexecute`
 
 This deprecation is intentional. The branch has not yet reached the point where
 legacy consensus behavior can be deleted safely.
@@ -350,9 +366,13 @@ verified-withdrawal execution, and escape-exit execution against the active
 chainstate before transaction construction, so obvious delay/replay/root-state
 failures are rejected immediately instead of falling through to later mempool
 rejection.
-Non-scaffold profiles now also expose an experimental `current_state_root`
-Merkle mode for `EXECUTE_ESCAPE_EXIT`, but that path still stops short of the
-final user-state proof semantics.
+Migration profiles still expose an experimental `current_state_root` Merkle
+mode for `EXECUTE_ESCAPE_EXIT`, while the canonical
+`groth16_bls12_381_poseidon_v2` profile now reports
+`escape_exit_mode = "account_balance_state_proof_claims"` and requires
+explicit account/balance state-proof claims from the wallet/RPC path. That is
+closer to the intended user-state recovery surface, but it still stops short
+of final circuit-owned sidechain semantics.
 
 ## 6. Testing Status
 

@@ -50,9 +50,10 @@ remain:
 
 ## Intended Next Steps
 
-1. Replace the placeholder `groth16_bls12_381_poseidon_v1` artifact bundle with
-   a real `batch_vk.bin` and real proof vectors.
-2. Wire the final circuit/public-input semantics to those assets.
+1. Finalize the canonical `groth16_bls12_381_poseidon_v2` artifact bundle with
+   the intended end-state `batch_vk.bin` and production-semantics proof
+   vectors. Treat `v1` as scalar-limited migration coverage only.
+2. Wire the final circuit/public-input semantics to the canonical `v2` assets.
 3. Replace the remaining scaffold state-transition and exit semantics with the
    final proof-backed path.
 

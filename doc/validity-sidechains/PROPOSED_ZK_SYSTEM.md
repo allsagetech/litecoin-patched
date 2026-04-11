@@ -1,6 +1,6 @@
-# Proposed ZK System: Validity Batch Proof V1
+# Proposed ZK System: Validity Batch Proof V2
 
-This file defines a concrete zk system for the validity-sidechain design in
+This file defines the canonical zk target for the validity-sidechain design in
 this branch.
 
 It is a proposal, not an implemented verifier backend.
@@ -42,17 +42,17 @@ Why this choice:
 
 This does require a circuit-specific trusted setup per circuit version.
 
-## 3. Profile Tuple
+## 3. Canonical Profile Tuple
 
-The first non-scaffold profile should be a fixed registry entry:
+The canonical end-state profile should be a fixed registry entry:
 
-- `profile_name = "groth16_bls12_381_poseidon_v1"`
+- `profile_name = "groth16_bls12_381_poseidon_v2"`
 - `scaffolding_only = false`
 - `version = 1`
 - `proof_system_id = 2`
 - `circuit_family_id = 1`
 - `verifier_id = 1`
-- `public_input_version = 2`
+- `public_input_version = 5`
 - `state_root_format = 2`
 - `deposit_message_format = 1`
 - `withdrawal_leaf_format = 2`
@@ -62,11 +62,11 @@ The first non-scaffold profile should be a fixed registry entry:
 The exact numeric ids are less important than fixing one tuple and treating it
 as consensus.
 
-The current branch also includes a successor tuple,
-`groth16_bls12_381_poseidon_v2`, with the same ids except
-`public_input_version = 5`, so the profile can decompose full-width queue,
-withdrawal, and DA roots into 128-bit limbs without mutating the committed
-experimental `v1` artifact bundle.
+The current branch still carries `groth16_bls12_381_poseidon_v1` as a
+scalar-limited migration profile for committed vectors and compatibility work.
+That profile should be treated as transitional only. The intended final shape
+uses `v2` so full-width queue, withdrawal, and DA roots are decomposed into
+128-bit limbs as part of the public-input contract.
 
 ## 4. State Commitments
 

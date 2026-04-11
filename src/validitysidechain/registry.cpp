@@ -58,6 +58,24 @@ static bool IsExperimentalScalarLimitedGroth16PoseidonProfile(const SupportedVal
            !UsesDecomposedPoseidonPublicInputs(supported);
 }
 
+static bool IsCanonicalTargetGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
+{
+    return IsRealGroth16PoseidonProfile(supported) &&
+           UsesDecomposedPoseidonPublicInputs(supported) &&
+           supported.profile_name != nullptr &&
+           std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v2";
+}
+
+static bool IsToyProfile(const SupportedValiditySidechainConfig& supported)
+{
+    if (supported.profile_name == nullptr) {
+        return false;
+    }
+    const std::string profile_name = supported.profile_name;
+    return profile_name == "gnark_groth16_toy_batch_transition_v1" ||
+           profile_name == "native_blst_groth16_toy_batch_transition_v1";
+}
+
 static std::array<unsigned char, 32> Uint256ToLEBytes(const uint256& value)
 {
     std::array<unsigned char, 32> bytes{};
@@ -291,6 +309,46 @@ bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& co
     return supported != nullptr && supported->scaffolding_only;
 }
 
+const SupportedValiditySidechainConfig* GetCanonicalValiditySidechainConfig()
+{
+    for (const auto& supported : GetSupportedValiditySidechainConfigs()) {
+        if (IsCanonicalTargetGroth16PoseidonProfile(supported)) {
+            return &supported;
+        }
+    }
+    return nullptr;
+}
+
+bool IsCanonicalValiditySidechainProfile(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr && IsCanonicalTargetGroth16PoseidonProfile(*supported);
+}
+
+const char* GetValiditySidechainProfileLifecycle(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (IsCanonicalTargetGroth16PoseidonProfile(*supported)) {
+        return "canonical_target";
+    }
+    if (supported->scaffolding_only) {
+        return "scaffold_migration";
+    }
+    if (IsToyProfile(*supported)) {
+        return "toy_migration";
+    }
+    if (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported)) {
+        return "experimental_real_migration";
+    }
+    if (IsRealGroth16PoseidonProfile(*supported)) {
+        return "real_migration";
+    }
+    return "migration_profile";
+}
+
 const char* GetValiditySidechainDepositAdmissionMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
@@ -341,7 +399,7 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
         return "local_prefix_consensus_single_deposit_entry_experimental";
     }
     if (UsesDecomposedPoseidonPublicInputs(*supported)) {
-        return "local_prefix_consensus_committed_public_inputs_experimental";
+        return "local_prefix_consensus_committed_public_inputs";
     }
     return "local_prefix_consensus_count_only";
 }
@@ -364,7 +422,7 @@ const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidecha
         return "accepted_root_single_leaf_experimental";
     }
     if (UsesDecomposedPoseidonPublicInputs(*supported)) {
-        return "accepted_root_generic_public_input_experimental";
+        return "accepted_root_generic_public_input";
     }
     return "accepted_root_generic";
 }
@@ -384,6 +442,11 @@ const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySi
     return "withdrawal_root_merkle_inclusion";
 }
 
+bool RequiresValiditySidechainEscapeExitStateProofs(const ValiditySidechainConfig& config)
+{
+    return IsCanonicalValiditySidechainProfile(config);
+}
+
 const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
@@ -393,5 +456,16 @@ const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainC
     if (supported->scaffolding_only) {
         return "merkle_inclusion_scaffold";
     }
+    if (RequiresValiditySidechainEscapeExitStateProofs(config)) {
+        return "account_balance_state_proof_claims";
+    }
     return "merkle_inclusion_current_state_root_experimental";
+}
+
+const char* GetValiditySidechainEscapeExitRpcInputMode(const ValiditySidechainConfig& config)
+{
+    if (RequiresValiditySidechainEscapeExitStateProofs(config)) {
+        return "explicit_state_proofs";
+    }
+    return "legacy_leaf_list_or_explicit_state_proofs";
 }

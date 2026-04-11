@@ -57,6 +57,13 @@ TEST_EXIT_FAILED = 1
 TEST_EXIT_SKIPPED = 77
 
 TMPDIR_PREFIX = "litecoin_func_test_"
+LEGACY_DRIVECHAIN_RPC_FLAGS = [
+    "-deprecatedrpc=senddrivechainbundle",
+    "-deprecatedrpc=senddrivechainexecute",
+]
+VALIDITY_MIGRATION_PROFILE_FLAGS = [
+    "-validityallowmigrationprofiles=1",
+]
 
 
 class SkipTest(Exception):
@@ -391,6 +398,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         extra_args = [[]] * self.num_nodes
         if hasattr(self, "extra_args"):
             extra_args = self.extra_args
+        extra_args = [self._augment_test_specific_extra_args(args) for args in extra_args]
         self.add_nodes(self.num_nodes, extra_args)
         self.start_nodes()
         if self.is_wallet_compiled():
@@ -420,6 +428,43 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             if wallet_name is not None:
                 n.createwallet(wallet_name=wallet_name, descriptors=self.options.descriptors, load_on_startup=True)
             n.importprivkey(privkey=n.get_deterministic_priv_key().key, label='coinbase')
+
+    def _should_enable_legacy_drivechain_rpcs(self):
+        script_name = os.path.basename(sys.argv[0]).lower()
+        return "drivechain" in script_name
+
+    def _should_enable_validity_migration_profiles(self):
+        script_name = os.path.basename(sys.argv[0]).lower()
+        return "validitysidechain" in script_name
+
+    def _augment_legacy_drivechain_extra_args(self, extra_args):
+        if not self._should_enable_legacy_drivechain_rpcs():
+            return extra_args
+        if extra_args is None:
+            return LEGACY_DRIVECHAIN_RPC_FLAGS.copy()
+
+        augmented = list(extra_args)
+        for flag in LEGACY_DRIVECHAIN_RPC_FLAGS:
+            if flag not in augmented:
+                augmented.append(flag)
+        return augmented
+
+    def _augment_validity_migration_extra_args(self, extra_args):
+        if not self._should_enable_validity_migration_profiles():
+            return extra_args
+        if extra_args is None:
+            return VALIDITY_MIGRATION_PROFILE_FLAGS.copy()
+
+        augmented = list(extra_args)
+        for flag in VALIDITY_MIGRATION_PROFILE_FLAGS:
+            if flag not in augmented:
+                augmented.append(flag)
+        return augmented
+
+    def _augment_test_specific_extra_args(self, extra_args):
+        augmented = self._augment_legacy_drivechain_extra_args(extra_args)
+        augmented = self._augment_validity_migration_extra_args(augmented)
+        return augmented
 
     def run_test(self):
         """Tests must override this method to define test logic"""
@@ -501,6 +546,11 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Start a litecoind"""
 
         node = self.nodes[i]
+        args = list(args)
+        if args and args[0] is not None:
+            args[0] = self._augment_test_specific_extra_args(args[0])
+        elif "extra_args" in kwargs and kwargs["extra_args"] is not None:
+            kwargs["extra_args"] = self._augment_test_specific_extra_args(kwargs["extra_args"])
 
         node.start(*args, **kwargs)
         node.wait_for_rpc_connection()
@@ -514,6 +564,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if extra_args is None:
             extra_args = [None] * self.num_nodes
         assert_equal(len(extra_args), self.num_nodes)
+        extra_args = [
+            self._augment_test_specific_extra_args(node_extra_args) if node_extra_args is not None else None
+            for node_extra_args in extra_args
+        ]
         try:
             for i, node in enumerate(self.nodes):
                 node.start(extra_args[i], *args, **kwargs)

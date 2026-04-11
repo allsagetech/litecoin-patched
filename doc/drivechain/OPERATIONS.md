@@ -69,6 +69,8 @@ Notes:
 
 Owner-auth sidechains require enough owner signatures to satisfy the registered
 `auth_threshold`, provided by the wallet keys for the supplied owner address set.
+The legacy withdrawal RPCs now require explicit opt-ins:
+`-deprecatedrpc=senddrivechainbundle` and `-deprecatedrpc=senddrivechainexecute`.
 `senddrivechainbundle` accepts a single owner address or a JSON array of owner addresses.
 `senddrivechainexecute` remains subject to the registered `max_bundle_withdrawal`.
 `senddrivechainbundle` creates zero-value commit outputs so the RPC path does not burn funds.

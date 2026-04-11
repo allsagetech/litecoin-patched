@@ -232,6 +232,8 @@ BASE_SCRIPTS = [
     'rpc_bind.py --ipv4',
     'rpc_bind.py --ipv6',
     'rpc_bind.py --nonloopback',
+    'rpc_legacy_sidechain_deprecation.py',
+    'rpc_validitysidechain_registration_policy.py',
     'mining_basic.py',
     'feature_signet.py',
     'feature_drivechain_signet.py',

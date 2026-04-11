@@ -962,6 +962,10 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     const ValiditySidechainConfig& config,
     uint8_t sidechain_id,
     const ValiditySidechainBatchPublicInputs& public_inputs,
+    const uint256& current_state_root,
+    const uint256& current_withdrawal_root,
+    const uint256& current_data_root,
+    const uint256& current_l1_message_root,
     const std::vector<ValiditySidechainQueueEntry>& consumed_queue_entries,
     const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawal_leaves,
     const std::vector<std::vector<unsigned char>>& data_chunks,
@@ -1031,6 +1035,13 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     request.pushKV("artifact_dir", ResolveVerifierArtifactDir(*supported).string());
     request.pushKV("sidechain_id", static_cast<int64_t>(sidechain_id));
     request.pushKV("public_inputs", BatchPublicInputsToJSON(public_inputs));
+    request.pushKV("current_state_root", current_state_root.GetHex());
+    request.pushKV("current_withdrawal_root", current_withdrawal_root.GetHex());
+    request.pushKV("current_data_root", current_data_root.GetHex());
+    request.pushKV("current_l1_message_root", current_l1_message_root.GetHex());
+    request.pushKV(
+        "require_withdrawal_witness_on_root_change",
+        IsCanonicalValiditySidechainProfile(config));
     request.pushKV("consumed_queue_entries", ConsumedQueueEntriesToJSON(consumed_queue_entries));
     request.pushKV("withdrawal_leaves", WithdrawalLeavesToJSON(withdrawal_leaves));
     request.pushKV("data_chunks_hex", DataChunksToJSON(data_chunks));
@@ -1198,25 +1209,25 @@ bool VerifyValiditySidechainBatch(
                 error,
                 assets_status.status.empty() ? "verifier assets missing for supported profile" : assets_status.status.c_str());
         }
-        ValiditySidechainGroth16Proof proof;
-        if (!ParseValiditySidechainGroth16Proof(proof_bytes, proof, error)) {
-            return false;
-        }
         const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(*supported);
-        ValiditySidechainGroth16VerificationKey verifying_key;
-        if (!LoadValiditySidechainGroth16VerificationKey(
-                ResolveVerifierArtifactDir(*supported) / VERIFIER_BATCH_VK,
-                static_cast<uint32_t>(expected_public_inputs.size()),
-                verifying_key,
-                error)) {
-            return false;
-        }
         std::vector<std::array<unsigned char, 32>> encoded_public_inputs;
         if (!BuildValiditySidechainGroth16PublicInputs(
                 expected_public_inputs,
                 sidechain_id,
                 public_inputs,
                 encoded_public_inputs,
+                error)) {
+            return false;
+        }
+        ValiditySidechainGroth16Proof proof;
+        if (!ParseValiditySidechainGroth16Proof(proof_bytes, proof, error)) {
+            return false;
+        }
+        ValiditySidechainGroth16VerificationKey verifying_key;
+        if (!LoadValiditySidechainGroth16VerificationKey(
+                ResolveVerifierArtifactDir(*supported) / VERIFIER_BATCH_VK,
+                static_cast<uint32_t>(expected_public_inputs.size()),
+                verifying_key,
                 error)) {
             return false;
         }
@@ -1239,25 +1250,25 @@ bool VerifyValiditySidechainBatch(
                 error,
                 assets_status.status.empty() ? "verifier assets missing for supported profile" : assets_status.status.c_str());
         }
-        ValiditySidechainGroth16Proof proof;
-        if (!ParseValiditySidechainGroth16Proof(proof_bytes, proof, error)) {
-            return false;
-        }
         const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(*supported);
-        ValiditySidechainGroth16VerificationKey verifying_key;
-        if (!LoadValiditySidechainGroth16VerificationKey(
-                ResolveVerifierArtifactDir(*supported) / VERIFIER_BATCH_VK,
-                static_cast<uint32_t>(expected_public_inputs.size()),
-                verifying_key,
-                error)) {
-            return false;
-        }
         std::vector<std::array<unsigned char, 32>> encoded_public_inputs;
         if (!BuildValiditySidechainGroth16PublicInputs(
                 expected_public_inputs,
                 sidechain_id,
                 public_inputs,
                 encoded_public_inputs,
+                error)) {
+            return false;
+        }
+        ValiditySidechainGroth16Proof proof;
+        if (!ParseValiditySidechainGroth16Proof(proof_bytes, proof, error)) {
+            return false;
+        }
+        ValiditySidechainGroth16VerificationKey verifying_key;
+        if (!LoadValiditySidechainGroth16VerificationKey(
+                ResolveVerifierArtifactDir(*supported) / VERIFIER_BATCH_VK,
+                static_cast<uint32_t>(expected_public_inputs.size()),
+                verifying_key,
                 error)) {
             return false;
         }
