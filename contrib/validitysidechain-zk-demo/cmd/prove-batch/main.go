@@ -10,11 +10,11 @@ import (
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/nativegroth16"
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/realbatch"
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/toybatch"
+	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	groth16bls12381 "github.com/consensys/gnark/backend/groth16/bls12-381"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/rs/zerolog"
 )
 
@@ -101,6 +101,11 @@ func proveToyProfile(request toybatch.CommandRequest) {
 }
 
 func proveRealProfile(request toybatch.CommandRequest) {
+	if err := realbatch.ValidateProofRequestContract(request); err != nil {
+		emit(toybatch.CommandResult{Error: err.Error()})
+		return
+	}
+
 	derivedRequest, err := realbatch.DeriveRequest(request)
 	if err != nil {
 		emit(toybatch.CommandResult{Error: err.Error()})

@@ -250,6 +250,13 @@ This means:
   helper and Litecoin consensus checks rather than proven in-circuit, while
   `groth16_bls12_381_poseidon_v1` remains explicitly single-entry and
   single-leaf
+- the canonical `groth16_bls12_381_poseidon_v2` helper contract is now also
+  explicitly chainstate-bound: `derive-batch` / `prove-batch` require
+  `current_state_root`, `current_withdrawal_root`, `current_data_root`, and
+  `current_l1_message_root`, plus explicit queue / withdrawal / DA witness
+  vectors, and the helper now derives `l1_message_root_after`,
+  `queue_prefix_commitment`, `data_root`, and `data_size` from that witness
+  surface instead of trusting caller-supplied placeholders
 - batch acceptance now derives the reachable consumed queue prefix, required
   force-exit coverage, `l1_message_root_after`, and `queue_prefix_commitment`
   from active chainstate before running proof verification, so the canonical

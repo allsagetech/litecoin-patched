@@ -386,6 +386,49 @@ const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConf
     return "enabled_local_queue_consensus";
 }
 
+bool RequiresValiditySidechainExternalProverCurrentChainstate(const ValiditySidechainConfig& config)
+{
+    return IsCanonicalValiditySidechainProfile(config);
+}
+
+bool RequiresValiditySidechainExternalProverExplicitWitnessVectors(const ValiditySidechainConfig& config)
+{
+    return IsCanonicalValiditySidechainProfile(config);
+}
+
+const char* GetValiditySidechainDerivedPublicInputMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (supported->scaffolding_only) {
+        return "caller_supplied_scaffold";
+    }
+    if (IsCanonicalValiditySidechainProfile(config)) {
+        return "helper_derives_queue_withdrawal_and_da_bindings";
+    }
+    if (supported->supports_external_prover) {
+        return "helper_derives_withdrawal_and_da_bindings";
+    }
+    return "caller_supplied_public_inputs";
+}
+
+const char* GetValiditySidechainExternalProverRequestMode(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (!supported->supports_external_prover) {
+        return "not_supported";
+    }
+    if (IsCanonicalValiditySidechainProfile(config)) {
+        return "current_chainstate_bound_explicit_witness_vectors";
+    }
+    return "optional_current_chainstate_context";
+}
+
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);

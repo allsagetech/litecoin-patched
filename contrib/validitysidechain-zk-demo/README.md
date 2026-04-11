@@ -48,10 +48,13 @@ profile-derived public inputs the prover path uses for test and tooling
 workflows.
 
 For the real Poseidon profiles, the request contract now also carries the
-node's current chainstate roots and the canonical withdrawal-witness policy,
-so the external prover helper rejects requests whose `prior_state_root`,
-`l1_message_root_before`, or witness usage no longer match the node's active
-view.
+node's current chainstate roots and the canonical withdrawal-witness policy.
+For `groth16_bls12_381_poseidon_v2`, `derive-batch` and `prove-batch` now
+require those current roots plus explicit `consumed_queue_entries`,
+`withdrawal_leaves`, and `data_chunks_hex` vectors, and `derive-batch` now
+derives `l1_message_root_after`, `queue_prefix_commitment`, `withdrawal_root`,
+`data_root`, and `data_size` from that witness surface instead of trusting
+caller-supplied values.
 
 `verify-batch` now supports both the toy external profile and the experimental
 native real bundles `groth16_bls12_381_poseidon_v1` and

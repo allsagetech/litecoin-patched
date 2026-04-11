@@ -10,8 +10,8 @@ import (
 )
 
 type deriveResult struct {
-	OK           bool                       `json:"ok"`
-	Error        string                     `json:"error,omitempty"`
+	OK           bool                        `json:"ok"`
+	Error        string                      `json:"error,omitempty"`
 	PublicInputs *toybatch.BatchPublicInputs `json:"public_inputs,omitempty"`
 }
 
@@ -26,6 +26,10 @@ func main() {
 
 	if !realbatch.IsSupportedProfileName(request.ProfileName) {
 		emit(deriveResult{Error: "unexpected profile name"})
+		return
+	}
+	if err := realbatch.ValidateProofRequestContract(request); err != nil {
+		emit(deriveResult{Error: err.Error()})
 		return
 	}
 

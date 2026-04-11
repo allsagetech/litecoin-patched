@@ -75,9 +75,35 @@ func TestValidateDerivedRequestV2RejectsCurrentQueueRootMismatch(t *testing.T) {
 	}
 }
 
+func TestValidateProofRequestContractV2RejectsMissingCurrentStateRoot(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.CurrentStateRoot = ""
+
+	err := ValidateProofRequestContract(request)
+	if err == nil {
+		t.Fatal("ValidateProofRequestContract succeeded without current_state_root")
+	}
+	if err.Error() != "current_state_root is required for canonical v2 proof requests" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateProofRequestContractV2RejectsImplicitDataChunksVector(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.DataChunksHex = nil
+
+	err := ValidateProofRequestContract(request)
+	if err == nil {
+		t.Fatal("ValidateProofRequestContract succeeded without explicit data_chunks_hex")
+	}
+	if err.Error() != "data_chunks_hex must be provided explicitly for canonical v2 proof requests" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateDerivedRequestV2RejectsWithdrawalRootChangeWithoutWitnessUnderPolicy(t *testing.T) {
 	request := buildV2RequestForTest(t)
-	request.WithdrawalLeaves = nil
+	request.WithdrawalLeaves = []toybatch.WithdrawalLeaf{}
 	request.WithdrawalLeavesSupplied = false
 	request.PublicInputs.WithdrawalRoot = strings.Repeat("cc", 32)
 
@@ -92,7 +118,7 @@ func TestValidateDerivedRequestV2RejectsWithdrawalRootChangeWithoutWitnessUnderP
 
 func TestDeriveRequestV2PreservesCurrentWithdrawalRootWhenWitnessOmitted(t *testing.T) {
 	request := buildV2RequestForTest(t)
-	request.WithdrawalLeaves = nil
+	request.WithdrawalLeaves = []toybatch.WithdrawalLeaf{}
 	request.WithdrawalLeavesSupplied = false
 	request.PublicInputs.WithdrawalRoot = request.CurrentWithdrawalRoot
 
@@ -111,7 +137,7 @@ func TestDeriveRequestV2PreservesCurrentWithdrawalRootWhenWitnessOmitted(t *test
 
 func TestDeriveRequestV2AllowsExplicitEmptyWithdrawalWitness(t *testing.T) {
 	request := buildV2RequestForTest(t)
-	request.WithdrawalLeaves = nil
+	request.WithdrawalLeaves = []toybatch.WithdrawalLeaf{}
 	request.WithdrawalLeavesSupplied = true
 	emptyRoot, err := computeGenericWithdrawalRootFromRequest(request)
 	if err != nil {
@@ -155,6 +181,44 @@ func TestValidateDerivedRequestV2RejectsNonZeroDataRootWithoutChunks(t *testing.
 	}
 	if err.Error() != "data_root does not match provided data_chunks_hex" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeriveRequestV2DerivesQueueBindingsAndPublishedDataWitness(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.PublicInputs.L1MessageRootAfter = "0"
+	request.PublicInputs.QueuePrefixCommitment = "0"
+	request.PublicInputs.DataRoot = "0"
+	request.PublicInputs.DataSize = 0
+	request.DataChunksHex = []string{"aa", "bbbb"}
+
+	derived, err := DeriveRequest(request)
+	if err != nil {
+		t.Fatalf("DeriveRequest returned unexpected error: %v", err)
+	}
+
+	expectedQueueRoot := computeConsumedQueueRootForTest(
+		uint8(request.SidechainID),
+		request.PublicInputs.L1MessageRootBefore,
+		request.ConsumedQueueEntries,
+	)
+	expectedQueuePrefix := computeQueuePrefixCommitmentForTest(
+		uint8(request.SidechainID),
+		request.ConsumedQueueEntries,
+	)
+	expectedDataRoot := computePublishedDataRoot([][]byte{{0xaa}, {0xbb, 0xbb}})
+
+	if normalizeHex(derived.PublicInputs.L1MessageRootAfter) != normalizeHex(expectedQueueRoot) {
+		t.Fatalf("derived l1_message_root_after %q does not match expected %q", derived.PublicInputs.L1MessageRootAfter, expectedQueueRoot)
+	}
+	if normalizeHex(derived.PublicInputs.QueuePrefixCommitment) != normalizeHex(expectedQueuePrefix) {
+		t.Fatalf("derived queue_prefix_commitment %q does not match expected %q", derived.PublicInputs.QueuePrefixCommitment, expectedQueuePrefix)
+	}
+	if normalizeHex(derived.PublicInputs.DataRoot) != normalizeHex(expectedDataRoot) {
+		t.Fatalf("derived data_root %q does not match expected %q", derived.PublicInputs.DataRoot, expectedDataRoot)
+	}
+	if derived.PublicInputs.DataSize != 3 {
+		t.Fatalf("derived data_size %d does not match expected 3", derived.PublicInputs.DataSize)
 	}
 }
 
@@ -244,14 +308,14 @@ func buildV2RequestForTest(t *testing.T) toybatch.CommandRequest {
 
 	emptyDataRoot := computePublishedDataRoot(nil)
 	request := toybatch.CommandRequest{
-		ProfileName: FinalProfileName,
-		SidechainID: 57,
-		CurrentStateRoot: strings.Repeat("01", 32),
-		CurrentWithdrawalRoot: strings.Repeat("02", 32),
-		CurrentDataRoot: emptyDataRoot,
-		CurrentL1MessageRoot: strings.Repeat("ab", 32),
+		ProfileName:                          FinalProfileName,
+		SidechainID:                          57,
+		CurrentStateRoot:                     strings.Repeat("01", 32),
+		CurrentWithdrawalRoot:                strings.Repeat("02", 32),
+		CurrentDataRoot:                      emptyDataRoot,
+		CurrentL1MessageRoot:                 strings.Repeat("ab", 32),
 		RequireWithdrawalWitnessOnRootChange: true,
-		WithdrawalLeavesSupplied: true,
+		WithdrawalLeavesSupplied:             true,
 		PublicInputs: toybatch.BatchPublicInputs{
 			BatchNumber:           1,
 			PriorStateRoot:        strings.Repeat("01", 32),
@@ -290,6 +354,7 @@ func buildV2RequestForTest(t *testing.T) toybatch.CommandRequest {
 				DestinationCommitment: strings.Repeat("99", 32),
 			},
 		},
+		DataChunksHex: []string{},
 	}
 
 	request.PublicInputs.L1MessageRootAfter = computeConsumedQueueRootForTest(

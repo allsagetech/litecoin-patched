@@ -991,6 +991,15 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     if (!supported->supports_external_prover) {
         return FailValidation(error, "external prover is not supported for this profile");
     }
+    if (public_inputs.prior_state_root != current_state_root) {
+        return FailValidation(error, "prior_state_root does not match current_state_root for external prover");
+    }
+    if (public_inputs.l1_message_root_before != current_l1_message_root) {
+        return FailValidation(error, "l1_message_root_before does not match current_l1_message_root for external prover");
+    }
+    if (consumed_queue_entries.size() != public_inputs.consumed_queue_messages) {
+        return FailValidation(error, "consumed_queue_entries length does not match consumed_queue_messages for external prover");
+    }
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config) &&
         consumed_queue_entries.size() > 1) {
         return FailValidation(error, "experimental real profile supports at most one consumed queue entry for auto prover");
@@ -1005,6 +1014,15 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config) &&
         withdrawal_leaves.size() > 1) {
         return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");
+    }
+    if (!withdrawal_leaves.empty() &&
+        ComputeValiditySidechainWithdrawalRoot(withdrawal_leaves) != public_inputs.withdrawal_root) {
+        return FailValidation(error, "withdrawal_root does not match withdrawal_leaves witness for external prover");
+    }
+    if (IsCanonicalValiditySidechainProfile(config) &&
+        !withdrawal_leaves_supplied &&
+        public_inputs.withdrawal_root != current_withdrawal_root) {
+        return FailValidation(error, "canonical external prover request requires withdrawal_leaves witness when withdrawal_root changes");
     }
     if (!ValidateValiditySidechainPublishedBatchData(config, public_inputs, data_chunks, error)) {
         return false;

@@ -500,6 +500,11 @@ Current branch status:
   `groth16_bls12_381_poseidon_v1` path still rejects multi-entry queue and
   multi-leaf withdrawal witnesses, while `groth16_bls12_381_poseidon_v2`
   derives and validates generic queue-prefix and withdrawal-root witnesses
+- the canonical `groth16_bls12_381_poseidon_v2` helper request is now also
+  current-chainstate-bound and explicit about witness vectors: callers must
+  provide the active roots plus queue / withdrawal / DA witness arrays, and
+  `derive-batch` now derives queue / DA public inputs from that witness
+  surface instead of treating caller-supplied placeholders as authoritative
 - the decomposed `groth16_bls12_381_poseidon_v2` path now also has explicit
   reclaim coverage, proving matured deposits can be reclaimed under restart
   without dropping the full-width initial withdrawal root state

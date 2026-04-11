@@ -72,22 +72,22 @@ type PoseidonBatchTransitionCircuit struct {
 }
 
 type PoseidonBatchTransitionCircuitDecomposedPublicInputs struct {
-	SidechainID               frontend.Variable `gnark:",public"`
-	BatchNumber               frontend.Variable `gnark:",public"`
-	PriorStateRoot            frontend.Variable `gnark:",public"`
-	NewStateRoot              frontend.Variable `gnark:",public"`
-	L1MessageRootBeforeLo     frontend.Variable `gnark:",public"`
-	L1MessageRootBeforeHi     frontend.Variable `gnark:",public"`
-	L1MessageRootAfterLo      frontend.Variable `gnark:",public"`
-	L1MessageRootAfterHi      frontend.Variable `gnark:",public"`
-	ConsumedQueueMessages     frontend.Variable `gnark:",public"`
-	QueuePrefixCommitmentLo   frontend.Variable `gnark:",public"`
-	QueuePrefixCommitmentHi   frontend.Variable `gnark:",public"`
-	WithdrawalRootLo          frontend.Variable `gnark:",public"`
-	WithdrawalRootHi          frontend.Variable `gnark:",public"`
-	DataRootLo                frontend.Variable `gnark:",public"`
-	DataRootHi                frontend.Variable `gnark:",public"`
-	DataSize                  frontend.Variable `gnark:",public"`
+	SidechainID             frontend.Variable `gnark:",public"`
+	BatchNumber             frontend.Variable `gnark:",public"`
+	PriorStateRoot          frontend.Variable `gnark:",public"`
+	NewStateRoot            frontend.Variable `gnark:",public"`
+	L1MessageRootBeforeLo   frontend.Variable `gnark:",public"`
+	L1MessageRootBeforeHi   frontend.Variable `gnark:",public"`
+	L1MessageRootAfterLo    frontend.Variable `gnark:",public"`
+	L1MessageRootAfterHi    frontend.Variable `gnark:",public"`
+	ConsumedQueueMessages   frontend.Variable `gnark:",public"`
+	QueuePrefixCommitmentLo frontend.Variable `gnark:",public"`
+	QueuePrefixCommitmentHi frontend.Variable `gnark:",public"`
+	WithdrawalRootLo        frontend.Variable `gnark:",public"`
+	WithdrawalRootHi        frontend.Variable `gnark:",public"`
+	DataRootLo              frontend.Variable `gnark:",public"`
+	DataRootHi              frontend.Variable `gnark:",public"`
+	DataSize                frontend.Variable `gnark:",public"`
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
@@ -167,18 +167,20 @@ func NewCircuit(profileName string) (frontend.Circuit, error) {
 }
 
 func BuildAssignment(request toybatch.CommandRequest) (frontend.Circuit, error) {
-	if err := validatePublishedDataWitness(request); err != nil {
-		return nil, err
-	}
-
 	switch request.ProfileName {
 	case ProfileName:
+		if err := validatePublishedDataWitness(request); err != nil {
+			return nil, err
+		}
 		assignment, err := buildExperimentalAssignment(request)
 		if err != nil {
 			return nil, err
 		}
 		return &assignment, nil
 	case FinalProfileName:
+		if err := ValidateDerivedRequest(request); err != nil {
+			return nil, err
+		}
 		assignment, err := buildDecomposedPublicAssignment(request)
 		if err != nil {
 			return nil, err
@@ -210,6 +212,14 @@ func BuildPublicAssignment(request toybatch.CommandRequest) (frontend.Circuit, e
 
 func profileUsesExperimentalSingleEntryWitnesses(profileName string) bool {
 	return profileName == ProfileName
+}
+
+func requiresCanonicalCurrentChainstateBinding(profileName string) bool {
+	return profileName == FinalProfileName
+}
+
+func requiresExplicitCanonicalWitnessVectors(profileName string) bool {
+	return profileName == FinalProfileName
 }
 
 func buildExperimentalAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
@@ -577,15 +587,22 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 		return toybatch.CommandRequest{}, err
 	}
 
-	cleared := ensureDerivedTargetsCleared(request)
-	if len(request.DataChunksHex) != 0 {
-		chunks, err := decodeDataChunks(request.DataChunksHex)
-		if err != nil {
-			return toybatch.CommandRequest{}, err
-		}
-		cleared.PublicInputs.DataRoot = computePublishedDataRoot(chunks)
-		cleared.PublicInputs.DataSize = uint32(computePublishedDataSize(chunks))
+	derivedQueueRootAfter, derivedQueuePrefixCommitment, err := computeQueueBindingsForProfile(request)
+	if err != nil {
+		return toybatch.CommandRequest{}, err
 	}
+	dataChunks, err := decodeDataChunks(request.DataChunksHex)
+	if err != nil {
+		return toybatch.CommandRequest{}, err
+	}
+	derivedDataRoot := computePublishedDataRoot(dataChunks)
+	derivedDataSize := uint32(computePublishedDataSize(dataChunks))
+
+	cleared := ensureDerivedTargetsCleared(request)
+	cleared.PublicInputs.L1MessageRootAfter = derivedQueueRootAfter
+	cleared.PublicInputs.QueuePrefixCommitment = derivedQueuePrefixCommitment
+	cleared.PublicInputs.DataRoot = derivedDataRoot
+	cleared.PublicInputs.DataSize = derivedDataSize
 	withdrawalRoot, err := computeWithdrawalRootForProfile(request)
 	if err != nil {
 		return toybatch.CommandRequest{}, err
@@ -605,21 +622,49 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 	}
 
 	derived := request
-	if len(request.DataChunksHex) != 0 {
-		chunks, err := decodeDataChunks(request.DataChunksHex)
-		if err != nil {
-			return toybatch.CommandRequest{}, err
-		}
-		derived.PublicInputs.DataRoot = computePublishedDataRoot(chunks)
-		derived.PublicInputs.DataSize = uint32(computePublishedDataSize(chunks))
-	}
+	derived.PublicInputs.L1MessageRootAfter = derivedQueueRootAfter
+	derived.PublicInputs.QueuePrefixCommitment = derivedQueuePrefixCommitment
+	derived.PublicInputs.DataRoot = derivedDataRoot
+	derived.PublicInputs.DataSize = derivedDataSize
 	derived.PublicInputs.NewStateRoot = formatFieldHex(newStateRoot)
 	derived.PublicInputs.WithdrawalRoot = withdrawalRoot
 	return derived, nil
 }
 
-func ValidateDerivedRequest(request toybatch.CommandRequest) error {
+func ValidateProofRequestContract(request toybatch.CommandRequest) error {
+	if requiresCanonicalCurrentChainstateBinding(request.ProfileName) {
+		if strings.TrimSpace(request.CurrentStateRoot) == "" {
+			return fmt.Errorf("current_state_root is required for canonical v2 proof requests")
+		}
+		if strings.TrimSpace(request.CurrentWithdrawalRoot) == "" {
+			return fmt.Errorf("current_withdrawal_root is required for canonical v2 proof requests")
+		}
+		if strings.TrimSpace(request.CurrentDataRoot) == "" {
+			return fmt.Errorf("current_data_root is required for canonical v2 proof requests")
+		}
+		if strings.TrimSpace(request.CurrentL1MessageRoot) == "" {
+			return fmt.Errorf("current_l1_message_root is required for canonical v2 proof requests")
+		}
+	}
+	if requiresExplicitCanonicalWitnessVectors(request.ProfileName) {
+		if request.ConsumedQueueEntries == nil {
+			return fmt.Errorf("consumed_queue_entries must be provided explicitly for canonical v2 proof requests")
+		}
+		if request.WithdrawalLeaves == nil {
+			return fmt.Errorf("withdrawal_leaves must be provided explicitly for canonical v2 proof requests")
+		}
+		if request.DataChunksHex == nil {
+			return fmt.Errorf("data_chunks_hex must be provided explicitly for canonical v2 proof requests")
+		}
+	}
 	if err := validateCurrentChainstateBinding(request); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ValidateDerivedRequest(request toybatch.CommandRequest) error {
+	if err := ValidateProofRequestContract(request); err != nil {
 		return err
 	}
 	derived, err := DeriveRequest(request)
@@ -792,9 +837,78 @@ func validateGenericWithdrawalWitness(request toybatch.CommandRequest) error {
 }
 
 func ensureDerivedTargetsCleared(request toybatch.CommandRequest) toybatch.CommandRequest {
+	request.PublicInputs.L1MessageRootAfter = "0"
+	request.PublicInputs.QueuePrefixCommitment = "0"
 	request.PublicInputs.NewStateRoot = "0"
 	request.PublicInputs.WithdrawalRoot = "0"
+	request.PublicInputs.DataRoot = "0"
+	request.PublicInputs.DataSize = 0
 	return request
+}
+
+func computeQueueBindingsForProfile(request toybatch.CommandRequest) (string, string, error) {
+	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+		return computeExperimentalQueueBindings(request)
+	}
+	return computeGenericQueueBindings(request)
+}
+
+func computeExperimentalQueueBindings(request toybatch.CommandRequest) (string, string, error) {
+	if len(request.ConsumedQueueEntries) > 1 {
+		return "", "", fmt.Errorf("experimental real profile supports at most one consumed queue entry")
+	}
+	if len(request.ConsumedQueueEntries) != int(request.PublicInputs.ConsumedQueueMessages) {
+		return "", "", fmt.Errorf("consumed_queue_entries length must match consumed_queue_messages")
+	}
+	if len(request.ConsumedQueueEntries) == 0 {
+		return normalizeHex(request.PublicInputs.L1MessageRootBefore), "0", nil
+	}
+
+	entry := request.ConsumedQueueEntries[0]
+	if entry.MessageKind != 1 && entry.MessageKind != 2 {
+		return "", "", fmt.Errorf("consumed_queue_entries[0].message_kind must be 1 or 2")
+	}
+	expectedAfter := computeQueueStepDisplayHex(
+		queueConsumeMagic,
+		uint8(request.SidechainID),
+		request.PublicInputs.L1MessageRootBefore,
+		entry,
+	)
+	expectedPrefix := computeQueueStepDisplayHex(
+		queuePrefixCommitmentMagic,
+		uint8(request.SidechainID),
+		"0",
+		entry,
+	)
+	return expectedAfter, expectedPrefix, nil
+}
+
+func computeGenericQueueBindings(request toybatch.CommandRequest) (string, string, error) {
+	if len(request.ConsumedQueueEntries) != int(request.PublicInputs.ConsumedQueueMessages) {
+		return "", "", fmt.Errorf("consumed_queue_entries length must match consumed_queue_messages")
+	}
+
+	expectedAfter := normalizeHex(request.PublicInputs.L1MessageRootBefore)
+	expectedPrefix := "0"
+	for index, entry := range request.ConsumedQueueEntries {
+		if entry.MessageKind != 1 && entry.MessageKind != 2 {
+			return "", "", fmt.Errorf("consumed_queue_entries[%d].message_kind must be 1 or 2", index)
+		}
+		expectedAfter = computeQueueStepDisplayHex(
+			queueConsumeMagic,
+			uint8(request.SidechainID),
+			expectedAfter,
+			entry,
+		)
+		expectedPrefix = computeQueueStepDisplayHex(
+			queuePrefixCommitmentMagic,
+			uint8(request.SidechainID),
+			expectedPrefix,
+			entry,
+		)
+	}
+
+	return expectedAfter, expectedPrefix, nil
 }
 
 func computeTransitionCommitment(request toybatch.CommandRequest, publicInputVersion uint8) (*big.Int, error) {

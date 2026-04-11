@@ -49,6 +49,10 @@ const char* GetValiditySidechainDepositAdmissionMode(const ValiditySidechainConf
 bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidechainConfig& config);
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConfig& config);
+bool RequiresValiditySidechainExternalProverCurrentChainstate(const ValiditySidechainConfig& config);
+bool RequiresValiditySidechainExternalProverExplicitWitnessVectors(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainDerivedPublicInputMode(const ValiditySidechainConfig& config);
+const char* GetValiditySidechainExternalProverRequestMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config);

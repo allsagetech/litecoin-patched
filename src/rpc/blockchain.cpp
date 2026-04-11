@@ -1790,6 +1790,14 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("max_escape_hatch_delay", static_cast<int64_t>(supported.max_escape_hatch_delay));
     result.pushKV("deposit_admission_mode", GetValiditySidechainDepositAdmissionMode(config));
     result.pushKV("force_exit_request_mode", GetValiditySidechainForceExitRequestMode(config));
+    result.pushKV("derived_public_input_mode", GetValiditySidechainDerivedPublicInputMode(config));
+    result.pushKV("external_prover_request_mode", GetValiditySidechainExternalProverRequestMode(config));
+    result.pushKV(
+        "external_prover_requires_current_chainstate",
+        RequiresValiditySidechainExternalProverCurrentChainstate(config));
+    result.pushKV(
+        "external_prover_requires_explicit_witness_vectors",
+        RequiresValiditySidechainExternalProverExplicitWitnessVectors(config));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(config));
