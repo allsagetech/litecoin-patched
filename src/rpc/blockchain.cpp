@@ -1838,7 +1838,8 @@ static bool MatchesAcceptedBatchMetadata(
            public_inputs.consumed_queue_messages == batch.consumed_queue_messages &&
            public_inputs.queue_prefix_commitment == batch.queue_prefix_commitment &&
            public_inputs.withdrawal_root == batch.withdrawal_root &&
-           public_inputs.data_root == batch.data_root;
+           public_inputs.data_root == batch.data_root &&
+           public_inputs.data_size == batch.data_size;
 }
 
 static bool GetValidityAcceptedBatchPublication(
@@ -1883,7 +1884,7 @@ static bool GetValidityAcceptedBatchPublication(
             }
 
             out_publication.found = true;
-            out_publication.data_size = public_inputs.data_size;
+            out_publication.data_size = batch.data_size;
             out_publication.published_data_chunk_count = data_chunks.size();
             out_publication.published_data_bytes = total_data_bytes;
             out_publication.proof_size = proof_bytes.size();
@@ -1945,10 +1946,10 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
         batch_obj.pushKV("queue_prefix_commitment", batch.queue_prefix_commitment.GetHex());
         batch_obj.pushKV("withdrawal_root", batch.withdrawal_root.GetHex());
         batch_obj.pushKV("data_root", batch.data_root.GetHex());
+        batch_obj.pushKV("data_size", static_cast<int64_t>(batch.data_size));
         batch_obj.pushKV("accepted_height", batch.accepted_height);
         ValidityAcceptedBatchPublication publication;
         if (GetValidityAcceptedBatchPublication(sidechain, batch, publication)) {
-            batch_obj.pushKV("data_size", static_cast<int64_t>(publication.data_size));
             batch_obj.pushKV("published_data_chunk_count", static_cast<int64_t>(publication.published_data_chunk_count));
             batch_obj.pushKV("published_data_bytes", static_cast<int64_t>(publication.published_data_bytes));
             batch_obj.pushKV("proof_size", static_cast<int64_t>(publication.proof_size));

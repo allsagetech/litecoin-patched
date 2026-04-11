@@ -530,6 +530,9 @@ Current branch status:
   withdrawal-root changes as witness-backed operator actions: the wallet
   rejects non-current `withdrawal_root` values unless matching
   `withdrawal_leaves` are supplied
+- the same batch send-path now also rejects malformed empty-DA metadata before
+  proof construction, so `data_root` / `data_size` must still match the
+  published chunk list even when that list is empty
 - the legacy `getdrivechaininfo`, `senddrivechainbundle`, and
   `senddrivechainexecute` RPC surfaces are now explicitly marked deprecated,
   with the legacy withdrawal RPCs requiring explicit

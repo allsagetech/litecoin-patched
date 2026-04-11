@@ -2546,6 +2546,14 @@ static RPCHelpMan sendvaliditybatch()
                     public_inputs.data_root = computed_data_root;
                 }
             }
+            std::string published_data_error;
+            if (!ValidateValiditySidechainPublishedBatchData(
+                    sidechain.config,
+                    public_inputs,
+                    data_chunks,
+                    &published_data_error)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, published_data_error);
+            }
             std::string derived_queue_error;
             uint256 expected_l1_message_root_after;
             if (!ComputeValiditySidechainConsumedQueueRoot(
@@ -2663,6 +2671,7 @@ static RPCHelpMan sendvaliditybatch()
                             sidechain.current_data_root,
                             sidechain.queue_state.root,
                             consumed_queue_entries,
+                            withdrawal_leaves_supplied,
                             experimental_withdrawal_leaves,
                             data_chunks,
                             proof_bytes,

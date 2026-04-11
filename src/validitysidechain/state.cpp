@@ -1248,6 +1248,7 @@ bool ValiditySidechainState::AcceptBatch(
     batch.queue_prefix_commitment = public_inputs.queue_prefix_commitment;
     batch.withdrawal_root = public_inputs.withdrawal_root;
     batch.data_root = public_inputs.data_root;
+    batch.data_size = public_inputs.data_size;
     batch.accepted_height = accepted_height;
     sidechain->accepted_batches.emplace(batch.batch_number, batch);
 

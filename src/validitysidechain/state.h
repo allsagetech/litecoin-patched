@@ -251,6 +251,7 @@ struct ValiditySidechainAcceptedBatch
     uint256 queue_prefix_commitment;
     uint256 withdrawal_root;
     uint256 data_root;
+    uint32_t data_size{0};
     int accepted_height{-1};
 
     SERIALIZE_METHODS(ValiditySidechainAcceptedBatch, obj)
@@ -264,6 +265,7 @@ struct ValiditySidechainAcceptedBatch
                   obj.queue_prefix_commitment,
                   obj.withdrawal_root,
                   obj.data_root,
+                  obj.data_size,
                   obj.accepted_height);
     }
 };

@@ -908,6 +908,18 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             missing_da_public_inputs,
         )
 
+        self.log.info("Rejecting a batch that advertises a non-empty data_root without publishing DA chunks.")
+        missing_da_root_public_inputs = dict(public_inputs)
+        missing_da_root_public_inputs["data_root"] = "98" * 32
+        missing_da_root_public_inputs["data_size"] = 0
+        assert_raises_rpc_error(
+            -8,
+            "data root does not match published chunks",
+            node.sendvaliditybatch,
+            sidechain_id,
+            missing_da_root_public_inputs,
+        )
+
         self.log.info("Rejecting a batch that exceeds the configured DA payload size.")
         oversized_da_public_inputs = dict(public_inputs)
         oversized_da_public_inputs["data_size"] = config["max_batch_data_bytes"] + 1

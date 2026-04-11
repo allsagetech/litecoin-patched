@@ -1233,6 +1233,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                     "data_root": "00" * 32,
                     "data_size": 0,
                 },
+                "withdrawal_leaves_supplied": True,
                 "consumed_queue_entries": real_v2_queue_entries,
                 "withdrawal_leaves": real_v2_withdrawal_witness,
             }
@@ -1241,6 +1242,51 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(
                 real_v2_derived["public_inputs"]["withdrawal_root"],
                 compute_withdrawal_root(real_v2_withdrawals_rpc),
+            )
+
+            real_v2_preserve_request = {
+                "profile_name": "groth16_bls12_381_poseidon_v2",
+                "artifact_dir": str(self.real_v2_artifact_dir),
+                "sidechain_id": real_v2_auto_sidechain_id,
+                "public_inputs": {
+                    "batch_number": 1,
+                    "prior_state_root": real_v2_auto_initial_root,
+                    "new_state_root": "0",
+                    "l1_message_root_before": real_v2_auto_sidechain["queue_state"]["root"],
+                    "l1_message_root_after": compute_consumed_queue_root(
+                        real_v2_auto_sidechain_id,
+                        real_v2_auto_sidechain["queue_state"]["root"],
+                        real_v2_queue_entries,
+                    ),
+                    "consumed_queue_messages": len(real_v2_queue_entries),
+                    "queue_prefix_commitment": compute_queue_prefix_commitment(
+                        real_v2_auto_sidechain_id,
+                        real_v2_queue_entries,
+                    ),
+                    "withdrawal_root": real_v2_auto_sidechain["current_withdrawal_root"],
+                    "data_root": "00" * 32,
+                    "data_size": 0,
+                },
+                "withdrawal_leaves_supplied": False,
+                "consumed_queue_entries": real_v2_queue_entries,
+            }
+            real_v2_preserve_derived = self.run_tool("derive", real_v2_preserve_request)
+            assert_equal(real_v2_preserve_derived["ok"], True)
+            assert_equal(
+                real_v2_preserve_derived["public_inputs"]["withdrawal_root"],
+                real_v2_auto_sidechain["current_withdrawal_root"],
+            )
+
+            real_v2_empty_withdrawal_request = dict(real_v2_preserve_request)
+            real_v2_empty_withdrawal_request["public_inputs"] = dict(real_v2_preserve_request["public_inputs"])
+            real_v2_empty_withdrawal_request["public_inputs"]["withdrawal_root"] = compute_withdrawal_root([])
+            real_v2_empty_withdrawal_request["withdrawal_leaves_supplied"] = True
+            real_v2_empty_withdrawal_request["withdrawal_leaves"] = []
+            real_v2_empty_withdrawal_derived = self.run_tool("derive", real_v2_empty_withdrawal_request)
+            assert_equal(real_v2_empty_withdrawal_derived["ok"], True)
+            assert_equal(
+                real_v2_empty_withdrawal_derived["public_inputs"]["withdrawal_root"],
+                compute_withdrawal_root([]),
             )
 
             real_v2_public_inputs = dict(real_v2_derived["public_inputs"])

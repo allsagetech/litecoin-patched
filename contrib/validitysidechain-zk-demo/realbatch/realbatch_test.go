@@ -78,6 +78,7 @@ func TestValidateDerivedRequestV2RejectsCurrentQueueRootMismatch(t *testing.T) {
 func TestValidateDerivedRequestV2RejectsWithdrawalRootChangeWithoutWitnessUnderPolicy(t *testing.T) {
 	request := buildV2RequestForTest(t)
 	request.WithdrawalLeaves = nil
+	request.WithdrawalLeavesSupplied = false
 	request.PublicInputs.WithdrawalRoot = strings.Repeat("cc", 32)
 
 	err := ValidateDerivedRequest(request)
@@ -85,6 +86,74 @@ func TestValidateDerivedRequestV2RejectsWithdrawalRootChangeWithoutWitnessUnderP
 		t.Fatal("ValidateDerivedRequest succeeded for missing withdrawal witness under policy")
 	}
 	if err.Error() != "withdrawal_root changes require withdrawal_leaves witness under current witness policy" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeriveRequestV2PreservesCurrentWithdrawalRootWhenWitnessOmitted(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.WithdrawalLeaves = nil
+	request.WithdrawalLeavesSupplied = false
+	request.PublicInputs.WithdrawalRoot = request.CurrentWithdrawalRoot
+
+	derived, err := DeriveRequest(request)
+	if err != nil {
+		t.Fatalf("DeriveRequest returned unexpected error: %v", err)
+	}
+	request.PublicInputs.NewStateRoot = derived.PublicInputs.NewStateRoot
+	if normalizeHex(derived.PublicInputs.WithdrawalRoot) != normalizeHex(request.CurrentWithdrawalRoot) {
+		t.Fatalf("derived withdrawal root %q does not preserve current root %q", derived.PublicInputs.WithdrawalRoot, request.CurrentWithdrawalRoot)
+	}
+	if err := ValidateDerivedRequest(request); err != nil {
+		t.Fatalf("ValidateDerivedRequest returned unexpected error: %v", err)
+	}
+}
+
+func TestDeriveRequestV2AllowsExplicitEmptyWithdrawalWitness(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.WithdrawalLeaves = nil
+	request.WithdrawalLeavesSupplied = true
+	emptyRoot, err := computeGenericWithdrawalRootFromRequest(request)
+	if err != nil {
+		t.Fatalf("computeGenericWithdrawalRootFromRequest returned unexpected error: %v", err)
+	}
+	request.PublicInputs.WithdrawalRoot = emptyRoot
+
+	derived, err := DeriveRequest(request)
+	if err != nil {
+		t.Fatalf("DeriveRequest returned unexpected error: %v", err)
+	}
+	request.PublicInputs.NewStateRoot = derived.PublicInputs.NewStateRoot
+	if normalizeHex(derived.PublicInputs.WithdrawalRoot) != normalizeHex(emptyRoot) {
+		t.Fatalf("derived withdrawal root %q does not match explicit empty root %q", derived.PublicInputs.WithdrawalRoot, emptyRoot)
+	}
+	if err := ValidateDerivedRequest(request); err != nil {
+		t.Fatalf("ValidateDerivedRequest returned unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV2RejectsNonZeroDataSizeWithoutChunks(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.PublicInputs.DataSize = 1
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for non-zero data_size without chunks")
+	}
+	if err.Error() != "data_size does not match provided data_chunks_hex" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV2RejectsNonZeroDataRootWithoutChunks(t *testing.T) {
+	request := buildV2RequestForTest(t)
+	request.PublicInputs.DataRoot = strings.Repeat("dd", 32)
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for non-zero data_root without chunks")
+	}
+	if err.Error() != "data_root does not match provided data_chunks_hex" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -173,14 +242,16 @@ func TestPoseidonV2NativeArtifactsRemainVerifierCompatible(t *testing.T) {
 func buildV2RequestForTest(t *testing.T) toybatch.CommandRequest {
 	t.Helper()
 
+	emptyDataRoot := computePublishedDataRoot(nil)
 	request := toybatch.CommandRequest{
 		ProfileName: FinalProfileName,
 		SidechainID: 57,
 		CurrentStateRoot: strings.Repeat("01", 32),
 		CurrentWithdrawalRoot: strings.Repeat("02", 32),
-		CurrentDataRoot: "0",
+		CurrentDataRoot: emptyDataRoot,
 		CurrentL1MessageRoot: strings.Repeat("ab", 32),
 		RequireWithdrawalWitnessOnRootChange: true,
+		WithdrawalLeavesSupplied: true,
 		PublicInputs: toybatch.BatchPublicInputs{
 			BatchNumber:           1,
 			PriorStateRoot:        strings.Repeat("01", 32),
@@ -190,7 +261,7 @@ func buildV2RequestForTest(t *testing.T) toybatch.CommandRequest {
 			ConsumedQueueMessages: 2,
 			QueuePrefixCommitment: "0",
 			WithdrawalRoot:        "0",
-			DataRoot:              "0",
+			DataRoot:              emptyDataRoot,
 			DataSize:              0,
 		},
 		ConsumedQueueEntries: []toybatch.ConsumedQueueEntry{

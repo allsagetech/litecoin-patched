@@ -300,6 +300,7 @@ void InstallAcceptedWithdrawalBatch(
     batch.queue_prefix_commitment.SetNull();
     batch.withdrawal_root = withdrawal_root;
     batch.data_root = sidechain->current_data_root;
+    batch.data_size = 0;
     batch.accepted_height = accepted_height;
     sidechain->accepted_batches.emplace(batch_number, batch);
 }
@@ -1040,6 +1041,7 @@ BOOST_AUTO_TEST_CASE(transition_scaffold_batch_accepts_root_and_da_updates)
     BOOST_CHECK(batch->new_state_root == public_inputs.new_state_root);
     BOOST_CHECK(batch->withdrawal_root == public_inputs.withdrawal_root);
     BOOST_CHECK(batch->data_root == public_inputs.data_root);
+    BOOST_CHECK_EQUAL(batch->data_size, public_inputs.data_size);
     BOOST_CHECK_EQUAL(batch->consumed_queue_messages, 1U);
     BOOST_CHECK(batch->queue_prefix_commitment == public_inputs.queue_prefix_commitment);
 }
@@ -1354,6 +1356,25 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_missing_data_chunks_for_nonzero_data_s
     std::string error;
     BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 20, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
     BOOST_CHECK_EQUAL(error, "data chunks missing for non-zero data_size");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_nonzero_data_root_without_published_chunks)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 120, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(120);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.data_root = uint256S("bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc");
+    public_inputs.data_size = 0;
+    const std::vector<unsigned char> proof_bytes = BuildScaffoldBatchProofForTest(/* sidechain_id= */ 120, *sidechain, public_inputs);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 120, /* accepted_height= */ 621, public_inputs, proof_bytes, {}, &error));
+    BOOST_CHECK_EQUAL(error, "data root does not match published chunks");
 }
 
 BOOST_AUTO_TEST_CASE(accept_batch_rejects_empty_data_chunk)

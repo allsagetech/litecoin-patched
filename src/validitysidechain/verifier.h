@@ -65,6 +65,11 @@ struct ValiditySidechainVerifierAssetsStatus
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config);
 const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVerifierMode mode);
 uint256 ComputeValiditySidechainDataRoot(const std::vector<std::vector<unsigned char>>& data_chunks);
+bool ValidateValiditySidechainPublishedBatchData(
+    const ValiditySidechainConfig& config,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<std::vector<unsigned char>>& data_chunks,
+    std::string* error = nullptr);
 bool GetValiditySidechainVerifierAssetsStatus(
     const ValiditySidechainConfig& config,
     ValiditySidechainVerifierAssetsStatus& out_status);
@@ -84,6 +89,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     const uint256& current_data_root,
     const uint256& current_l1_message_root,
     const std::vector<ValiditySidechainQueueEntry>& consumed_queue_entries,
+    bool withdrawal_leaves_supplied,
     const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawal_leaves,
     const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,

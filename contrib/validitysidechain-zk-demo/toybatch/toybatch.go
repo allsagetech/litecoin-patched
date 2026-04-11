@@ -52,6 +52,7 @@ type CommandRequest struct {
 	CurrentDataRoot                       string               `json:"current_data_root,omitempty"`
 	CurrentL1MessageRoot                  string               `json:"current_l1_message_root,omitempty"`
 	RequireWithdrawalWitnessOnRootChange  bool                 `json:"require_withdrawal_witness_on_root_change,omitempty"`
+	WithdrawalLeavesSupplied              bool                 `json:"withdrawal_leaves_supplied,omitempty"`
 	ConsumedQueueEntries                  []ConsumedQueueEntry `json:"consumed_queue_entries,omitempty"`
 	WithdrawalLeaves                      []WithdrawalLeaf     `json:"withdrawal_leaves,omitempty"`
 	DataChunksHex                         []string             `json:"data_chunks_hex,omitempty"`

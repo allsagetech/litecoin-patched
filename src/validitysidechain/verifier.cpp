@@ -148,7 +148,7 @@ static bool DecodeValiditySidechainScaffoldProofEnvelope(
            ReadUint256(proof_bytes, offset += UINT256_SERIALIZED_SIZE, out_envelope.current_l1_message_root);
 }
 
-static bool ValidatePublishedBatchData(
+static bool ValidatePublishedBatchDataInternal(
     const ValiditySidechainConfig& config,
     const ValiditySidechainBatchPublicInputs& public_inputs,
     const std::vector<std::vector<unsigned char>>& data_chunks,
@@ -850,6 +850,15 @@ static bool ResolveUint256Groth16Input(
 
 } // namespace
 
+bool ValidateValiditySidechainPublishedBatchData(
+    const ValiditySidechainConfig& config,
+    const ValiditySidechainBatchPublicInputs& public_inputs,
+    const std::vector<std::vector<unsigned char>>& data_chunks,
+    std::string* error)
+{
+    return ValidatePublishedBatchDataInternal(config, public_inputs, data_chunks, error);
+}
+
 ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
@@ -967,6 +976,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     const uint256& current_data_root,
     const uint256& current_l1_message_root,
     const std::vector<ValiditySidechainQueueEntry>& consumed_queue_entries,
+    bool withdrawal_leaves_supplied,
     const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawal_leaves,
     const std::vector<std::vector<unsigned char>>& data_chunks,
     std::vector<unsigned char>& out_proof_bytes,
@@ -995,6 +1005,9 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config) &&
         withdrawal_leaves.size() > 1) {
         return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");
+    }
+    if (!ValidateValiditySidechainPublishedBatchData(config, public_inputs, data_chunks, error)) {
+        return false;
     }
     {
         const std::vector<std::string> expected_public_inputs = ExpectedManifestPublicInputs(*supported);
@@ -1042,6 +1055,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     request.pushKV(
         "require_withdrawal_witness_on_root_change",
         IsCanonicalValiditySidechainProfile(config));
+    request.pushKV("withdrawal_leaves_supplied", withdrawal_leaves_supplied);
     request.pushKV("consumed_queue_entries", ConsumedQueueEntriesToJSON(consumed_queue_entries));
     request.pushKV("withdrawal_leaves", WithdrawalLeavesToJSON(withdrawal_leaves));
     request.pushKV("data_chunks_hex", DataChunksToJSON(data_chunks));
@@ -1163,7 +1177,7 @@ bool VerifyValiditySidechainBatch(
     if (proof_bytes.size() > config.max_proof_bytes) {
         return FailValidation(error, "proof bytes exceed configured limit");
     }
-    if (!ValidatePublishedBatchData(config, public_inputs, data_chunks, error)) {
+    if (!ValidateValiditySidechainPublishedBatchData(config, public_inputs, data_chunks, error)) {
         return false;
     }
 

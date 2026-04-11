@@ -654,6 +654,7 @@ func validateCurrentChainstateBinding(request toybatch.CommandRequest) error {
 		return fmt.Errorf("l1_message_root_before does not match current_l1_message_root")
 	}
 	if request.RequireWithdrawalWitnessOnRootChange &&
+		!request.WithdrawalLeavesSupplied &&
 		len(request.WithdrawalLeaves) == 0 &&
 		request.CurrentWithdrawalRoot != "" &&
 		normalizeHex(request.PublicInputs.WithdrawalRoot) != normalizeHex(request.CurrentWithdrawalRoot) {
@@ -677,10 +678,6 @@ func validateWithdrawalWitnessForProfile(request toybatch.CommandRequest) error 
 }
 
 func validatePublishedDataWitness(request toybatch.CommandRequest) error {
-	if len(request.DataChunksHex) == 0 {
-		return nil
-	}
-
 	chunks, err := decodeDataChunks(request.DataChunksHex)
 	if err != nil {
 		return err
@@ -1179,6 +1176,11 @@ func computeExperimentalWithdrawalRootFromRequest(request toybatch.CommandReques
 
 func computeGenericWithdrawalRootFromRequest(request toybatch.CommandRequest) (string, error) {
 	if len(request.WithdrawalLeaves) == 0 {
+		if !request.WithdrawalLeavesSupplied &&
+			request.RequireWithdrawalWitnessOnRootChange &&
+			request.CurrentWithdrawalRoot != "" {
+			return normalizeHex(request.CurrentWithdrawalRoot), nil
+		}
 		return hashPayloadDisplayHex(buildWithdrawalRootPayload(0, make([]byte, 32))), nil
 	}
 

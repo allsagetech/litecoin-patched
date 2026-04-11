@@ -148,6 +148,10 @@ This means:
   and the external auto-prover request path now carries `data_chunks_hex` so
   the prover validates `data_root` and `data_size` against the same chunk list
   the wallet publishes onchain
+- the same auto-prover contract now also treats an omitted DA payload as an
+  explicit empty publication, so malformed `data_root = 0` / `data_size = 0`
+  combinations are rejected before proof construction instead of falling
+  through to later node-side validation
 - the committed real-profile vectors now also consume one deterministic deposit
   queue entry and carry a non-zero `queue_prefix_commitment`, with the deposit
   nonce chosen so the queue hashes fit the current one-scalar-per-input native
@@ -360,7 +364,8 @@ and it can now also derive profile-appropriate `withdrawal_root`, `data_root`,
 and `data_size` values from withdrawal witnesses or DA chunks where the current
 wallet surface has enough information. It also rejects mismatched queue-prefix
 or withdrawal-witness metadata before proof construction instead of falling
-through to later generic verifier errors.
+through to later generic verifier errors, and it now does the same for
+malformed empty-DA metadata before any auto-proof backend is invoked.
 The wallet now also locally prevalidates stale-deposit reclaim,
 verified-withdrawal execution, and escape-exit execution against the active
 chainstate before transaction construction, so obvious delay/replay/root-state
