@@ -1092,18 +1092,19 @@ static void RequireDeprecatedLegacyDrivechainRpc(const char* method)
 
 static void RequireValiditySidechainMigrationProfileRegistrationOptIn(const ValiditySidechainConfig& config)
 {
-    if (IsCanonicalValiditySidechainProfile(config) || gArgs.GetBoolArg("-validityallowmigrationprofiles", false)) {
+    if (IsValiditySidechainRegistrationDefaultAllowedProfile(config) ||
+        gArgs.GetBoolArg("-validityallowmigrationprofiles", false)) {
         return;
     }
 
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
-    const SupportedValiditySidechainConfig* canonical_supported = GetCanonicalValiditySidechainConfig();
+    const SupportedValiditySidechainConfig* recommended_supported = GetRecommendedValiditySidechainConfig();
     throw JSONRPCError(
         RPC_INVALID_PARAMETER,
         strprintf(
-            "profile %s is retained only for migration/testing. Restart litecoind with -validityallowmigrationprofiles=1 to register migration-only profiles, or use the canonical %s profile for new registrations.",
+            "profile %s is retained only for migration/testing. Restart litecoind with -validityallowmigrationprofiles=1 to register migration-only profiles, or use the recommended %s profile for new registrations.",
             supported != nullptr && supported->profile_name != nullptr ? supported->profile_name : "unsupported_profile",
-            canonical_supported != nullptr && canonical_supported->profile_name != nullptr ? canonical_supported->profile_name : "recommended_profile"));
+            recommended_supported != nullptr && recommended_supported->profile_name != nullptr ? recommended_supported->profile_name : "recommended_profile"));
 }
 
 static bool IsDrivechainRegisterSidechainExistsError(const UniValue& err)
@@ -1998,7 +1999,7 @@ static RPCHelpMan sendvaliditysidechainregister()
         "sendvaliditysidechainregister",
         "Create, fund, sign and broadcast a validity-sidechain REGISTER transaction.\n"
         "The config must match one of the node's supported proof configuration profiles.\n"
-        "Migration-only profiles require -validityallowmigrationprofiles=1; new registrations should use the canonical groth16_bls12_381_poseidon_v2 profile.\n",
+        "Migration-only profiles require -validityallowmigrationprofiles=1; new registrations should use the recommended groth16_bls12_381_poseidon_v3 profile.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"config", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Validity-sidechain config",
@@ -2082,17 +2083,17 @@ static RPCHelpMan sendvaliditysidechainregister()
                 subtract_fee_from_amount);
 
             UniValue result(UniValue::VOBJ);
-            const SupportedValiditySidechainConfig* canonical_supported = GetCanonicalValiditySidechainConfig();
+            const SupportedValiditySidechainConfig* recommended_supported = GetRecommendedValiditySidechainConfig();
             result.pushKV("txid", txid);
             result.pushKV("sidechain_id", static_cast<int>(sidechain_id));
             result.pushKV("config_hash", ComputeValiditySidechainConfigHash(config).GetHex());
             result.pushKV("profile_lifecycle", GetValiditySidechainProfileLifecycle(config));
             result.pushKV("canonical_target", IsCanonicalValiditySidechainProfile(config));
-            result.pushKV("migration_only", !IsCanonicalValiditySidechainProfile(config));
+            result.pushKV("migration_only", !IsValiditySidechainRegistrationDefaultAllowedProfile(config));
             result.pushKV(
                 "recommended_profile_name",
-                canonical_supported != nullptr && canonical_supported->profile_name != nullptr
-                    ? canonical_supported->profile_name
+                recommended_supported != nullptr && recommended_supported->profile_name != nullptr
+                    ? recommended_supported->profile_name
                     : "");
             return result;
         },
@@ -2393,8 +2394,8 @@ static RPCHelpMan sendvaliditybatch()
         "sendvaliditybatch",
         "Create, fund, sign and broadcast a validity-sidechain COMMIT_VALIDITY_BATCH transaction.\n"
         "If proof_bytes is omitted and the sidechain profile supports local auto proof generation, the wallet builds proof bytes automatically.\n"
-        "The canonical Groth16 v2 profile also requires explicit withdrawal_leaves witness whenever a batch changes withdrawal_root.\n"
-        "For that profile, omitting withdrawal_leaves keeps the current withdrawal root, while an explicit empty array commits the canonical empty-withdrawal root.\n",
+        "The current chainstate-bound Groth16 profiles also require explicit withdrawal_leaves witness whenever a batch changes withdrawal_root.\n"
+        "For those profiles, omitting withdrawal_leaves keeps the current withdrawal root, while an explicit empty array commits the canonical empty-withdrawal root.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"public_inputs", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Batch public inputs",
@@ -2404,12 +2405,12 @@ static RPCHelpMan sendvaliditybatch()
                     {"new_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "New finalized state root"},
                     {"l1_message_root_before", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional queue root before batch consumption. If omitted, the wallet uses the active chainstate queue root."},
                     {"l1_message_root_after", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional queue root after batch consumption. If omitted, the wallet computes it from the active chainstate."},
-                    {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages. The scalar-limited experimental real profile supports at most one consumed deposit entry; decomposed-input profiles may consume generic queue prefixes."},
+                    {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages. The scalar-limited experimental real profile supports at most one consumed deposit entry; the commitment-aware successor profile currently supports at most two witness-backed entries; the canonical decomposed-input profile may consume generic queue prefixes."},
                     {"queue_prefix_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional commitment to the exact consumed queue prefix. If omitted, the wallet computes it from the active chainstate."},
-                    {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional withdrawal root. For scaffold queue-prefix-only batches the wallet uses the current accepted root; for Poseidon profiles it derives the root from withdrawal_leaves when omitted."},
+                    {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional withdrawal root. For scaffold queue-prefix-only batches the wallet uses the current accepted root; for current-chainstate-bound Poseidon profiles it preserves the current accepted root when withdrawal_leaves are omitted; other Poseidon profiles derive the root from withdrawal_leaves when omitted."},
                     {"data_root", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional data-availability root. If omitted, the wallet derives it from data_chunks when supported by the active profile."},
                     {"data_size", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional published data size in bytes. If omitted, the wallet derives it from data_chunks when supported by the active profile."},
-                    {"withdrawal_leaves", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional prover witness for real profiles. Ignored by consensus encoding. The scalar-limited experimental real profile supports at most one witness leaf; decomposed-input profiles accept generic withdrawal witness sets.",
+                    {"withdrawal_leaves", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional prover witness for real profiles. Ignored by consensus encoding. The scalar-limited experimental real profile supports at most one witness leaf; the commitment-aware successor profile currently supports at most two witness leaves; the canonical decomposed-input profile accepts generic withdrawal witness sets.",
                         {
                             {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                                 {
@@ -2422,7 +2423,7 @@ static RPCHelpMan sendvaliditybatch()
                         }},
                 }},
             {"proof_bytes", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional proof bytes. Omit to auto-build the scaffold proof envelope when supported."},
-            {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings. Limited to 256 chunks by consensus.",
+                    {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings. Limited to 256 chunks by consensus; the commitment-aware successor profile currently supports at most two in-circuit DA chunk witnesses.",
                 {
                     {"chunk", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Data chunk hex"},
                 }},
@@ -2484,13 +2485,17 @@ static RPCHelpMan sendvaliditybatch()
                         experimental_payout_recipients);
                 }
             }
-            if (IsValiditySidechainSingleEntryBoundedQueueWitnessProfile(sidechain.config) &&
-                public_inputs.consumed_queue_messages > 1) {
+            const uint32_t committed_queue_witness_limit =
+                GetValiditySidechainBatchCommittedQueueWitnessLimit(sidechain.config);
+            if (committed_queue_witness_limit != 0 &&
+                public_inputs.consumed_queue_messages > committed_queue_witness_limit) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)
                         ? "experimental real profile currently supports at most one consumed queue message"
-                        : "current profile supports at most one consumed queue message");
+                        : strprintf(
+                            "current profile supports at most %u consumed queue messages",
+                            committed_queue_witness_limit));
             }
             if (public_inputs.consumed_queue_messages > MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION) {
                 throw JSONRPCError(
@@ -2513,13 +2518,17 @@ static RPCHelpMan sendvaliditybatch()
                     RPC_INVALID_PARAMETER,
                     "batch queue root before does not match current queue root");
             }
-            if (IsValiditySidechainSingleLeafBoundedWithdrawalWitnessProfile(sidechain.config) &&
-                experimental_withdrawal_leaves.size() > 1) {
+            const uint32_t committed_withdrawal_witness_limit =
+                GetValiditySidechainBatchCommittedWithdrawalWitnessLimit(sidechain.config);
+            if (committed_withdrawal_witness_limit != 0 &&
+                experimental_withdrawal_leaves.size() > committed_withdrawal_witness_limit) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config)
                         ? "experimental real profile currently supports at most one withdrawal leaf witness"
-                        : "current profile supports at most one withdrawal leaf witness");
+                        : strprintf(
+                            "current profile supports at most %u withdrawal leaf witnesses",
+                            committed_withdrawal_witness_limit));
             }
             const std::vector<std::vector<unsigned char>> data_chunks =
                 (request.params.size() > 3 && !request.params[3].isNull())
@@ -2530,18 +2539,34 @@ static RPCHelpMan sendvaliditybatch()
                     RPC_INVALID_PARAMETER,
                     "batch data chunk count exceeds consensus limit");
             }
-            if (verifier_mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3 &&
-                data_chunks.size() > VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNKS) {
+            const uint32_t committed_data_chunk_witness_limit =
+                GetValiditySidechainBatchCommittedDataChunkWitnessLimit(sidechain.config);
+            if (committed_data_chunk_witness_limit != 0 &&
+                data_chunks.size() > committed_data_chunk_witness_limit) {
+                const char* witness_label =
+                    committed_data_chunk_witness_limit == 1 ? "witness" : "witnesses";
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
-                    "current profile supports at most one data chunk witness");
+                    strprintf(
+                        "current profile supports at most %u data chunk %s",
+                        committed_data_chunk_witness_limit,
+                        witness_label));
             }
-            if (verifier_mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3) {
-                for (const auto& chunk : data_chunks) {
+            if (committed_data_chunk_witness_limit != 0) {
+                for (size_t chunk_index = 0; chunk_index < data_chunks.size(); ++chunk_index) {
+                    const auto& chunk = data_chunks[chunk_index];
                     if (chunk.size() > VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNK_BYTES) {
                         throw JSONRPCError(
                             RPC_INVALID_PARAMETER,
                             "current profile supports data chunk witnesses of at most 64 bytes");
+                    }
+                    if (chunk_index + 1 < data_chunks.size() &&
+                        chunk.size() != VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNK_BYTES) {
+                        throw JSONRPCError(
+                            RPC_INVALID_PARAMETER,
+                            strprintf(
+                                "data_chunks[%u] must be exactly 64 bytes when followed by another chunk",
+                                static_cast<unsigned int>(chunk_index)));
                     }
                 }
             }
@@ -2632,11 +2657,11 @@ static RPCHelpMan sendvaliditybatch()
                         public_inputs.withdrawal_root = sidechain.current_withdrawal_root;
                         break;
                     case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1:
-                    case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3:
                         public_inputs.withdrawal_root =
                             ComputeValiditySidechainWithdrawalRoot(experimental_withdrawal_leaves);
                         break;
                     case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2:
+                    case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3:
                         public_inputs.withdrawal_root = !withdrawal_leaves_supplied
                             ? sidechain.current_withdrawal_root
                             : ComputeValiditySidechainWithdrawalRoot(experimental_withdrawal_leaves);
@@ -2656,12 +2681,14 @@ static RPCHelpMan sendvaliditybatch()
                         "withdrawal_root does not match withdrawal_leaves witness");
                 }
             }
-            if (IsCanonicalValiditySidechainProfile(sidechain.config) &&
+            if (RequiresValiditySidechainExternalProverCurrentChainstate(sidechain.config) &&
                 !withdrawal_leaves_supplied &&
                 public_inputs.withdrawal_root != sidechain.current_withdrawal_root) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
-                    "canonical profile withdrawal_root changes require withdrawal_leaves witness");
+                    IsCanonicalValiditySidechainProfile(sidechain.config)
+                        ? "canonical profile withdrawal_root changes require withdrawal_leaves witness"
+                        : "current profile withdrawal_root changes require withdrawal_leaves witness");
             }
 
             std::vector<unsigned char> proof_bytes;

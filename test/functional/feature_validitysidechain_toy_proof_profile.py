@@ -15,8 +15,9 @@ import sys
 
 from test_framework.messages import CTransaction, CTxOut, hash256, ser_uint256, uint256_from_str
 from test_framework.script import CScript
+from test_framework.authproxy import JSONRPCException
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.util import assert_equal, assert_raises_rpc_error, get_rpc_proxy
 
 
 def build_register_config(supported, initial_state_root, initial_withdrawal_root):
@@ -146,6 +147,26 @@ def compute_queue_prefix_commitment(sidechain_id, entries):
     return commitment
 
 
+def order_queue_entries_by_block(node, block_hash, pending_entries, start_index=0):
+    block = node.getblock(block_hash)
+    entries_by_txid = {entry["txid"]: entry for entry in pending_entries}
+    ordered_entries = []
+    for txid in block["tx"]:
+        entry = entries_by_txid.get(txid)
+        if entry is None:
+            continue
+        ordered_entries.append({
+            "queue_index": start_index + len(ordered_entries),
+            "message_kind": entry["message_kind"],
+            "message_id": entry["message_id"],
+            "message_hash": entry["message_hash"],
+        })
+    if len(ordered_entries) != len(pending_entries):
+        missing = sorted(set(entries_by_txid) - {txid for txid in block["tx"]})
+        raise AssertionError(f"missing queued entry txids in block {block_hash}: {missing}")
+    return ordered_entries
+
+
 def compute_merkle_root(encoded_leaves, leaf_magic, node_magic, root_magic):
     if not encoded_leaves:
         return f"{hash256_uint256(root_magic + struct.pack('<I', 0) + ser_uint256(0)):064x}"
@@ -171,6 +192,15 @@ def compute_withdrawal_root(withdrawals):
             ser_uint256(int(get_destination_commitment(withdrawal), 16))
         )
     return compute_merkle_root(encoded_leaves, b"VSCW\x02", b"VSCW\x03", b"VSCW\x01")
+
+
+def compute_data_root(chunks):
+    payload = bytearray(b"VSCR\x01")
+    payload.extend(struct.pack("<I", len(chunks)))
+    for chunk in chunks:
+        payload.extend(struct.pack("<I", len(chunk)))
+        payload.extend(chunk)
+    return f"{hash256_uint256(bytes(payload)):064x}"
 
 
 def build_script_destination(node):
@@ -240,10 +270,28 @@ def shell_join(argv):
     return shlex.join(args)
 
 
+def assert_raises_rpc_error_any(code, messages, fun, *args, **kwargs):
+    try:
+        fun(*args, **kwargs)
+    except JSONRPCException as exc:
+        error = exc.error
+        if error["code"] != code:
+            raise AssertionError(
+                f"Unexpected JSONRPC error code {error['code']}, expected {code}: {error['message']}"
+            ) from exc
+        if any(message in error["message"] for message in messages):
+            return
+        raise AssertionError(
+            "Expected one of the substrings {} in error message: '{}'".format(messages, error["message"])
+        ) from exc
+    raise AssertionError("No exception raised")
+
+
 class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
+        self.rpc_timeout = 240
 
         self.repo_root = Path(__file__).resolve().parents[2]
         self.zk_demo_dir = self.repo_root / "contrib" / "validitysidechain-zk-demo"
@@ -253,8 +301,10 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.native_toy_artifact_dir = self.artifact_root / "validitysidechain" / "native_blst_groth16_toy_batch_transition_v1"
         self.real_artifact_dir = self.artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v1"
         self.real_v2_artifact_dir = self.artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v2"
+        self.real_v3_artifact_dir = self.artifact_root / "validitysidechain" / "groth16_bls12_381_poseidon_v3"
         self.real_proving_key_path = self.real_artifact_dir / "batch_pk.bin"
         self.real_v2_proving_key_path = self.real_v2_artifact_dir / "batch_pk.bin"
+        self.real_v3_proving_key_path = self.real_v3_artifact_dir / "batch_pk.bin"
         self.valid_vector_path = self.toy_artifact_dir / "valid" / "valid_proof.json"
         self.invalid_mismatch_vector_path = self.toy_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.invalid_corrupt_vector_path = self.toy_artifact_dir / "invalid" / "corrupt_proof.json"
@@ -265,12 +315,17 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.real_v2_valid_vector_path = self.real_v2_artifact_dir / "valid" / "valid_proof.json"
         self.real_invalid_mismatch_vector_path = self.real_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.real_v2_invalid_mismatch_vector_path = self.real_v2_artifact_dir / "invalid" / "public_input_mismatch.json"
+        self.real_v3_valid_vector_path = self.real_v3_artifact_dir / "valid" / "valid_proof.json"
+        self.real_v3_invalid_mismatch_vector_path = self.real_v3_artifact_dir / "invalid" / "public_input_mismatch.json"
         self.real_invalid_queue_prefix_mismatch_vector_path = self.real_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json"
         self.real_v2_invalid_queue_prefix_mismatch_vector_path = self.real_v2_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json"
+        self.real_v3_invalid_queue_prefix_mismatch_vector_path = self.real_v3_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json"
         self.real_invalid_withdrawal_root_mismatch_vector_path = self.real_artifact_dir / "invalid" / "withdrawal_root_mismatch.json"
         self.real_v2_invalid_withdrawal_root_mismatch_vector_path = self.real_v2_artifact_dir / "invalid" / "withdrawal_root_mismatch.json"
+        self.real_v3_invalid_withdrawal_root_mismatch_vector_path = self.real_v3_artifact_dir / "invalid" / "withdrawal_root_mismatch.json"
         self.real_invalid_corrupt_vector_path = self.real_artifact_dir / "invalid" / "corrupt_proof.json"
         self.real_v2_invalid_corrupt_vector_path = self.real_v2_artifact_dir / "invalid" / "corrupt_proof.json"
+        self.real_v3_invalid_corrupt_vector_path = self.real_v3_artifact_dir / "invalid" / "corrupt_proof.json"
         self.have_go = shutil.which("go") is not None
 
         base_args = ["-acceptnonstdtxn=1"]
@@ -299,12 +354,17 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             self.real_v2_valid_vector_path,
             self.real_invalid_mismatch_vector_path,
             self.real_v2_invalid_mismatch_vector_path,
+            self.real_v3_valid_vector_path,
+            self.real_v3_invalid_mismatch_vector_path,
             self.real_invalid_queue_prefix_mismatch_vector_path,
             self.real_v2_invalid_queue_prefix_mismatch_vector_path,
+            self.real_v3_invalid_queue_prefix_mismatch_vector_path,
             self.real_invalid_withdrawal_root_mismatch_vector_path,
             self.real_v2_invalid_withdrawal_root_mismatch_vector_path,
+            self.real_v3_invalid_withdrawal_root_mismatch_vector_path,
             self.real_invalid_corrupt_vector_path,
             self.real_v2_invalid_corrupt_vector_path,
+            self.real_v3_invalid_corrupt_vector_path,
         ):
             if not required_path.exists():
                 raise SkipTest(f"toy proof vector is missing: {required_path}")
@@ -343,6 +403,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
         real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
         real_v2_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v2")
+        real_v3_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v3")
         assert_equal(toy_supported["batch_verifier_mode"], "gnark_groth16_toy_batch_transition_v1")
         assert_equal(toy_supported["verifier_backend"], "external_gnark_command")
         assert_equal(toy_supported["supports_external_prover"], True)
@@ -464,6 +525,52 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_v2_supported["verifier_assets"]["valid_proof_vector_count"], 1)
         assert_equal(real_v2_supported["verifier_assets"]["invalid_proof_vector_count"], 4)
+        assert_equal(real_v3_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(real_v3_supported["verifier_backend"], "native_blst_groth16")
+        assert_equal(real_v3_supported["supports_external_prover"], True)
+        assert_equal(real_v3_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v3_supported["derived_public_input_mode"], "helper_derives_queue_withdrawal_and_da_bindings")
+        assert_equal(
+            real_v3_supported["external_prover_request_mode"],
+            "current_chainstate_bound_explicit_witness_vectors",
+        )
+        assert_equal(real_v3_supported["external_prover_requires_current_chainstate"], True)
+        assert_equal(real_v3_supported["external_prover_requires_explicit_witness_vectors"], True)
+        assert_equal(real_v3_supported["queue_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_supported["withdrawal_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_supported["data_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_supported["in_circuit_binding_blocker"], "none")
+        assert_equal(real_v3_supported["committed_queue_witness_limit"], 2)
+        assert_equal(real_v3_supported["committed_withdrawal_witness_limit"], 2)
+        assert_equal(real_v3_supported["committed_data_chunk_witness_limit"], 2)
+        assert_equal(
+            real_v3_supported["batch_queue_binding_mode"],
+            "bounded_in_circuit_committed_public_inputs_experimental",
+        )
+        assert_equal(
+            real_v3_supported["batch_withdrawal_binding_mode"],
+            "bounded_in_circuit_committed_public_input_experimental",
+        )
+        assert_equal(real_v3_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v3_supported["verifier_assets"]["required"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["available"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["prover_assets_present"], self.real_v3_proving_key_path.exists())
+        assert_equal(real_v3_supported["verifier_assets"]["backend_ready"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["native_backend_available"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_parsed"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_name"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_backend"], "native_blst_groth16")
+        assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_public_input_count"], 16)
+        assert_equal(real_v3_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["valid_proof_vector_count"], 1)
+        assert_equal(real_v3_supported["verifier_assets"]["invalid_proof_vector_count"], 4)
 
         self.log.info("Replaying committed proof vectors through consensus.")
         valid_vector = load_json(self.valid_vector_path)
@@ -474,14 +581,19 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         native_corrupt_vector = load_json(self.native_invalid_corrupt_vector_path)
         real_valid_vector = load_json(self.real_valid_vector_path)
         real_v2_valid_vector = load_json(self.real_v2_valid_vector_path)
+        real_v3_valid_vector = load_json(self.real_v3_valid_vector_path)
         real_mismatch_vector = load_json(self.real_invalid_mismatch_vector_path)
         real_v2_mismatch_vector = load_json(self.real_v2_invalid_mismatch_vector_path)
+        real_v3_mismatch_vector = load_json(self.real_v3_invalid_mismatch_vector_path)
         real_queue_prefix_mismatch_vector = load_json(self.real_invalid_queue_prefix_mismatch_vector_path)
         real_v2_queue_prefix_mismatch_vector = load_json(self.real_v2_invalid_queue_prefix_mismatch_vector_path)
+        real_v3_queue_prefix_mismatch_vector = load_json(self.real_v3_invalid_queue_prefix_mismatch_vector_path)
         real_withdrawal_root_mismatch_vector = load_json(self.real_invalid_withdrawal_root_mismatch_vector_path)
         real_v2_withdrawal_root_mismatch_vector = load_json(self.real_v2_invalid_withdrawal_root_mismatch_vector_path)
+        real_v3_withdrawal_root_mismatch_vector = load_json(self.real_v3_invalid_withdrawal_root_mismatch_vector_path)
         real_corrupt_vector = load_json(self.real_invalid_corrupt_vector_path)
         real_v2_corrupt_vector = load_json(self.real_v2_invalid_corrupt_vector_path)
+        real_v3_corrupt_vector = load_json(self.real_v3_invalid_corrupt_vector_path)
         assert_equal(valid_vector["expected_result"], "accept_in_demo_verifier")
         assert_equal(mismatch_vector["expected_result"], "reject")
         assert_equal(corrupt_vector["expected_result"], "reject")
@@ -498,6 +610,11 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_v2_queue_prefix_mismatch_vector["expected_result"], "reject")
         assert_equal(real_v2_withdrawal_root_mismatch_vector["expected_result"], "reject")
         assert_equal(real_v2_corrupt_vector["expected_result"], "reject")
+        assert_equal(real_v3_valid_vector["expected_result"], "accept_in_native_verifier")
+        assert_equal(real_v3_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_v3_queue_prefix_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_v3_withdrawal_root_mismatch_vector["expected_result"], "reject")
+        assert_equal(real_v3_corrupt_vector["expected_result"], "reject")
 
         self.log.info("Replaying the committed real vector through the external verify helper too.")
         real_verify_request = {
@@ -571,6 +688,50 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         real_v2_verify_mismatch_result = self.run_tool("verify", real_v2_verify_mismatch_request)
         assert_equal(real_v2_verify_mismatch_result["ok"], False)
         assert real_v2_verify_mismatch_result["error"]
+
+        self.log.info("Replaying the committed commitment-aware real vector through the external verify helper too.")
+        real_v3_verify_request = {
+            "profile_name": "groth16_bls12_381_poseidon_v3",
+            "artifact_dir": str(self.real_v3_artifact_dir),
+            "sidechain_id": int(real_v3_valid_vector["public_inputs"]["sidechain_id"]),
+            "public_inputs": {
+                "batch_number": int(real_v3_valid_vector["public_inputs"]["batch_number"]),
+                "prior_state_root": real_v3_valid_vector["public_inputs"]["prior_state_root"],
+                "new_state_root": real_v3_valid_vector["public_inputs"]["new_state_root"],
+                "l1_message_root_before": combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_before_lo"],
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_before_hi"],
+                ),
+                "l1_message_root_after": combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_after_lo"],
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_after_hi"],
+                ),
+                "consumed_queue_messages": int(real_v3_valid_vector["public_inputs"]["consumed_queue_messages"]),
+                "queue_prefix_commitment": combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_lo"],
+                    real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_hi"],
+                ),
+                "withdrawal_root": combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["withdrawal_root_lo"],
+                    real_v3_valid_vector["public_inputs"]["withdrawal_root_hi"],
+                ),
+                "data_root": combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["data_root_lo"],
+                    real_v3_valid_vector["public_inputs"]["data_root_hi"],
+                ),
+                "data_size": int(real_v3_valid_vector["public_inputs"]["data_size"]),
+            },
+            "proof_bytes_hex": real_v3_valid_vector["proof_bytes_hex"],
+        }
+        real_v3_verify_result = self.run_tool("verify", real_v3_verify_request)
+        assert_equal(real_v3_verify_result["ok"], True)
+
+        real_v3_verify_mismatch_request = dict(real_v3_verify_request)
+        real_v3_verify_mismatch_request["public_inputs"] = dict(real_v3_verify_request["public_inputs"])
+        real_v3_verify_mismatch_request["public_inputs"]["new_state_root"] = real_v3_mismatch_vector["public_inputs"]["new_state_root"]
+        real_v3_verify_mismatch_result = self.run_tool("verify", real_v3_verify_mismatch_request)
+        assert_equal(real_v3_verify_mismatch_result["ok"], False)
+        assert real_v3_verify_mismatch_result["error"]
         refund_address = node.getnewaddress()
         native_toy_vectors_da_compatible = pad_field_hex(native_valid_vector["public_inputs"]["data_root"]) == ("00" * 32)
 
@@ -604,19 +765,11 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
 
             vector_sidechain = get_sidechain_info(node, vector_sidechain_id)
             assert_equal(vector_sidechain["queue_state"]["pending_message_count"], 3)
-            l1_message_root_before = vector_sidechain["queue_state"]["root"]
-            l1_message_root_after = compute_consumed_queue_root(
-                vector_sidechain_id,
-                l1_message_root_before,
-                queued_entries,
-            )
 
             valid_public_inputs = {
                 "batch_number": int(valid_vector["public_inputs"]["batch_number"]),
                 "prior_state_root": vector_prior_state_root,
                 "new_state_root": pad_field_hex(valid_vector["public_inputs"]["new_state_root"]),
-                "l1_message_root_before": l1_message_root_before,
-                "l1_message_root_after": l1_message_root_after,
                 "consumed_queue_messages": int(valid_vector["public_inputs"]["consumed_queue_messages"]),
                 "withdrawal_root": pad_field_hex(valid_vector["public_inputs"]["withdrawal_root"]),
                 "data_root": pad_field_hex(valid_vector["public_inputs"]["data_root"]),
@@ -625,17 +778,17 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             mismatch_public_inputs = dict(valid_public_inputs)
             mismatch_public_inputs["new_state_root"] = pad_field_hex(mismatch_vector["public_inputs"]["new_state_root"])
 
-            assert_raises_rpc_error(
+            assert_raises_rpc_error_any(
                 -8,
-                "pairing doesn't match",
+                ["pairing doesn't match", "invalid infinity point encoding"],
                 node.sendvaliditybatch,
                 vector_sidechain_id,
                 mismatch_public_inputs,
                 mismatch_vector["proof_bytes_hex"],
             )
-            assert_raises_rpc_error(
+            assert_raises_rpc_error_any(
                 -8,
-                "pairing doesn't match",
+                ["pairing doesn't match", "invalid infinity point encoding"],
                 node.sendvaliditybatch,
                 vector_sidechain_id,
                 valid_public_inputs,
@@ -773,7 +926,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                 "l1_message_root_after": "00" * 32,
                 "consumed_queue_messages": 0,
                 "withdrawal_root": hex_uint(1011),
-                "data_root": hex_uint(1028),
+                "data_root": "00" * 32,
                 "data_size": 0,
             }
 
@@ -809,7 +962,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                 "l1_message_root_after": "00" * 32,
                 "consumed_queue_messages": 0,
                 "withdrawal_root": hex_uint(2011),
-                "data_root": hex_uint(2028),
+                "data_root": "00" * 32,
                 "data_size": 0,
             }
             request = {
@@ -823,9 +976,9 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             proof_hex = proof_result["proof_bytes_hex"]
             corrupted_proof_hex = proof_hex[:-2] + ("00" if proof_hex[-2:] != "00" else "01")
 
-            assert_raises_rpc_error(
+            assert_raises_rpc_error_any(
                 -8,
-                "pairing doesn't match",
+                ["pairing doesn't match", "invalid infinity point encoding"],
                 node.sendvaliditybatch,
                 invalid_sidechain_id,
                 invalid_public_inputs,
@@ -856,13 +1009,14 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                 deposit["deposit_id"],
             )
             real_queue_entries.append({
-                "queue_index": index,
+                "txid": deposit_res["txid"],
                 "message_kind": 1,
                 "message_id": deposit_res["deposit_id"],
                 "message_hash": deposit_res["deposit_message_hash"],
             })
         if real_queue_entries:
-            node.generate(1)
+            real_queue_block_hash = node.generate(1)[0]
+            real_queue_entries = order_queue_entries_by_block(node, real_queue_block_hash, real_queue_entries)
 
         real_sidechain = get_sidechain_info(node, real_sidechain_id)
         if real_queue_entries:
@@ -1190,12 +1344,17 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                     index + 1,
                 )
                 real_v2_queue_entries.append({
-                    "queue_index": index,
+                    "txid": deposit_res["txid"],
                     "message_kind": 1,
                     "message_id": deposit_res["deposit_id"],
                     "message_hash": deposit_res["deposit_message_hash"],
                 })
-            node.generate(1)
+            real_v2_queue_block_hash = node.generate(1)[0]
+            real_v2_queue_entries = order_queue_entries_by_block(
+                node,
+                real_v2_queue_block_hash,
+                real_v2_queue_entries,
+            )
 
             real_v2_auto_sidechain = get_sidechain_info(node, real_v2_auto_sidechain_id)
             assert_equal(real_v2_auto_sidechain["queue_state"]["pending_message_count"], 2)
@@ -1241,6 +1400,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                     "data_root": "0",
                     "data_size": 0,
                 },
+                "require_withdrawal_witness_on_root_change": True,
                 "withdrawal_leaves_supplied": True,
                 "consumed_queue_entries": real_v2_queue_entries,
                 "withdrawal_leaves": real_v2_withdrawal_witness,
@@ -1295,6 +1455,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
                     "data_root": "0",
                     "data_size": 0,
                 },
+                "require_withdrawal_witness_on_root_change": True,
                 "withdrawal_leaves_supplied": False,
                 "consumed_queue_entries": real_v2_queue_entries,
                 "withdrawal_leaves": [],
@@ -1380,6 +1541,262 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert real_v2_auto_sidechain["accepted_batches"][0]["proof_size"] > 0
         else:
             self.log.info("Skipping decomposed real auto-prover coverage because the committed proving key is not available in-tree.")
+
+        real_v3_auto_prover_ready = toy_external_backend_ready and real_v3_supported["verifier_assets"]["prover_assets_present"]
+        if real_v3_auto_prover_ready:
+            self.log.info("Auto-building a native-verified commitment-aware real-profile proof with bounded queue, withdrawal, and data witnesses.")
+            real_v3_auto_sidechain_id = 59
+            real_v3_auto_initial_root = hex_uint(4400)
+            real_v3_auto_initial_withdrawal_root = "ab" * 32
+            real_v3_auto_config = build_register_config(
+                real_v3_supported,
+                initial_state_root=real_v3_auto_initial_root,
+                initial_withdrawal_root=real_v3_auto_initial_withdrawal_root,
+            )
+            node.sendvaliditysidechainregister(real_v3_auto_sidechain_id, real_v3_auto_config)
+            node.generate(1)
+
+            real_v3_queue_entries = []
+            for index in range(2):
+                deposit_res = node.sendvaliditydeposit(
+                    real_v3_auto_sidechain_id,
+                    hex_uint(0x6200 + index),
+                    {"address": refund_address},
+                    Decimal("0.20") + (Decimal("0.05") * index),
+                    index + 1,
+                )
+                real_v3_queue_entries.append({
+                    "txid": deposit_res["txid"],
+                    "message_kind": 1,
+                    "message_id": deposit_res["deposit_id"],
+                    "message_hash": deposit_res["deposit_message_hash"],
+                })
+            real_v3_queue_block_hash = node.generate(1)[0]
+            real_v3_queue_entries = order_queue_entries_by_block(
+                node,
+                real_v3_queue_block_hash,
+                real_v3_queue_entries,
+            )
+
+            real_v3_auto_sidechain = get_sidechain_info(node, real_v3_auto_sidechain_id)
+            assert_equal(real_v3_auto_sidechain["queue_state"]["pending_message_count"], 2)
+
+            real_v3_data_chunks = ["61" * 64, "2d6461"]
+            real_v3_data_chunk_bytes = [bytes.fromhex(chunk) for chunk in real_v3_data_chunks]
+            real_v3_preserve_request = {
+                "profile_name": "groth16_bls12_381_poseidon_v3",
+                "artifact_dir": str(self.real_v3_artifact_dir),
+                "sidechain_id": real_v3_auto_sidechain_id,
+                "current_state_root": real_v3_auto_sidechain["current_state_root"],
+                "current_withdrawal_root": real_v3_auto_sidechain["current_withdrawal_root"],
+                "current_data_root": real_v3_auto_sidechain["current_data_root"],
+                "current_l1_message_root": real_v3_auto_sidechain["queue_state"]["root"],
+                "public_inputs": {
+                    "batch_number": 1,
+                    "prior_state_root": real_v3_auto_initial_root,
+                    "new_state_root": "0",
+                    "l1_message_root_before": real_v3_auto_sidechain["queue_state"]["root"],
+                    "l1_message_root_after": "0",
+                    "consumed_queue_messages": len(real_v3_queue_entries),
+                    "queue_prefix_commitment": "0",
+                    "withdrawal_root": real_v3_auto_sidechain["current_withdrawal_root"],
+                    "data_root": "0",
+                    "data_size": 0,
+                },
+                "require_withdrawal_witness_on_root_change": True,
+                "withdrawal_leaves_supplied": False,
+                "consumed_queue_entries": real_v3_queue_entries,
+                "withdrawal_leaves": [],
+                "data_chunks_hex": real_v3_data_chunks,
+            }
+            real_v3_preserve_derived = self.run_tool("derive", real_v3_preserve_request)
+            assert_equal(real_v3_preserve_derived["ok"], True)
+            assert_equal(
+                real_v3_preserve_derived["public_inputs"]["withdrawal_root"],
+                real_v3_auto_sidechain["current_withdrawal_root"],
+            )
+            assert_equal(
+                real_v3_preserve_derived["public_inputs"]["l1_message_root_after"],
+                compute_consumed_queue_root(
+                    real_v3_auto_sidechain_id,
+                    real_v3_auto_sidechain["queue_state"]["root"],
+                    real_v3_queue_entries,
+                ),
+            )
+            assert_equal(
+                real_v3_preserve_derived["public_inputs"]["queue_prefix_commitment"],
+                compute_queue_prefix_commitment(
+                    real_v3_auto_sidechain_id,
+                    real_v3_queue_entries,
+                ),
+            )
+            assert_equal(
+                real_v3_preserve_derived["public_inputs"]["data_root"],
+                compute_data_root(real_v3_data_chunk_bytes),
+            )
+            assert_equal(
+                real_v3_preserve_derived["public_inputs"]["data_size"],
+                sum(len(chunk) for chunk in real_v3_data_chunk_bytes),
+            )
+
+            real_v3_withdrawals_rpc = [
+                {
+                    "withdrawal_id": "a1" * 32,
+                    "script": build_script_destination(node),
+                    "amount": Decimal("0.11"),
+                },
+                {
+                    "withdrawal_id": "a2" * 32,
+                    "script": build_script_destination(node),
+                    "amount": Decimal("0.14"),
+                },
+            ]
+            real_v3_withdrawal_witness = [
+                {
+                    "withdrawal_id": withdrawal["withdrawal_id"],
+                    "amount": str(withdrawal["amount"]),
+                    "destination_commitment": compute_script_commitment(withdrawal["script"]),
+                }
+                for withdrawal in real_v3_withdrawals_rpc
+            ]
+
+            real_v3_derive_request = {
+                "profile_name": "groth16_bls12_381_poseidon_v3",
+                "artifact_dir": str(self.real_v3_artifact_dir),
+                "sidechain_id": real_v3_auto_sidechain_id,
+                "current_state_root": real_v3_auto_sidechain["current_state_root"],
+                "current_withdrawal_root": real_v3_auto_sidechain["current_withdrawal_root"],
+                "current_data_root": real_v3_auto_sidechain["current_data_root"],
+                "current_l1_message_root": real_v3_auto_sidechain["queue_state"]["root"],
+                "public_inputs": {
+                    "batch_number": 1,
+                    "prior_state_root": real_v3_auto_initial_root,
+                    "new_state_root": "0",
+                    "l1_message_root_before": real_v3_auto_sidechain["queue_state"]["root"],
+                    "l1_message_root_after": "0",
+                    "consumed_queue_messages": len(real_v3_queue_entries),
+                    "queue_prefix_commitment": "0",
+                    "withdrawal_root": "0",
+                    "data_root": "0",
+                    "data_size": 0,
+                },
+                "require_withdrawal_witness_on_root_change": True,
+                "withdrawal_leaves_supplied": True,
+                "consumed_queue_entries": real_v3_queue_entries,
+                "withdrawal_leaves": real_v3_withdrawal_witness,
+                "data_chunks_hex": real_v3_data_chunks,
+            }
+            real_v3_derived = self.run_tool("derive", real_v3_derive_request)
+            assert_equal(real_v3_derived["ok"], True)
+            assert_equal(
+                real_v3_derived["public_inputs"]["l1_message_root_after"],
+                compute_consumed_queue_root(
+                    real_v3_auto_sidechain_id,
+                    real_v3_auto_sidechain["queue_state"]["root"],
+                    real_v3_queue_entries,
+                ),
+            )
+            assert_equal(
+                real_v3_derived["public_inputs"]["queue_prefix_commitment"],
+                compute_queue_prefix_commitment(
+                    real_v3_auto_sidechain_id,
+                    real_v3_queue_entries,
+                ),
+            )
+            assert_equal(
+                real_v3_derived["public_inputs"]["withdrawal_root"],
+                compute_withdrawal_root(real_v3_withdrawals_rpc),
+            )
+            assert_equal(
+                real_v3_derived["public_inputs"]["data_root"],
+                compute_data_root(real_v3_data_chunk_bytes),
+            )
+            assert_equal(
+                real_v3_derived["public_inputs"]["data_size"],
+                sum(len(chunk) for chunk in real_v3_data_chunk_bytes),
+            )
+
+            missing_real_v3_context_request = dict(real_v3_derive_request)
+            del missing_real_v3_context_request["current_state_root"]
+            missing_real_v3_context = self.run_tool("derive", missing_real_v3_context_request)
+            assert_equal(missing_real_v3_context["ok"], False)
+            assert "current_state_root is required for commitment-aware v3 proof requests" in missing_real_v3_context["error"]
+
+            real_v3_public_inputs = dict(real_v3_derived["public_inputs"])
+            for field_name in (
+                "prior_state_root",
+                "new_state_root",
+                "l1_message_root_before",
+                "l1_message_root_after",
+                "queue_prefix_commitment",
+                "withdrawal_root",
+                "data_root",
+            ):
+                real_v3_public_inputs[field_name] = pad_field_hex(real_v3_public_inputs[field_name])
+            real_v3_public_inputs["withdrawal_leaves"] = [
+                {
+                    "withdrawal_id": withdrawal["withdrawal_id"],
+                    "script": withdrawal["script"],
+                    "amount": withdrawal["amount"],
+                }
+                for withdrawal in real_v3_withdrawals_rpc
+            ]
+
+            bad_real_v3_public_inputs = dict(real_v3_public_inputs)
+            bad_real_v3_public_inputs["withdrawal_leaves"] = [
+                {
+                    "withdrawal_id": withdrawal["withdrawal_id"],
+                    "script": withdrawal["script"],
+                    "amount": withdrawal["amount"] + (Decimal("0.01") if index == 1 else Decimal("0.00")),
+                }
+                for index, withdrawal in enumerate(real_v3_withdrawals_rpc)
+            ]
+            assert_raises_rpc_error(
+                -8,
+                "withdrawal_root does not match withdrawal_leaves witness",
+                node.sendvaliditybatch,
+                real_v3_auto_sidechain_id,
+                {
+                    "batch_number": real_v3_public_inputs["batch_number"],
+                    "new_state_root": real_v3_public_inputs["new_state_root"],
+                    "consumed_queue_messages": real_v3_public_inputs["consumed_queue_messages"],
+                    "withdrawal_root": real_v3_public_inputs["withdrawal_root"],
+                    "withdrawal_leaves": bad_real_v3_public_inputs["withdrawal_leaves"],
+                },
+                None,
+                real_v3_data_chunks,
+            )
+
+            slow_node = get_rpc_proxy(node.url, 0, timeout=900, coveragedir=node.coverage_dir)
+            real_v3_batch_res = slow_node.sendvaliditybatch(
+                real_v3_auto_sidechain_id,
+                {
+                    "batch_number": real_v3_public_inputs["batch_number"],
+                    "new_state_root": real_v3_public_inputs["new_state_root"],
+                    "consumed_queue_messages": real_v3_public_inputs["consumed_queue_messages"],
+                    "withdrawal_leaves": real_v3_public_inputs["withdrawal_leaves"],
+                },
+                None,
+                real_v3_data_chunks,
+            )
+            assert_equal(real_v3_batch_res["auto_scaffold_proof"], False)
+            assert_equal(real_v3_batch_res["auto_external_proof"], True)
+            assert_equal(real_v3_batch_res["auto_proof_backend"], "external_command")
+            node.generate(1)
+
+            real_v3_auto_sidechain = get_sidechain_info(node, real_v3_auto_sidechain_id)
+            assert_equal(real_v3_auto_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v3")
+            assert_equal(real_v3_auto_sidechain["latest_batch_number"], 1)
+            assert_equal(real_v3_auto_sidechain["current_state_root"], real_v3_public_inputs["new_state_root"])
+            assert_equal(real_v3_auto_sidechain["current_withdrawal_root"], real_v3_public_inputs["withdrawal_root"])
+            assert_equal(real_v3_auto_sidechain["current_data_root"], real_v3_public_inputs["data_root"])
+            assert_equal(real_v3_auto_sidechain["queue_state"]["head_index"], len(real_v3_queue_entries))
+            assert_equal(real_v3_auto_sidechain["queue_state"]["pending_message_count"], 0)
+            assert real_v3_auto_sidechain["accepted_batches"][0]["proof_size"] > 0
+            assert_equal(real_v3_auto_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_v3_data_chunks))
+            assert_equal(real_v3_auto_sidechain["accepted_batches"][0]["published_data_bytes"], real_v3_public_inputs["data_size"])
+        else:
+            self.log.info("Skipping commitment-aware real auto-prover coverage because the committed proving key is not available in-tree.")
 
 
 if __name__ == "__main__":

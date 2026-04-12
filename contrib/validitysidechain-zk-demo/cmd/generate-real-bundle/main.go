@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/nativegroth16"
 	"github.com/allsagetech/litecoin-patched/contrib/validitysidechain-zk-demo/realbatch"
@@ -161,14 +162,14 @@ func resolveBundleSpec(profileName string) (bundleSpec, error) {
 			sidechainID:                 58,
 			publicInputVersion:          realbatch.CommitmentPublicInputVersion,
 			circuitName:                 "poseidon_batch_transition_v3",
-			status:                      "experimental commitment-aware Poseidon Groth16 profile with decomposed public inputs and in-circuit single-entry queue, single-leaf withdrawal, and single-chunk DA witnesses",
+			status:                      "experimental commitment-aware Poseidon Groth16 profile with decomposed public inputs and in-circuit bounded queue and withdrawal witnesses plus bounded two-chunk DA binding",
 			requireFieldSizedQueueRoots: false,
 			requireFieldSizedWithdrawal: false,
 			validNotes: []string{
 				"real Groth16 proof for the commitment-aware decomposed-input poseidon batch transition circuit",
-				"proves a single consumed queue entry witness in-circuit against the decomposed queue roots",
-				"proves a single withdrawal leaf witness in-circuit against the decomposed withdrawal root",
-				"proves a single published data chunk witness in-circuit against the decomposed data root and size",
+				"proves up to two consumed queue entry witnesses in-circuit against the decomposed queue roots",
+				"proves up to two withdrawal leaf witnesses in-circuit against the decomposed withdrawal root",
+				"proves up to two published data chunk witnesses in-circuit against the decomposed data root and size, with any non-final chunk fixed at 64 bytes",
 				"uses Groth16 commitment metadata in the proof and verifying key and is verified in-process by the native blst Groth16 path",
 				"the queued roots and/or withdrawal root intentionally exceed the BLS12-381 scalar field to exercise the decomposed public-input layout",
 			},
@@ -233,13 +234,22 @@ func main() {
 			Script:                withdrawal.Script,
 		}},
 	}
+	if spec.profileName == realbatch.FinalProfileName || spec.profileName == realbatch.CommitmentProfileName {
+		request.CurrentStateRoot = request.PublicInputs.PriorStateRoot
+		request.CurrentWithdrawalRoot = strings.Repeat("02", 32)
+		request.CurrentDataRoot = "0"
+		request.CurrentL1MessageRoot = request.PublicInputs.L1MessageRootBefore
+		request.RequireWithdrawalWitnessOnRootChange = true
+		request.WithdrawalLeavesSupplied = true
+	}
 	derivedRequest, err := realbatch.DeriveRequest(request)
 	if err != nil {
 		panic(err)
 	}
 	if spec.profileName == realbatch.CommitmentProfileName {
 		request.DataChunksHex = []string{
-			hex.EncodeToString([]byte("real-batch-da")),
+			hex.EncodeToString(bytes.Repeat([]byte("a"), 64)),
+			hex.EncodeToString([]byte("-da")),
 		}
 		derivedRequest, err = realbatch.DeriveRequest(request)
 		if err != nil {

@@ -1,0 +1,50 @@
+{
+  "name": "groth16_bls12_381_poseidon_v3",
+  "curve": "bls12_381",
+  "backend": "native_blst_groth16",
+  "consensus_safe": false,
+  "status": "experimental commitment-aware Poseidon Groth16 profile with decomposed public inputs and in-circuit bounded queue and withdrawal witnesses plus bounded two-chunk DA binding",
+  "consensus_tuple": {
+    "version": 1,
+    "proof_system_id": 2,
+    "circuit_family_id": 1,
+    "verifier_id": 1,
+    "public_input_version": 6,
+    "state_root_format": 2,
+    "deposit_message_format": 1,
+    "withdrawal_leaf_format": 2,
+    "balance_leaf_format": 2,
+    "data_availability_mode": 1
+  },
+  "public_inputs": [
+    "sidechain_id",
+    "batch_number",
+    "prior_state_root",
+    "new_state_root",
+    "l1_message_root_before_lo",
+    "l1_message_root_before_hi",
+    "l1_message_root_after_lo",
+    "l1_message_root_after_hi",
+    "consumed_queue_messages",
+    "queue_prefix_commitment_lo",
+    "queue_prefix_commitment_hi",
+    "withdrawal_root_lo",
+    "withdrawal_root_hi",
+    "data_root_lo",
+    "data_root_hi",
+    "data_size"
+  ],
+  "verifying_key_file": "batch_vk.bin",
+  "proving_key_file": "batch_pk.bin",
+  "proof_vectors": {
+    "valid": [
+      "valid/valid_proof.json"
+    ],
+    "invalid": [
+      "invalid/corrupt_proof.json",
+      "invalid/public_input_mismatch.json",
+      "invalid/queue_prefix_commitment_mismatch.json",
+      "invalid/withdrawal_root_mismatch.json"
+    ]
+  }
+}

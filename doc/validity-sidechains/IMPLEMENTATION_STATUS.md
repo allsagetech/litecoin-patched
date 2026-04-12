@@ -268,8 +268,19 @@ This means:
 - that successor profile now exists as
   `groth16_bls12_381_poseidon_v3`: it keeps the 16 decomposed public inputs,
   uses the commitment-aware native Groth16 path, and proves a bounded
-  in-circuit contract for one consumed queue entry, one withdrawal leaf, and
-  one published data chunk while leaving the broader `v2` contract unchanged
+  in-circuit contract for up to two consumed queue entries, up to two
+  withdrawal leaves, and up to two published data chunks, where any
+  non-final DA chunk must occupy the full 64-byte witness width so the
+  bounded witness layout still hashes to the real published `data_root`
+  while leaving the broader `v2` contract unchanged
+- the same `groth16_bls12_381_poseidon_v3` successor path now also requires
+  explicit account / balance state proofs for `EXECUTE_ESCAPE_EXIT`, so it no
+  longer advertises the legacy current-state-root leaf-list escape path
+- the same `groth16_bls12_381_poseidon_v3` helper contract is now also
+  current-chainstate-bound like `v2`: proof requests require the current
+  state, withdrawal, data, and L1 message roots, and omitting
+  `withdrawal_leaves` now preserves the current withdrawal root instead of
+  silently deriving an empty-root transition
 - batch acceptance now derives the reachable consumed queue prefix, required
   force-exit coverage, `l1_message_root_after`, and `queue_prefix_commitment`
   from active chainstate before running proof verification, so the canonical
@@ -307,8 +318,10 @@ This means:
   operators to trial-and-error random nonces against mempool rejection
 - `sendvaliditysidechainregister` now treats non-canonical proof profiles as
   migration-only registration targets: scaffold, toy, and legacy Poseidon
-  tuples require `-validityallowmigrationprofiles=1`, while new registrations
-  can use `groth16_bls12_381_poseidon_v2` without any extra node opt-in
+  tuples require `-validityallowmigrationprofiles=1`, while both
+  `groth16_bls12_381_poseidon_v2` and the stronger bounded successor
+  `groth16_bls12_381_poseidon_v3` remain available without any extra node
+  opt-in and `v3` is now the recommended profile for new registrations
 - `sendvaliditybatch` now treats canonical `groth16_bls12_381_poseidon_v2`
   withdrawal-root changes as witness-backed operator actions: the wallet
   rejects non-current `withdrawal_root` values unless callers also provide

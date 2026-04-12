@@ -78,18 +78,31 @@ AC_DEFUN([AX_BOOST_PROCESS],
 		])
 		if test "x$ax_cv_boost_process" = "xyes"; then
 			AC_SUBST(BOOST_CPPFLAGS)
-
-			AC_DEFINE(HAVE_BOOST_PROCESS,,[define if the Boost::Process library is available])
             BOOSTLIBDIR=`echo $BOOST_LDFLAGS | sed -e 's/@<:@^\/@:>@*//'`
+            BOOST_PROCESS_LIB=""
+            AC_SUBST(BOOST_PROCESS_LIB)
+            link_process="no"
 
 			LDFLAGS_SAVE=$LDFLAGS
             if test "x$ax_boost_user_process_lib" = "x"; then
+                AC_LANG_PUSH([C++])
+                LIBS_SAVE=$LIBS
+                LIBS="$LIBS $BOOST_SYSTEM_LIB $BOOST_FILESYSTEM_LIB $BOOST_THREAD_LIB"
+                AC_LINK_IFELSE([AC_LANG_PROGRAM([[@%:@include <boost/process.hpp>]],
+                    [[boost::process::child child("/bin/true"); child.wait(); return child.exit_code();]])],
+                    [link_process="yes"],
+                    [link_process="no"])
+                LIBS=$LIBS_SAVE
+                AC_LANG_POP([C++])
+
+                if test "x$link_process" != "xyes"; then
                 for libextension in `ls -r $BOOSTLIBDIR/libboost_process* 2>/dev/null | sed 's,.*/lib,,' | sed 's,\..*,,'` ; do
                      ax_lib=${libextension}
 				    AC_CHECK_LIB($ax_lib, exit,
                                  [BOOST_PROCESS_LIB="-l$ax_lib"; AC_SUBST(BOOST_PROCESS_LIB) link_process="yes"; break],
                                  [link_process="no"])
 				done
+                fi
                 if test "x$link_process" != "xyes"; then
                 for libextension in `ls -r $BOOSTLIBDIR/boost_process* 2>/dev/null | sed 's,.*/,,' | sed -e 's,\..*,,'` ; do
                      ax_lib=${libextension}
@@ -107,12 +120,13 @@ AC_DEFUN([AX_BOOST_PROCESS],
                   done
 
             fi
-            if test "x$ax_lib" = "x"; then
+            if test "x$link_process" != "xyes" && test "x$ax_lib" = "x"; then
                 AC_MSG_ERROR(Could not find a version of the Boost::Process library!)
             fi
 			if test "x$link_process" = "xno"; then
 				AC_MSG_ERROR(Could not link against $ax_lib !)
 			fi
+			AC_DEFINE(HAVE_BOOST_PROCESS,,[define if the Boost::Process library is available])
 		fi
 
 		CPPFLAGS="$CPPFLAGS_SAVED"

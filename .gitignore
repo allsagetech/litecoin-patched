@@ -156,5 +156,5 @@ dist/
 __pycache__/
 /test/functional/test_framework/litecoin_scrypt/build/
 
-# Locally generated successor-profile artifacts
-/artifacts/validitysidechain/groth16_bls12_381_poseidon_v3/
+# Editor/autotools backup files
+*~

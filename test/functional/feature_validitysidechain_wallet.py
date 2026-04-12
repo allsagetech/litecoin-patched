@@ -494,7 +494,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         info = node.getvaliditysidechaininfo()
         assert_equal(info["implementation_status"], "scaffolding")
         assert_equal(info["canonical_profile_name"], "groth16_bls12_381_poseidon_v2")
-        assert_equal(info["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(info["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(info["migration_profiles_retained"], True)
         assert_equal(info["migration_profile_registration_requires_opt_in"], True)
         assert_equal(info["legacy_drivechain_rpc_deprecated"], True)
@@ -550,16 +550,16 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["registration_requires_explicit_opt_in"], True)
         assert_equal(real_v2_supported["profile_lifecycle"], "canonical_target")
         assert_equal(real_v2_supported["canonical_target"], True)
-        assert_equal(real_v2_supported["recommended_for_new_registrations"], True)
+        assert_equal(real_v2_supported["recommended_for_new_registrations"], False)
         assert_equal(real_v2_supported["migration_only"], False)
         assert_equal(real_v2_supported["registration_default_allowed"], True)
         assert_equal(real_v2_supported["registration_requires_explicit_opt_in"], False)
-        assert_equal(real_v3_supported["profile_lifecycle"], "commitment_successor_migration")
+        assert_equal(real_v3_supported["profile_lifecycle"], "recommended_successor")
         assert_equal(real_v3_supported["canonical_target"], False)
-        assert_equal(real_v3_supported["recommended_for_new_registrations"], False)
-        assert_equal(real_v3_supported["migration_only"], True)
-        assert_equal(real_v3_supported["registration_default_allowed"], False)
-        assert_equal(real_v3_supported["registration_requires_explicit_opt_in"], True)
+        assert_equal(real_v3_supported["recommended_for_new_registrations"], True)
+        assert_equal(real_v3_supported["migration_only"], False)
+        assert_equal(real_v3_supported["registration_default_allowed"], True)
+        assert_equal(real_v3_supported["registration_requires_explicit_opt_in"], False)
         assert_equal(supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["force_exit_request_mode"], "enabled_local_queue_consensus")
@@ -702,26 +702,29 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v3_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v3")
         assert_equal(real_v3_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
         assert_equal(real_v3_supported["derived_public_input_mode"], "helper_derives_queue_withdrawal_and_da_bindings")
-        assert_equal(real_v3_supported["external_prover_request_mode"], "explicit_witness_vectors")
-        assert_equal(real_v3_supported["external_prover_requires_current_chainstate"], False)
+        assert_equal(real_v3_supported["external_prover_request_mode"], "current_chainstate_bound_explicit_witness_vectors")
+        assert_equal(real_v3_supported["external_prover_requires_current_chainstate"], True)
         assert_equal(real_v3_supported["external_prover_requires_explicit_witness_vectors"], True)
         assert_equal(real_v3_supported["queue_binding_proven_in_circuit"], True)
         assert_equal(real_v3_supported["withdrawal_binding_proven_in_circuit"], True)
         assert_equal(real_v3_supported["data_binding_proven_in_circuit"], True)
         assert_equal(real_v3_supported["in_circuit_binding_blocker"], "none")
+        assert_equal(real_v3_supported["committed_queue_witness_limit"], 2)
+        assert_equal(real_v3_supported["committed_withdrawal_witness_limit"], 2)
+        assert_equal(real_v3_supported["committed_data_chunk_witness_limit"], 2)
         assert_equal(
             real_v3_supported["batch_queue_binding_mode"],
-            "single_entry_in_circuit_committed_public_inputs_experimental",
+            "bounded_in_circuit_committed_public_inputs_experimental",
         )
         assert_equal(
             real_v3_supported["batch_withdrawal_binding_mode"],
-            "single_leaf_in_circuit_committed_public_input_experimental",
+            "bounded_in_circuit_committed_public_input_experimental",
         )
         assert_equal(real_v3_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_v3_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
-        assert_equal(real_v3_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
-        assert_equal(real_v3_supported["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
-        assert_equal(real_v3_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
+        assert_equal(real_v3_supported["escape_exit_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v3_supported["escape_exit_execution_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v3_supported["escape_exit_rpc_input_mode"], "explicit_state_proofs")
         assert_equal(real_v3_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(real_v3_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(real_v3_supported["verifier_assets"]["required"], True)
@@ -752,7 +755,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v2_register_res["profile_lifecycle"], "canonical_target")
         assert_equal(real_v2_register_res["canonical_target"], True)
         assert_equal(real_v2_register_res["migration_only"], False)
-        assert_equal(real_v2_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(real_v2_sidechain["profile_lifecycle"], "canonical_target")
         assert_equal(real_v2_sidechain["canonical_target"], True)
         assert_equal(real_v2_sidechain["migration_only"], False)
@@ -806,22 +809,34 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_v3_register_res = node.sendvaliditysidechainregister(real_v3_sidechain_id, real_v3_config)
         node.generate(1)
         real_v3_sidechain = get_sidechain_info(node, real_v3_sidechain_id)
-        assert_equal(real_v3_register_res["profile_lifecycle"], "commitment_successor_migration")
+        assert_equal(real_v3_register_res["profile_lifecycle"], "recommended_successor")
         assert_equal(real_v3_register_res["canonical_target"], False)
-        assert_equal(real_v3_register_res["migration_only"], True)
-        assert_equal(real_v3_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
-        assert_equal(real_v3_sidechain["profile_lifecycle"], "commitment_successor_migration")
+        assert_equal(real_v3_register_res["migration_only"], False)
+        assert_equal(real_v3_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(real_v3_sidechain["profile_lifecycle"], "recommended_successor")
         assert_equal(real_v3_sidechain["canonical_target"], False)
-        assert_equal(real_v3_sidechain["migration_only"], True)
+        assert_equal(real_v3_sidechain["migration_only"], False)
         assert_equal(real_v3_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v3")
-        assert_equal(real_v3_sidechain["batch_queue_binding_mode"], "single_entry_in_circuit_committed_public_inputs_experimental")
-        assert_equal(real_v3_sidechain["batch_withdrawal_binding_mode"], "single_leaf_in_circuit_committed_public_input_experimental")
+        assert_equal(real_v3_sidechain["batch_queue_binding_mode"], "bounded_in_circuit_committed_public_inputs_experimental")
+        assert_equal(real_v3_sidechain["batch_withdrawal_binding_mode"], "bounded_in_circuit_committed_public_input_experimental")
         assert_equal(real_v3_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
-        assert_equal(real_v3_sidechain["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
-        assert_equal(real_v3_sidechain["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
-        assert_equal(real_v3_sidechain["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
+        assert_equal(real_v3_sidechain["escape_exit_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v3_sidechain["escape_exit_execution_mode"], "account_balance_state_proof_claims")
+        assert_equal(real_v3_sidechain["escape_exit_rpc_input_mode"], "explicit_state_proofs")
         assert_equal(real_v3_sidechain["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_equal(real_v3_sidechain["current_withdrawal_root"], real_v3_config["initial_withdrawal_root"])
+        assert_raises_rpc_error(
+            -8,
+            "escape-exit execution requires explicit account/balance state proofs for this profile",
+            node.sendescapeexit,
+            real_v3_sidechain_id,
+            real_v3_sidechain["current_state_root"],
+            [{
+                "exit_id": "aa" * 32,
+                "script": build_script_destination(node),
+                "amount": "0.01",
+            }],
+        )
 
         real_v3_queue_entries = []
         for index, deposit in enumerate(real_v3_valid_vector.get("setup_deposits", [])):
@@ -901,22 +916,22 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_v3_data_chunks = list(real_v3_valid_vector.get("data_chunks_hex", []))
         assert_raises_rpc_error(
             -8,
-            "current profile supports at most one data chunk witness",
+            "current profile supports at most 2 data chunk witnesses",
             node.sendvaliditybatch,
             real_v3_sidechain_id,
             real_v3_public_inputs,
             real_v3_valid_vector["proof_bytes_hex"],
-            ["aa", "bb"],
+            ["aa", "bb", "cc"],
         )
         assert_raises_rpc_error(
             -8,
-            "current profile supports at most one consumed queue message",
+            "current profile supports at most 2 consumed queue messages",
             node.sendvaliditybatch,
             real_v3_sidechain_id,
             {
                 **real_v3_public_inputs,
                 "batch_number": 2,
-                "consumed_queue_messages": 2,
+                "consumed_queue_messages": 3,
             },
             real_v3_valid_vector["proof_bytes_hex"],
             real_v3_data_chunks,
@@ -924,13 +939,18 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         if real_v3_valid_vector.get("withdrawal_leaves", []):
             assert_raises_rpc_error(
                 -8,
-                "current profile supports at most one withdrawal leaf witness",
+                "current profile supports at most 2 withdrawal leaf witnesses",
                 node.sendvaliditybatch,
                 real_v3_sidechain_id,
                 {
                     **real_v3_public_inputs,
                     "withdrawal_leaves": [
                         real_v3_valid_vector["withdrawal_leaves"][0],
+                        {
+                            "withdrawal_id": "fd" * 32,
+                            "script": build_script_destination(node),
+                            "amount": "0.02",
+                        },
                         {
                             "withdrawal_id": "fe" * 32,
                             "script": build_script_destination(node),
@@ -949,6 +969,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             {
                 **real_v3_public_inputs,
                 "new_state_root": pad_field_hex(real_v3_mismatch_vector["public_inputs"]["new_state_root"]),
+                "withdrawal_leaves": real_v3_valid_vector["withdrawal_leaves"],
             },
             real_v3_mismatch_vector["proof_bytes_hex"],
             real_v3_data_chunks,
@@ -964,6 +985,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
                     real_v3_queue_prefix_mismatch_vector["public_inputs"]["queue_prefix_commitment_lo"],
                     real_v3_queue_prefix_mismatch_vector["public_inputs"]["queue_prefix_commitment_hi"],
                 ),
+                "withdrawal_leaves": real_v3_valid_vector["withdrawal_leaves"],
             },
             real_v3_queue_prefix_mismatch_vector["proof_bytes_hex"],
             real_v3_data_chunks,
@@ -989,7 +1011,10 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             "Groth16",
             node.sendvaliditybatch,
             real_v3_sidechain_id,
-            real_v3_public_inputs,
+            {
+                **real_v3_public_inputs,
+                "withdrawal_leaves": real_v3_valid_vector["withdrawal_leaves"],
+            },
             real_v3_corrupt_vector["proof_bytes_hex"],
             real_v3_data_chunks,
         )
@@ -1089,7 +1114,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(register_res["profile_lifecycle"], "scaffold_migration")
         assert_equal(register_res["canonical_target"], False)
         assert_equal(register_res["migration_only"], True)
-        assert_equal(register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(sidechain["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(sidechain["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
         assert_equal(sidechain["escape_exit_mode"], "merkle_inclusion_scaffold")

@@ -1,0 +1,57 @@
+{
+  "name": "corrupt_proof",
+  "circuit": "poseidon_batch_transition_v3",
+  "curve": "bls12_381",
+  "expected_result": "reject",
+  "public_inputs": {
+    "batch_number": "1",
+    "consumed_queue_messages": "1",
+    "data_root_hi": "6410ae4bb35f777a17f95e38aaa5f3bb",
+    "data_root_lo": "26b208772762f27c378554563cdf3e60",
+    "data_size": "67",
+    "l1_message_root_after_hi": "a4bfda9c351d186f5434f056b45ca2aa",
+    "l1_message_root_after_lo": "ac37d31e4fa22e58b675f1d87b7a45f9",
+    "l1_message_root_before_hi": "15b7484e0715898daa0889a81b5acb3f",
+    "l1_message_root_before_lo": "a804c9df8bfce0bb49d289e666e27272",
+    "new_state_root": "54459f5065edb44c6b4028c77a546bae4649a0753c562d602f5ead63397b36f2",
+    "prior_state_root": "1",
+    "queue_prefix_commitment_hi": "8fddb577fe32124a8b32eaeaa0e2eb8c",
+    "queue_prefix_commitment_lo": "9bc2c8daf41c8e82ae4a433324664d5a",
+    "sidechain_id": "58",
+    "withdrawal_root_hi": "dcdb12afa97b8da6ff7b1318d4a05c28",
+    "withdrawal_root_lo": "f3ad7fb2d54ba6b1cef304d93b77c704"
+  },
+  "setup_deposits": [
+    {
+      "destination_commitment": "3333333333333333333333333333333333333333333333333333333333333333",
+      "refund_script": "00141111111111111111111111111111111111111111",
+      "amount": "1.0",
+      "nonce": 1,
+      "deposit_id": "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "consumed_queue_entries": [
+    {
+      "queue_index": 0,
+      "message_kind": 1,
+      "message_id": "4444444444444444444444444444444444444444444444444444444444444444",
+      "message_hash": "059eb24fb2ea9d7a3a198f1e4bb51ad4b0f6d14ac5a22dff0b942dccc95c7b8a"
+    }
+  ],
+  "withdrawal_leaves": [
+    {
+      "withdrawal_id": "0000000000000000000000000000000000000000000000000000000000000003",
+      "amount": "0.25",
+      "destination_commitment": "cb96d487e7f0848b320f565aff95eaf266bb36921ea9882ea9daaee82895eb0e",
+      "script": "00142222222222222222222222222222222222222222"
+    }
+  ],
+  "data_chunks_hex": [
+    "61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161",
+    "2d6461"
+  ],
+  "proof_bytes_hex": "5653475001a17bbfe7e586c8f2fe446ef2fd9a6530b656aa01cb7f5c4e27dca33c70f9d63cac664dcc433caa77f5069aba78b0a181a4635c4e06d768bb98267bff2a74d9db15e59d9ae09492ea1827a0d6262ae08d968d2f1ee685a9b7fe8df5529e19ff850cbfb4caab3d15e88d70b163ae33a1647e8cc71b799a2e98458330f3036085ffe29ff7cbd1938afe7f4c180e1eb43a8cab08953ae0bb31cad13a999900e95a1c60fceeb6c1683820b5302c79f856d399d20ea975dbf95cd4856f5e1d4cf5851d010000008dcbf9e08537951200b0e4cb80e5e24247ccbe635b4894a65ea02e0bf3177cde5c903ba286954522ea580a65cf0de805b8128669f6bae7f11864cf0bab74c1158e6d13e6a9e28feaf64a26385e239588bfda2da3b1016976bbaca1ce544f36dc",
+  "notes": [
+    "derived from the valid native proof by flipping one byte"
+  ]
+}

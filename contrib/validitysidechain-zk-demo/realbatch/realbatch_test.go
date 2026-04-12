@@ -410,13 +410,87 @@ func TestPoseidonV3NativeArtifactsExportCommitmentMetadata(t *testing.T) {
 
 func TestValidateDerivedRequestV3RejectsMultipleDataChunkWitnesses(t *testing.T) {
 	request := buildV3RequestForTest(t)
-	request.DataChunksHex = []string{"aa", "bb"}
+	request.DataChunksHex = []string{"aa", "bb", "cc"}
 
 	err := ValidateDerivedRequest(request)
 	if err == nil {
-		t.Fatal("ValidateDerivedRequest succeeded for multiple data chunk witnesses")
+		t.Fatal("ValidateDerivedRequest succeeded for oversized data chunk witnesses")
 	}
-	if err.Error() != "commitment-aware successor profile supports at most 1 data chunk witness" {
+	if err.Error() != "commitment-aware successor profile supports at most 2 data chunk witnesses" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateProofRequestContractV3RejectsMissingCurrentStateRoot(t *testing.T) {
+	request := buildV3RequestForTest(t)
+	request.CurrentStateRoot = ""
+
+	err := ValidateProofRequestContract(request)
+	if err == nil {
+		t.Fatal("ValidateProofRequestContract succeeded without current_state_root")
+	}
+	if err.Error() != "current_state_root is required for commitment-aware v3 proof requests" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeriveRequestV3PreservesCurrentWithdrawalRootWhenWitnessOmitted(t *testing.T) {
+	request := buildV3RequestForTest(t)
+	request.WithdrawalLeaves = []toybatch.WithdrawalLeaf{}
+	request.WithdrawalLeavesSupplied = false
+	request.PublicInputs.WithdrawalRoot = request.CurrentWithdrawalRoot
+
+	derived, err := DeriveRequest(request)
+	if err != nil {
+		t.Fatalf("DeriveRequest returned unexpected error: %v", err)
+	}
+	request.PublicInputs.NewStateRoot = derived.PublicInputs.NewStateRoot
+	if normalizeHex(derived.PublicInputs.WithdrawalRoot) != normalizeHex(request.CurrentWithdrawalRoot) {
+		t.Fatalf("derived withdrawal root %q does not preserve current root %q", derived.PublicInputs.WithdrawalRoot, request.CurrentWithdrawalRoot)
+	}
+	if err := ValidateDerivedRequest(request); err != nil {
+		t.Fatalf("ValidateDerivedRequest returned unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV3RejectsMoreThanTwoQueueWitnessEntries(t *testing.T) {
+	request := buildV3RequestForTest(t)
+	request.PublicInputs.ConsumedQueueMessages = 3
+	request.ConsumedQueueEntries = append(
+		append([]toybatch.ConsumedQueueEntry{}, request.ConsumedQueueEntries...),
+		toybatch.ConsumedQueueEntry{
+			QueueIndex:  2,
+			MessageKind: 1,
+			MessageID:   strings.Repeat("33", 32),
+			MessageHash: strings.Repeat("44", 32),
+		},
+	)
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for oversized queue witness")
+	}
+	if err.Error() != "commitment-aware successor profile supports at most 2 consumed queue entries" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV3RejectsMoreThanTwoWithdrawalLeafWitnesses(t *testing.T) {
+	request := buildV3RequestForTest(t)
+	request.WithdrawalLeaves = append(
+		append([]toybatch.WithdrawalLeaf{}, request.WithdrawalLeaves...),
+		toybatch.WithdrawalLeaf{
+			WithdrawalID:          strings.Repeat("aa", 32),
+			Amount:                "0.05",
+			DestinationCommitment: strings.Repeat("bb", 32),
+		},
+	)
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for oversized withdrawal witness")
+	}
+	if err.Error() != "commitment-aware successor profile supports at most 2 withdrawal leaf witnesses" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -430,6 +504,20 @@ func TestValidateDerivedRequestV3RejectsOversizedDataChunkWitness(t *testing.T) 
 		t.Fatal("ValidateDerivedRequest succeeded for oversized data chunk witness")
 	}
 	expected := "data_chunks_hex[0] exceeds the commitment-aware successor witness limit of 64 bytes"
+	if err.Error() != expected {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV3RejectsNonFinalChunkShorterThanWitnessWidth(t *testing.T) {
+	request := buildV3RequestForTest(t)
+	request.DataChunksHex = []string{"aa", "bb"}
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for a short non-final data chunk witness")
+	}
+	expected := "data_chunks_hex[0] must be exactly 64 bytes when followed by another chunk in the commitment-aware successor profile"
 	if err.Error() != expected {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -511,16 +599,23 @@ func buildV2RequestForTest(t *testing.T) toybatch.CommandRequest {
 func buildV3RequestForTest(t *testing.T) toybatch.CommandRequest {
 	t.Helper()
 
+	emptyDataRoot := computePublishedDataRoot(nil)
 	request := toybatch.CommandRequest{
-		ProfileName: CommitmentProfileName,
-		SidechainID: 57,
+		ProfileName:                          CommitmentProfileName,
+		SidechainID:                          57,
+		CurrentStateRoot:                     strings.Repeat("01", 32),
+		CurrentWithdrawalRoot:                strings.Repeat("02", 32),
+		CurrentDataRoot:                      emptyDataRoot,
+		CurrentL1MessageRoot:                 strings.Repeat("ab", 32),
+		RequireWithdrawalWitnessOnRootChange: true,
+		WithdrawalLeavesSupplied:             true,
 		PublicInputs: toybatch.BatchPublicInputs{
 			BatchNumber:           1,
 			PriorStateRoot:        strings.Repeat("01", 32),
 			NewStateRoot:          "0",
 			L1MessageRootBefore:   strings.Repeat("ab", 32),
 			L1MessageRootAfter:    "0",
-			ConsumedQueueMessages: 1,
+			ConsumedQueueMessages: 2,
 			QueuePrefixCommitment: "0",
 			WithdrawalRoot:        "0",
 			DataRoot:              "0",
@@ -533,6 +628,12 @@ func buildV3RequestForTest(t *testing.T) toybatch.CommandRequest {
 				MessageID:   strings.Repeat("11", 32),
 				MessageHash: strings.Repeat("22", 32),
 			},
+			{
+				QueueIndex:  1,
+				MessageKind: 2,
+				MessageID:   strings.Repeat("33", 32),
+				MessageHash: strings.Repeat("44", 32),
+			},
 		},
 		WithdrawalLeaves: []toybatch.WithdrawalLeaf{
 			{
@@ -540,8 +641,13 @@ func buildV3RequestForTest(t *testing.T) toybatch.CommandRequest {
 				Amount:                "0.15",
 				DestinationCommitment: strings.Repeat("77", 32),
 			},
+			{
+				WithdrawalID:          strings.Repeat("88", 32),
+				Amount:                "0.20",
+				DestinationCommitment: strings.Repeat("99", 32),
+			},
 		},
-		DataChunksHex: []string{"7265616c2d62617463682d6461"},
+		DataChunksHex: []string{strings.Repeat("61", commitmentDataWitnessMaxChunkBytes), "2d6461"},
 	}
 
 	request.PublicInputs.L1MessageRootAfter = computeConsumedQueueRootForTest(

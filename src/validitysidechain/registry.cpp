@@ -74,6 +74,11 @@ static bool IsCommitmentAwareSuccessorGroth16PoseidonProfile(const SupportedVali
            std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v3";
 }
 
+static bool IsRecommendedNewRegistrationGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
+{
+    return IsCommitmentAwareSuccessorGroth16PoseidonProfile(supported);
+}
+
 static bool IsToyProfile(const SupportedValiditySidechainConfig& supported)
 {
     if (supported.profile_name == nullptr) {
@@ -353,10 +358,32 @@ const SupportedValiditySidechainConfig* GetCanonicalValiditySidechainConfig()
     return nullptr;
 }
 
+const SupportedValiditySidechainConfig* GetRecommendedValiditySidechainConfig()
+{
+    for (const auto& supported : GetSupportedValiditySidechainConfigs()) {
+        if (IsRecommendedNewRegistrationGroth16PoseidonProfile(supported)) {
+            return &supported;
+        }
+    }
+    return GetCanonicalValiditySidechainConfig();
+}
+
 bool IsCanonicalValiditySidechainProfile(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
     return supported != nullptr && IsCanonicalTargetGroth16PoseidonProfile(*supported);
+}
+
+bool IsRecommendedValiditySidechainProfile(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr && IsRecommendedNewRegistrationGroth16PoseidonProfile(*supported);
+}
+
+bool IsValiditySidechainRegistrationDefaultAllowedProfile(const ValiditySidechainConfig& config)
+{
+    return IsCanonicalValiditySidechainProfile(config) ||
+           IsRecommendedValiditySidechainProfile(config);
 }
 
 const char* GetValiditySidechainProfileLifecycle(const ValiditySidechainConfig& config)
@@ -375,7 +402,7 @@ const char* GetValiditySidechainProfileLifecycle(const ValiditySidechainConfig& 
         return "toy_migration";
     }
     if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
-        return "commitment_successor_migration";
+        return "recommended_successor";
     }
     if (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported)) {
         return "experimental_real_migration";
@@ -411,8 +438,22 @@ bool IsValiditySidechainSingleEntryBoundedQueueWitnessProfile(const ValiditySide
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
     return supported != nullptr &&
            !supported->scaffolding_only &&
-           (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported) ||
-            IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
+           IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported);
+}
+
+uint32_t GetValiditySidechainBatchCommittedQueueWitnessLimit(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr || supported->scaffolding_only) {
+        return 0;
+    }
+    if (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported)) {
+        return 1;
+    }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return 2;
+    }
+    return 0;
 }
 
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config)
@@ -434,7 +475,9 @@ const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConf
 
 bool RequiresValiditySidechainExternalProverCurrentChainstate(const ValiditySidechainConfig& config)
 {
-    return IsCanonicalValiditySidechainProfile(config);
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return IsCanonicalValiditySidechainProfile(config) ||
+           (supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
 }
 
 bool RequiresValiditySidechainExternalProverExplicitWitnessVectors(const ValiditySidechainConfig& config)
@@ -478,7 +521,7 @@ const char* GetValiditySidechainExternalProverRequestMode(const ValiditySidechai
         return "current_chainstate_bound_explicit_witness_vectors";
     }
     if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
-        return "explicit_witness_vectors";
+        return "current_chainstate_bound_explicit_witness_vectors";
     }
     return "optional_current_chainstate_context";
 }
@@ -529,7 +572,7 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
         return "local_prefix_consensus_scaffold";
     }
     if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
-        return "single_entry_in_circuit_committed_public_inputs_experimental";
+        return "bounded_in_circuit_committed_public_inputs_experimental";
     }
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
         return "local_prefix_consensus_single_deposit_entry_experimental";
@@ -550,8 +593,33 @@ bool IsValiditySidechainSingleLeafBoundedWithdrawalWitnessProfile(const Validity
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
     return supported != nullptr &&
            !supported->scaffolding_only &&
-           (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported) ||
-            IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
+           IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported);
+}
+
+uint32_t GetValiditySidechainBatchCommittedWithdrawalWitnessLimit(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr || supported->scaffolding_only) {
+        return 0;
+    }
+    if (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported)) {
+        return 1;
+    }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return 2;
+    }
+    return 0;
+}
+
+uint32_t GetValiditySidechainBatchCommittedDataChunkWitnessLimit(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported != nullptr &&
+        !supported->scaffolding_only &&
+        IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return 2;
+    }
+    return 0;
 }
 
 const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config)
@@ -564,7 +632,7 @@ const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidecha
         return "local_merkle_consensus_scaffold";
     }
     if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
-        return "single_leaf_in_circuit_committed_public_input_experimental";
+        return "bounded_in_circuit_committed_public_input_experimental";
     }
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
         return "accepted_root_single_leaf_experimental";
@@ -592,7 +660,9 @@ const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySi
 
 bool RequiresValiditySidechainEscapeExitStateProofs(const ValiditySidechainConfig& config)
 {
-    return IsCanonicalValiditySidechainProfile(config);
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return IsCanonicalValiditySidechainProfile(config) ||
+           (supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
 }
 
 const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config)

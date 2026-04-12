@@ -1027,10 +1027,14 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
         ComputeValiditySidechainWithdrawalRoot(withdrawal_leaves) != public_inputs.withdrawal_root) {
         return FailValidation(error, "withdrawal_root does not match withdrawal_leaves witness for external prover");
     }
-    if (IsCanonicalValiditySidechainProfile(config) &&
+    if (RequiresValiditySidechainExternalProverCurrentChainstate(config) &&
         !withdrawal_leaves_supplied &&
         public_inputs.withdrawal_root != current_withdrawal_root) {
-        return FailValidation(error, "canonical external prover request requires withdrawal_leaves witness when withdrawal_root changes");
+        return FailValidation(
+            error,
+            IsCanonicalValiditySidechainProfile(config)
+                ? "canonical external prover request requires withdrawal_leaves witness when withdrawal_root changes"
+                : "current-chainstate-bound external prover request requires withdrawal_leaves witness when withdrawal_root changes");
     }
     if (!ValidateValiditySidechainPublishedBatchData(config, public_inputs, data_chunks, error)) {
         return false;
@@ -1080,7 +1084,7 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     request.pushKV("current_l1_message_root", current_l1_message_root.GetHex());
     request.pushKV(
         "require_withdrawal_witness_on_root_change",
-        IsCanonicalValiditySidechainProfile(config));
+        RequiresValiditySidechainExternalProverCurrentChainstate(config));
     request.pushKV("withdrawal_leaves_supplied", withdrawal_leaves_supplied);
     request.pushKV("consumed_queue_entries", ConsumedQueueEntriesToJSON(consumed_queue_entries));
     request.pushKV("withdrawal_leaves", WithdrawalLeavesToJSON(withdrawal_leaves));

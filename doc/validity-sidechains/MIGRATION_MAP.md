@@ -514,8 +514,17 @@ Current branch status:
   proof / verifying-key path now supports Groth16 commitment metadata
 - the commitment-aware successor profile
   `groth16_bls12_381_poseidon_v3` now uses that native Groth16 commitment
-  path to bind a bounded witness surface in-circuit: one consumed queue
-  entry, one withdrawal leaf, and one published data chunk
+  path to bind a bounded witness surface in-circuit: up to two consumed queue
+  entries, up to two withdrawal leaves, and up to two published data chunks,
+  with any non-final chunk fixed at 64 bytes so the bounded witness layout
+  still matches the real published `data_root`
+- the same successor profile now also uses the current-chainstate-bound proof
+  request contract for the external helper path, and omitting
+  `withdrawal_leaves` now preserves the current withdrawal root instead of
+  silently deriving an empty root
+- that same successor profile now also follows the explicit
+  account/balance-state-proof escape-exit path instead of accepting the legacy
+  current-state-root leaf-list mode
 - the decomposed `groth16_bls12_381_poseidon_v2` path now also has explicit
   reclaim coverage, proving matured deposits can be reclaimed under restart
   without dropping the full-width initial withdrawal root state
@@ -541,7 +550,9 @@ Current branch status:
 - new wallet-side registrations on scaffold, toy, and legacy Poseidon proof
   tuples now require explicit `-validityallowmigrationprofiles=1`, while the
   canonical `groth16_bls12_381_poseidon_v2` profile remains available for new
-  registrations without any migration opt-in
+  registrations without any migration opt-in and the bounded successor
+  `groth16_bls12_381_poseidon_v3` is now the recommended new-registration
+  target
 - canonical `groth16_bls12_381_poseidon_v2` batch submission now also treats
   withdrawal-root changes as witness-backed operator actions: the wallet
   rejects non-current `withdrawal_root` values unless matching

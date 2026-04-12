@@ -26,7 +26,9 @@ const CommitmentProfileName = "groth16_bls12_381_poseidon_v3"
 const ExperimentalPublicInputVersion uint8 = 2
 const FinalPublicInputVersion uint8 = 5
 const CommitmentPublicInputVersion uint8 = 6
-const commitmentDataWitnessMaxChunks = 1
+const commitmentQueueWitnessMaxEntries = 2
+const commitmentWithdrawalWitnessMaxLeaves = 2
+const commitmentDataWitnessMaxChunks = 2
 const commitmentDataWitnessMaxChunkBytes = 64
 
 var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
@@ -115,20 +117,20 @@ type PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs struct {
 	DataRootHi              frontend.Variable `gnark:",public"`
 	DataSize                frontend.Variable `gnark:",public"`
 
-	ConsumedEntryPresent     frontend.Variable
-	ConsumedEntryQueueIndex  frontend.Variable
-	ConsumedEntryMessageKind frontend.Variable
-	ConsumedEntryMessageID   [32]uints.U8
-	ConsumedEntryMessageHash [32]uints.U8
+	ConsumedEntryPresent     [commitmentQueueWitnessMaxEntries]frontend.Variable
+	ConsumedEntryQueueIndex  [commitmentQueueWitnessMaxEntries]frontend.Variable
+	ConsumedEntryMessageKind [commitmentQueueWitnessMaxEntries]frontend.Variable
+	ConsumedEntryMessageID   [commitmentQueueWitnessMaxEntries][32]uints.U8
+	ConsumedEntryMessageHash [commitmentQueueWitnessMaxEntries][32]uints.U8
 
-	WithdrawalLeafPresent               frontend.Variable
-	WithdrawalLeafID                    [32]uints.U8
-	WithdrawalLeafAmount                frontend.Variable
-	WithdrawalLeafDestinationCommitment [32]uints.U8
+	WithdrawalLeafPresent               [commitmentWithdrawalWitnessMaxLeaves]frontend.Variable
+	WithdrawalLeafID                    [commitmentWithdrawalWitnessMaxLeaves][32]uints.U8
+	WithdrawalLeafAmount                [commitmentWithdrawalWitnessMaxLeaves]frontend.Variable
+	WithdrawalLeafDestinationCommitment [commitmentWithdrawalWitnessMaxLeaves][32]uints.U8
 
-	DataChunkPresent frontend.Variable
-	DataChunkLen     frontend.Variable
-	DataChunk        [commitmentDataWitnessMaxChunkBytes]uints.U8
+	DataChunkPresent [commitmentDataWitnessMaxChunks]frontend.Variable
+	DataChunkLen     [commitmentDataWitnessMaxChunks]frontend.Variable
+	DataChunk        [commitmentDataWitnessMaxChunks][commitmentDataWitnessMaxChunkBytes]uints.U8
 }
 
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
@@ -307,11 +309,11 @@ func BuildPublicAssignment(request toybatch.CommandRequest) (frontend.Circuit, e
 }
 
 func profileUsesSingleEntryWitnesses(profileName string) bool {
-	return profileName == ProfileName || profileName == CommitmentProfileName
+	return profileName == ProfileName
 }
 
 func requiresCanonicalCurrentChainstateBinding(profileName string) bool {
-	return profileName == FinalProfileName
+	return profileName == FinalProfileName || profileName == CommitmentProfileName
 }
 
 func requiresExplicitCanonicalWitnessVectors(profileName string) bool {
@@ -536,13 +538,20 @@ func buildCommittedDecomposedAssignment(request toybatch.CommandRequest) (Poseid
 		return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, err
 	}
 
-	consumedEntryPresent, consumedEntryQueueIndex, consumedEntryMessageKind, consumedEntryMessageID, consumedEntryMessageHash, err :=
-		buildConsumedQueueWitness(request)
+	consumedEntryPresent,
+		consumedEntryQueueIndex,
+		consumedEntryMessageKind,
+		consumedEntryMessageID,
+		consumedEntryMessageHash,
+		err := buildCommittedConsumedQueueWitness(request)
 	if err != nil {
 		return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, err
 	}
-	withdrawalLeafPresent, withdrawalLeafID, withdrawalLeafAmount, withdrawalLeafDestinationCommitment, err :=
-		buildWithdrawalWitness(request)
+	withdrawalLeafPresent,
+		withdrawalLeafID,
+		withdrawalLeafAmount,
+		withdrawalLeafDestinationCommitment,
+		err := buildCommittedWithdrawalWitness(request)
 	if err != nil {
 		return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, err
 	}
@@ -786,17 +795,21 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 
 func ValidateProofRequestContract(request toybatch.CommandRequest) error {
 	if requiresCanonicalCurrentChainstateBinding(request.ProfileName) {
+		profileLabel := "canonical v2"
+		if request.ProfileName == CommitmentProfileName {
+			profileLabel = "commitment-aware v3"
+		}
 		if strings.TrimSpace(request.CurrentStateRoot) == "" {
-			return fmt.Errorf("current_state_root is required for canonical v2 proof requests")
+			return fmt.Errorf("current_state_root is required for %s proof requests", profileLabel)
 		}
 		if strings.TrimSpace(request.CurrentWithdrawalRoot) == "" {
-			return fmt.Errorf("current_withdrawal_root is required for canonical v2 proof requests")
+			return fmt.Errorf("current_withdrawal_root is required for %s proof requests", profileLabel)
 		}
 		if strings.TrimSpace(request.CurrentDataRoot) == "" {
-			return fmt.Errorf("current_data_root is required for canonical v2 proof requests")
+			return fmt.Errorf("current_data_root is required for %s proof requests", profileLabel)
 		}
 		if strings.TrimSpace(request.CurrentL1MessageRoot) == "" {
-			return fmt.Errorf("current_l1_message_root is required for canonical v2 proof requests")
+			return fmt.Errorf("current_l1_message_root is required for %s proof requests", profileLabel)
 		}
 	}
 	if requiresExplicitCanonicalWitnessVectors(request.ProfileName) {
@@ -873,6 +886,9 @@ func validateCurrentChainstateBinding(request toybatch.CommandRequest) error {
 }
 
 func validateQueueWitnessForProfile(request toybatch.CommandRequest) error {
+	if request.ProfileName == CommitmentProfileName {
+		return validateCommittedQueueWitness(request)
+	}
 	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return validateExperimentalQueueWitness(request)
 	}
@@ -880,6 +896,9 @@ func validateQueueWitnessForProfile(request toybatch.CommandRequest) error {
 }
 
 func validateWithdrawalWitnessForProfile(request toybatch.CommandRequest) error {
+	if request.ProfileName == CommitmentProfileName {
+		return validateCommittedWithdrawalWitness(request)
+	}
 	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return validateExperimentalWithdrawalWitness(request)
 	}
@@ -909,9 +928,14 @@ func validatePublishedDataWitness(request toybatch.CommandRequest) error {
 
 func validateCommittedDataWitnessBounds(chunks [][]byte) error {
 	if len(chunks) > commitmentDataWitnessMaxChunks {
+		label := "witnesses"
+		if commitmentDataWitnessMaxChunks == 1 {
+			label = "witness"
+		}
 		return fmt.Errorf(
-			"commitment-aware successor profile supports at most %d data chunk witness",
-			commitmentDataWitnessMaxChunks)
+			"commitment-aware successor profile supports at most %d data chunk %s",
+			commitmentDataWitnessMaxChunks,
+			label)
 	}
 	for index, chunk := range chunks {
 		if len(chunk) > commitmentDataWitnessMaxChunkBytes {
@@ -920,8 +944,46 @@ func validateCommittedDataWitnessBounds(chunks [][]byte) error {
 				index,
 				commitmentDataWitnessMaxChunkBytes)
 		}
+		if index+1 < len(chunks) && len(chunk) != commitmentDataWitnessMaxChunkBytes {
+			return fmt.Errorf(
+				"data_chunks_hex[%d] must be exactly %d bytes when followed by another chunk in the commitment-aware successor profile",
+				index,
+				commitmentDataWitnessMaxChunkBytes)
+		}
 	}
 	return nil
+}
+
+func validateCommittedQueueWitnessBounds(entries []toybatch.ConsumedQueueEntry) error {
+	if len(entries) > commitmentQueueWitnessMaxEntries {
+		return fmt.Errorf(
+			"commitment-aware successor profile supports at most %d consumed queue entries",
+			commitmentQueueWitnessMaxEntries)
+	}
+	return nil
+}
+
+func validateCommittedWithdrawalWitnessBounds(leaves []toybatch.WithdrawalLeaf) error {
+	if len(leaves) > commitmentWithdrawalWitnessMaxLeaves {
+		return fmt.Errorf(
+			"commitment-aware successor profile supports at most %d withdrawal leaf witnesses",
+			commitmentWithdrawalWitnessMaxLeaves)
+	}
+	return nil
+}
+
+func validateCommittedQueueWitness(request toybatch.CommandRequest) error {
+	if err := validateCommittedQueueWitnessBounds(request.ConsumedQueueEntries); err != nil {
+		return err
+	}
+	return validateGenericQueueWitness(request)
+}
+
+func validateCommittedWithdrawalWitness(request toybatch.CommandRequest) error {
+	if err := validateCommittedWithdrawalWitnessBounds(request.WithdrawalLeaves); err != nil {
+		return err
+	}
+	return validateGenericWithdrawalWitness(request)
 }
 
 func validateExperimentalQueueWitness(request toybatch.CommandRequest) error {
@@ -1033,8 +1095,18 @@ func ensureDerivedTargetsCleared(request toybatch.CommandRequest) toybatch.Comma
 }
 
 func computeQueueBindingsForProfile(request toybatch.CommandRequest) (string, string, error) {
+	if request.ProfileName == CommitmentProfileName {
+		return computeCommittedQueueBindings(request)
+	}
 	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return computeExperimentalQueueBindings(request)
+	}
+	return computeGenericQueueBindings(request)
+}
+
+func computeCommittedQueueBindings(request toybatch.CommandRequest) (string, string, error) {
+	if err := validateCommittedQueueWitnessBounds(request.ConsumedQueueEntries); err != nil {
+		return "", "", err
 	}
 	return computeGenericQueueBindings(request)
 }
@@ -1302,48 +1374,61 @@ func assertCommittedDecomposedQueueWitness(api frontend.API, circuit *PoseidonBa
 		return err
 	}
 
-	api.AssertIsBoolean(circuit.ConsumedEntryPresent)
-	api.AssertIsEqual(circuit.ConsumedQueueMessages, circuit.ConsumedEntryPresent)
+	api.AssertIsLessOrEqual(circuit.ConsumedQueueMessages, commitmentQueueWitnessMaxEntries)
 
 	l1MessageRootBefore := limbs128ToLittleEndianBytes(api, bapi, circuit.L1MessageRootBeforeLo, circuit.L1MessageRootBeforeHi)
 	l1MessageRootAfter := limbs128ToLittleEndianBytes(api, bapi, circuit.L1MessageRootAfterLo, circuit.L1MessageRootAfterHi)
 	queuePrefixCommitment := limbs128ToLittleEndianBytes(api, bapi, circuit.QueuePrefixCommitmentLo, circuit.QueuePrefixCommitmentHi)
 	zeroRoot := zeroByteArray32()
 
-	consumePreimage := buildQueueStepPreimage(
-		bapi,
-		u64api,
-		queueConsumeMagic,
-		circuit.SidechainID,
-		l1MessageRootBefore,
-		circuit.ConsumedEntryQueueIndex,
-		circuit.ConsumedEntryMessageKind,
-		circuit.ConsumedEntryMessageID,
-		circuit.ConsumedEntryMessageHash,
-	)
-	consumedRoot, err := doubleSHA256(api, consumePreimage)
-	if err != nil {
-		return err
+	expectedAfter := l1MessageRootBefore
+	expectedPrefix := zeroRoot
+	var presentSum frontend.Variable = 0
+	var previousPresent frontend.Variable = 1
+	for i := 0; i < commitmentQueueWitnessMaxEntries; i++ {
+		present := circuit.ConsumedEntryPresent[i]
+		api.AssertIsBoolean(present)
+		api.AssertIsEqual(api.Mul(present, api.Sub(1, previousPresent)), 0)
+		presentSum = api.Add(presentSum, present)
+
+		consumePreimage := buildQueueStepPreimage(
+			bapi,
+			u64api,
+			queueConsumeMagic,
+			circuit.SidechainID,
+			expectedAfter,
+			circuit.ConsumedEntryQueueIndex[i],
+			circuit.ConsumedEntryMessageKind[i],
+			circuit.ConsumedEntryMessageID[i],
+			circuit.ConsumedEntryMessageHash[i],
+		)
+		consumedRoot, err := doubleSHA256(api, consumePreimage)
+		if err != nil {
+			return err
+		}
+
+		prefixPreimage := buildQueueStepPreimage(
+			bapi,
+			u64api,
+			queuePrefixCommitmentMagic,
+			circuit.SidechainID,
+			expectedPrefix,
+			circuit.ConsumedEntryQueueIndex[i],
+			circuit.ConsumedEntryMessageKind[i],
+			circuit.ConsumedEntryMessageID[i],
+			circuit.ConsumedEntryMessageHash[i],
+		)
+		prefixRoot, err := doubleSHA256(api, prefixPreimage)
+		if err != nil {
+			return err
+		}
+
+		expectedAfter = selectByteArray32(bapi, present, consumedRoot, expectedAfter)
+		expectedPrefix = selectByteArray32(bapi, present, prefixRoot, expectedPrefix)
+		previousPresent = present
 	}
 
-	prefixPreimage := buildQueueStepPreimage(
-		bapi,
-		u64api,
-		queuePrefixCommitmentMagic,
-		circuit.SidechainID,
-		zeroRoot,
-		circuit.ConsumedEntryQueueIndex,
-		circuit.ConsumedEntryMessageKind,
-		circuit.ConsumedEntryMessageID,
-		circuit.ConsumedEntryMessageHash,
-	)
-	prefixCommitment, err := doubleSHA256(api, prefixPreimage)
-	if err != nil {
-		return err
-	}
-
-	expectedAfter := selectByteArray32(bapi, circuit.ConsumedEntryPresent, consumedRoot, l1MessageRootBefore)
-	expectedPrefix := selectByteArray32(bapi, circuit.ConsumedEntryPresent, prefixCommitment, zeroRoot)
+	api.AssertIsEqual(circuit.ConsumedQueueMessages, presentSum)
 	assertByteArray32Equal(bapi, expectedAfter, l1MessageRootAfter)
 	assertByteArray32Equal(bapi, expectedPrefix, queuePrefixCommitment)
 	return nil
@@ -1359,22 +1444,38 @@ func assertCommittedDecomposedWithdrawalWitness(api frontend.API, circuit *Posei
 		return err
 	}
 
-	api.AssertIsBoolean(circuit.WithdrawalLeafPresent)
 	withdrawalRoot := limbs128ToLittleEndianBytes(api, bapi, circuit.WithdrawalRootLo, circuit.WithdrawalRootHi)
 	zeroRoot := zeroByteArray32()
 
-	leafPreimage := make([]uints.U8, 0, len(withdrawalLeafMagic)+32+8+32)
-	leafPreimage = append(leafPreimage, uints.NewU8Array(withdrawalLeafMagic)...)
-	leafPreimage = append(leafPreimage, circuit.WithdrawalLeafID[:]...)
-	leafPreimage = append(leafPreimage, u64api.UnpackLSB(u64api.ValueOf(circuit.WithdrawalLeafAmount))...)
-	leafPreimage = append(leafPreimage, circuit.WithdrawalLeafDestinationCommitment[:]...)
-	leafHash, err := doubleSHA256(api, leafPreimage)
+	var leafHashes [commitmentWithdrawalWitnessMaxLeaves][32]uints.U8
+	var leafCount frontend.Variable = 0
+	var previousPresent frontend.Variable = 1
+	for i := 0; i < commitmentWithdrawalWitnessMaxLeaves; i++ {
+		present := circuit.WithdrawalLeafPresent[i]
+		api.AssertIsBoolean(present)
+		api.AssertIsEqual(api.Mul(present, api.Sub(1, previousPresent)), 0)
+		leafCount = api.Add(leafCount, present)
+
+		leafPreimage := make([]uints.U8, 0, len(withdrawalLeafMagic)+32+8+32)
+		leafPreimage = append(leafPreimage, uints.NewU8Array(withdrawalLeafMagic)...)
+		leafPreimage = append(leafPreimage, circuit.WithdrawalLeafID[i][:]...)
+		leafPreimage = append(leafPreimage, u64api.UnpackLSB(u64api.ValueOf(circuit.WithdrawalLeafAmount[i]))...)
+		leafPreimage = append(leafPreimage, circuit.WithdrawalLeafDestinationCommitment[i][:]...)
+		leafHash, err := doubleSHA256(api, leafPreimage)
+		if err != nil {
+			return err
+		}
+		leafHashes[i] = leafHash
+		previousPresent = present
+	}
+	api.AssertIsLessOrEqual(leafCount, commitmentWithdrawalWitnessMaxLeaves)
+
+	pairRoot, err := hashWithdrawalNode(api, leafHashes[0], leafHashes[1])
 	if err != nil {
 		return err
 	}
-
-	leafCount := api.Select(circuit.WithdrawalLeafPresent, 1, 0)
-	selectedMerkleRoot := selectByteArray32(bapi, circuit.WithdrawalLeafPresent, leafHash, zeroRoot)
+	oneOrTwoRoot := selectByteArray32(bapi, circuit.WithdrawalLeafPresent[1], pairRoot, leafHashes[0])
+	selectedMerkleRoot := selectByteArray32(bapi, circuit.WithdrawalLeafPresent[0], oneOrTwoRoot, zeroRoot)
 	rootPreimage := make([]uints.U8, 0, len(withdrawalRootMagic)+4+32)
 	rootPreimage = append(rootPreimage, uints.NewU8Array(withdrawalRootMagic)...)
 	rootPreimage = append(rootPreimage, packUint32LittleEndian(api, bapi, leafCount)...)
@@ -1394,25 +1495,40 @@ func assertCommittedDecomposedDataWitness(api frontend.API, circuit *PoseidonBat
 		return err
 	}
 
-	api.AssertIsBoolean(circuit.DataChunkPresent)
-	api.AssertIsEqual(
-		circuit.DataSize,
-		api.Select(circuit.DataChunkPresent, circuit.DataChunkLen, 0))
-	api.AssertIsEqual(
-		api.Mul(circuit.DataChunkLen, api.Sub(1, circuit.DataChunkPresent)),
-		0)
+	api.AssertIsLessOrEqual(circuit.DataSize, commitmentDataWitnessMaxChunks*commitmentDataWitnessMaxChunkBytes)
 
 	dataRoot := limbs128ToLittleEndianBytes(api, bapi, circuit.DataRootLo, circuit.DataRootHi)
-
-	preimage := make([]uints.U8, 0, len(publishedDataRootMagic)+4+4+commitmentDataWitnessMaxChunkBytes)
+	preimage := make([]uints.U8, 0, len(publishedDataRootMagic)+4+(commitmentDataWitnessMaxChunks*(4+commitmentDataWitnessMaxChunkBytes)))
 	preimage = append(preimage, uints.NewU8Array(publishedDataRootMagic)...)
-	preimage = append(preimage, packUint32LittleEndian(api, bapi, circuit.DataChunkPresent)...)
-	preimage = append(preimage, packUint32LittleEndian(api, bapi, circuit.DataChunkLen)...)
-	preimage = append(preimage, circuit.DataChunk[:]...)
 
-	totalLength := api.Add(
-		len(publishedDataRootMagic)+4,
-		api.Mul(circuit.DataChunkPresent, api.Add(4, circuit.DataChunkLen)))
+	var chunkCount frontend.Variable = 0
+	var totalSize frontend.Variable = 0
+	var totalLength frontend.Variable = len(publishedDataRootMagic) + 4
+	var previousPresent frontend.Variable = 1
+	for i := 0; i < commitmentDataWitnessMaxChunks; i++ {
+		present := circuit.DataChunkPresent[i]
+		api.AssertIsBoolean(present)
+		api.AssertIsEqual(api.Mul(present, api.Sub(1, previousPresent)), 0)
+		api.AssertIsLessOrEqual(circuit.DataChunkLen[i], commitmentDataWitnessMaxChunkBytes)
+		api.AssertIsEqual(
+			api.Mul(circuit.DataChunkLen[i], api.Sub(1, present)),
+			0)
+		chunkCount = api.Add(chunkCount, present)
+		totalSize = api.Add(totalSize, circuit.DataChunkLen[i])
+		totalLength = api.Add(totalLength, api.Mul(present, api.Add(4, circuit.DataChunkLen[i])))
+		previousPresent = present
+	}
+	for i := 0; i+1 < commitmentDataWitnessMaxChunks; i++ {
+		api.AssertIsEqual(
+			api.Mul(circuit.DataChunkPresent[i+1], api.Sub(circuit.DataChunkLen[i], commitmentDataWitnessMaxChunkBytes)),
+			0)
+	}
+	api.AssertIsEqual(circuit.DataSize, totalSize)
+	preimage = append(preimage, packUint32LittleEndian(api, bapi, chunkCount)...)
+	for i := 0; i < commitmentDataWitnessMaxChunks; i++ {
+		preimage = append(preimage, packUint32LittleEndian(api, bapi, circuit.DataChunkLen[i])...)
+		preimage = append(preimage, circuit.DataChunk[i][:]...)
+	}
 
 	firstRound, err := sha2circuit.New(api)
 	if err != nil {
@@ -1431,6 +1547,14 @@ func assertCommittedDecomposedDataWitness(api frontend.API, circuit *PoseidonBat
 	copy(digest[:], second)
 	assertByteArray32Equal(bapi, digest, dataRoot)
 	return nil
+}
+
+func hashWithdrawalNode(api frontend.API, left, right [32]uints.U8) ([32]uints.U8, error) {
+	nodePreimage := make([]uints.U8, 0, len(withdrawalNodeMagic)+(2*32))
+	nodePreimage = append(nodePreimage, uints.NewU8Array(withdrawalNodeMagic)...)
+	nodePreimage = append(nodePreimage, left[:]...)
+	nodePreimage = append(nodePreimage, right[:]...)
+	return doubleSHA256(api, nodePreimage)
 }
 
 func buildQueueStepPreimage(
@@ -1602,31 +1726,162 @@ func buildWithdrawalWitness(request toybatch.CommandRequest) (frontend.Variable,
 	return new(big.Int).SetUint64(1), withdrawalID, amount, destinationCommitment, nil
 }
 
-func buildCommittedDataWitness(request toybatch.CommandRequest) (frontend.Variable, frontend.Variable, [commitmentDataWitnessMaxChunkBytes]uints.U8, error) {
-	var chunkBytes [commitmentDataWitnessMaxChunkBytes]uints.U8
-	for i := range chunkBytes {
-		chunkBytes[i] = uints.NewU8(0)
+func buildCommittedConsumedQueueWitness(request toybatch.CommandRequest) (
+	[commitmentQueueWitnessMaxEntries]frontend.Variable,
+	[commitmentQueueWitnessMaxEntries]frontend.Variable,
+	[commitmentQueueWitnessMaxEntries]frontend.Variable,
+	[commitmentQueueWitnessMaxEntries][32]uints.U8,
+	[commitmentQueueWitnessMaxEntries][32]uints.U8,
+	error,
+) {
+	var present [commitmentQueueWitnessMaxEntries]frontend.Variable
+	var queueIndex [commitmentQueueWitnessMaxEntries]frontend.Variable
+	var messageKind [commitmentQueueWitnessMaxEntries]frontend.Variable
+	var messageID [commitmentQueueWitnessMaxEntries][32]uints.U8
+	var messageHash [commitmentQueueWitnessMaxEntries][32]uints.U8
+
+	for i := 0; i < commitmentQueueWitnessMaxEntries; i++ {
+		present[i] = new(big.Int)
+		queueIndex[i] = new(big.Int)
+		messageKind[i] = new(big.Int)
+		for j := 0; j < 32; j++ {
+			messageID[i][j] = uints.NewU8(0)
+			messageHash[i][j] = uints.NewU8(0)
+		}
+	}
+
+	if err := validateCommittedQueueWitnessBounds(request.ConsumedQueueEntries); err != nil {
+		return present, queueIndex, messageKind, messageID, messageHash, err
+	}
+	if len(request.ConsumedQueueEntries) != int(request.PublicInputs.ConsumedQueueMessages) {
+		return present, queueIndex, messageKind, messageID, messageHash, fmt.Errorf("consumed_queue_entries length must match consumed_queue_messages")
+	}
+
+	for i, entry := range request.ConsumedQueueEntries {
+		if entry.MessageKind != 1 && entry.MessageKind != 2 {
+			return present, queueIndex, messageKind, messageID, messageHash, fmt.Errorf("consumed_queue_entries[%d].message_kind must be 1 or 2", i)
+		}
+		parsedQueueIndex, err := parseUintAsField(entry.QueueIndex, fmt.Sprintf("consumed_queue_entries[%d].queue_index", i))
+		if err != nil {
+			return present, queueIndex, messageKind, messageID, messageHash, err
+		}
+		parsedMessageKind, err := parseUintAsField(uint64(entry.MessageKind), fmt.Sprintf("consumed_queue_entries[%d].message_kind", i))
+		if err != nil {
+			return present, queueIndex, messageKind, messageID, messageHash, err
+		}
+		parsedMessageID, err := parseUint256LittleEndianBytes(entry.MessageID, fmt.Sprintf("consumed_queue_entries[%d].message_id", i))
+		if err != nil {
+			return present, queueIndex, messageKind, messageID, messageHash, err
+		}
+		parsedMessageHash, err := parseUint256LittleEndianBytes(entry.MessageHash, fmt.Sprintf("consumed_queue_entries[%d].message_hash", i))
+		if err != nil {
+			return present, queueIndex, messageKind, messageID, messageHash, err
+		}
+
+		present[i] = new(big.Int).SetUint64(1)
+		queueIndex[i] = parsedQueueIndex
+		messageKind[i] = parsedMessageKind
+		messageID[i] = parsedMessageID
+		messageHash[i] = parsedMessageHash
+	}
+
+	return present, queueIndex, messageKind, messageID, messageHash, nil
+}
+
+func buildCommittedWithdrawalWitness(request toybatch.CommandRequest) (
+	[commitmentWithdrawalWitnessMaxLeaves]frontend.Variable,
+	[commitmentWithdrawalWitnessMaxLeaves][32]uints.U8,
+	[commitmentWithdrawalWitnessMaxLeaves]frontend.Variable,
+	[commitmentWithdrawalWitnessMaxLeaves][32]uints.U8,
+	error,
+) {
+	var present [commitmentWithdrawalWitnessMaxLeaves]frontend.Variable
+	var withdrawalID [commitmentWithdrawalWitnessMaxLeaves][32]uints.U8
+	var amount [commitmentWithdrawalWitnessMaxLeaves]frontend.Variable
+	var destinationCommitment [commitmentWithdrawalWitnessMaxLeaves][32]uints.U8
+
+	for i := 0; i < commitmentWithdrawalWitnessMaxLeaves; i++ {
+		present[i] = new(big.Int)
+		amount[i] = new(big.Int)
+		for j := 0; j < 32; j++ {
+			withdrawalID[i][j] = uints.NewU8(0)
+			destinationCommitment[i][j] = uints.NewU8(0)
+		}
+	}
+
+	if err := validateCommittedWithdrawalWitnessBounds(request.WithdrawalLeaves); err != nil {
+		return present, withdrawalID, amount, destinationCommitment, err
+	}
+
+	for i, leaf := range request.WithdrawalLeaves {
+		parsedWithdrawalID, err := parseUint256LittleEndianBytes(leaf.WithdrawalID, fmt.Sprintf("withdrawal_leaves[%d].withdrawal_id", i))
+		if err != nil {
+			return present, withdrawalID, amount, destinationCommitment, err
+		}
+		parsedDestinationCommitment, err := parseUint256LittleEndianBytes(
+			leaf.DestinationCommitment,
+			fmt.Sprintf("withdrawal_leaves[%d].destination_commitment", i))
+		if err != nil {
+			return present, withdrawalID, amount, destinationCommitment, err
+		}
+		parsedAmount, err := parseAmountSatsField(leaf.Amount, fmt.Sprintf("withdrawal_leaves[%d].amount", i))
+		if err != nil {
+			return present, withdrawalID, amount, destinationCommitment, err
+		}
+
+		present[i] = new(big.Int).SetUint64(1)
+		withdrawalID[i] = parsedWithdrawalID
+		amount[i] = parsedAmount
+		destinationCommitment[i] = parsedDestinationCommitment
+	}
+
+	return present, withdrawalID, amount, destinationCommitment, nil
+}
+
+func buildCommittedDataWitness(request toybatch.CommandRequest) (
+	[commitmentDataWitnessMaxChunks]frontend.Variable,
+	[commitmentDataWitnessMaxChunks]frontend.Variable,
+	[commitmentDataWitnessMaxChunks][commitmentDataWitnessMaxChunkBytes]uints.U8,
+	error,
+) {
+	var present [commitmentDataWitnessMaxChunks]frontend.Variable
+	var chunkLen [commitmentDataWitnessMaxChunks]frontend.Variable
+	var chunkBytes [commitmentDataWitnessMaxChunks][commitmentDataWitnessMaxChunkBytes]uints.U8
+
+	for i := 0; i < commitmentDataWitnessMaxChunks; i++ {
+		present[i] = new(big.Int)
+		chunkLen[i] = new(big.Int)
+		for j := 0; j < commitmentDataWitnessMaxChunkBytes; j++ {
+			chunkBytes[i][j] = uints.NewU8(0)
+		}
 	}
 
 	chunks, err := decodeDataChunks(request.DataChunksHex)
 	if err != nil {
-		return nil, nil, chunkBytes, err
+		return present, chunkLen, chunkBytes, err
 	}
 	if err := validateCommittedDataWitnessBounds(chunks); err != nil {
-		return nil, nil, chunkBytes, err
-	}
-	if len(chunks) == 0 {
-		return new(big.Int), new(big.Int), chunkBytes, nil
+		return present, chunkLen, chunkBytes, err
 	}
 
-	chunk := chunks[0]
-	for i := range chunk {
-		chunkBytes[i] = uints.NewU8(chunk[i])
+	for i, chunk := range chunks {
+		present[i] = new(big.Int).SetUint64(1)
+		chunkLen[i] = new(big.Int).SetUint64(uint64(len(chunk)))
+		for j := range chunk {
+			chunkBytes[i][j] = uints.NewU8(chunk[j])
+		}
 	}
-	return new(big.Int).SetUint64(1), new(big.Int).SetUint64(uint64(len(chunk))), chunkBytes, nil
+
+	return present, chunkLen, chunkBytes, nil
 }
 
 func computeWithdrawalRootForProfile(request toybatch.CommandRequest) (string, error) {
+	if request.ProfileName == CommitmentProfileName {
+		if err := validateCommittedWithdrawalWitnessBounds(request.WithdrawalLeaves); err != nil {
+			return "", err
+		}
+		return computeGenericWithdrawalRootFromRequest(request)
+	}
 	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return computeExperimentalWithdrawalRootFromRequest(request)
 	}
