@@ -56,9 +56,16 @@ derives `l1_message_root_after`, `queue_prefix_commitment`, `withdrawal_root`,
 `data_root`, and `data_size` from that witness surface instead of trusting
 caller-supplied values.
 
+The native bundle encoder and C++ verifier now carry Groth16 commitment
+metadata. The shipped successor profile `groth16_bls12_381_poseidon_v3` uses
+that path for an explicitly bounded contract: a single consumed queue entry,
+a single withdrawal leaf, and a single published data chunk are all bound
+in-circuit, while `v1` / `v2` remain unchanged.
+
 `verify-batch` now supports both the toy external profile and the experimental
 native real bundles `groth16_bls12_381_poseidon_v1` and
-`groth16_bls12_381_poseidon_v2`.
+`groth16_bls12_381_poseidon_v2`, plus the bounded commitment-aware successor
+profile `groth16_bls12_381_poseidon_v3`.
 
 For the functional test harness, use the wrapper script:
 

@@ -505,6 +505,17 @@ Current branch status:
   provide the active roots plus queue / withdrawal / DA witness arrays, and
   `derive-batch` now derives queue / DA public inputs from that witness
   surface instead of treating caller-supplied placeholders as authoritative
+- the supported-profile RPC surface now also exposes that those canonical
+  `v2` bindings are still host-validated rather than in-circuit and names the
+  current blocker explicitly as
+  `commitment_aware_successor_profile_pending`, so the project stops
+  overstating how much of the queue / withdrawal / DA contract the current
+  native bundle actually proves while still acknowledging that the native
+  proof / verifying-key path now supports Groth16 commitment metadata
+- the commitment-aware successor profile
+  `groth16_bls12_381_poseidon_v3` now uses that native Groth16 commitment
+  path to bind a bounded witness surface in-circuit: one consumed queue
+  entry, one withdrawal leaf, and one published data chunk
 - the decomposed `groth16_bls12_381_poseidon_v2` path now also has explicit
   reclaim coverage, proving matured deposits can be reclaimed under restart
   without dropping the full-width initial withdrawal root state

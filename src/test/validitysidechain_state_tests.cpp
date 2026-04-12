@@ -313,7 +313,7 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
 {
     const auto& supported_configs = GetSupportedValiditySidechainConfigs();
     const SupportedValiditySidechainConfig* canonical = GetCanonicalValiditySidechainConfig();
-    BOOST_REQUIRE_EQUAL(supported_configs.size(), 6U);
+    BOOST_REQUIRE_EQUAL(supported_configs.size(), 7U);
     BOOST_REQUIRE(canonical != nullptr);
     BOOST_CHECK_EQUAL(std::string(canonical->profile_name), "groth16_bls12_381_poseidon_v2");
     BOOST_CHECK_EQUAL(std::string(supported_configs.front().profile_name), "scaffold_onchain_da_v1");
@@ -354,6 +354,13 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK_EQUAL(
         GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 5)),
         ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2);
+    BOOST_CHECK_EQUAL(std::string(supported_configs.at(6).profile_name), "groth16_bls12_381_poseidon_v3");
+    BOOST_CHECK(!supported_configs.at(6).scaffolding_only);
+    BOOST_CHECK(supported_configs.at(6).requires_external_verifier_assets);
+    BOOST_CHECK(supported_configs.at(6).supports_external_prover);
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(MakeSupportedConfig(/* supported_index= */ 6)),
+        ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3);
 
     const ValiditySidechainConfig config = MakeSupportedConfig();
     std::string error;
@@ -372,8 +379,12 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK_EQUAL(
         std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 5))),
         "canonical_target");
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 6))),
+        "commitment_successor_migration");
     BOOST_CHECK(!IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 4)));
     BOOST_CHECK(IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 5)));
+    BOOST_CHECK(!IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 6)));
 }
 
 BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist)
@@ -576,6 +587,12 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_uses_generic_queue_and_withdraw
     BOOST_CHECK_EQUAL(
         GetValiditySidechainBatchVerifierMode(config),
         ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2);
+    BOOST_CHECK(!AreValiditySidechainBatchQueueBindingsProvenInCircuit(config));
+    BOOST_CHECK(!AreValiditySidechainBatchWithdrawalBindingsProvenInCircuit(config));
+    BOOST_CHECK(!AreValiditySidechainBatchDataBindingsProvenInCircuit(config));
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainInCircuitBindingBlocker(config)),
+        "commitment_aware_successor_profile_pending");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainDepositAdmissionMode(config)), "enabled_local_queue_consensus");
     BOOST_CHECK(!IsValiditySidechainSingleEntryExperimentalQueueProfile(config));
     BOOST_CHECK(AllowsValiditySidechainForceExitRequests(config));
@@ -590,6 +607,37 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_uses_generic_queue_and_withdraw
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainVerifiedWithdrawalExecutionMode(config)), "withdrawal_root_merkle_inclusion");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "account_balance_state_proof_claims");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitRpcInputMode(config)), "explicit_state_proofs");
+}
+
+BOOST_AUTO_TEST_CASE(commitment_poseidon_profile_reports_bounded_in_circuit_bindings)
+{
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+
+    BOOST_CHECK_EQUAL(
+        GetValiditySidechainBatchVerifierMode(config),
+        ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3);
+    BOOST_CHECK(AreValiditySidechainBatchQueueBindingsProvenInCircuit(config));
+    BOOST_CHECK(AreValiditySidechainBatchWithdrawalBindingsProvenInCircuit(config));
+    BOOST_CHECK(AreValiditySidechainBatchDataBindingsProvenInCircuit(config));
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainInCircuitBindingBlocker(config)),
+        "none");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainDepositAdmissionMode(config)), "enabled_local_queue_consensus");
+    BOOST_CHECK(!IsValiditySidechainSingleEntryExperimentalQueueProfile(config));
+    BOOST_CHECK(IsValiditySidechainSingleEntryBoundedQueueWitnessProfile(config));
+    BOOST_CHECK(AllowsValiditySidechainForceExitRequests(config));
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainForceExitRequestMode(config)), "enabled_local_queue_consensus");
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainBatchQueueBindingMode(config)),
+        "single_entry_in_circuit_committed_public_inputs_experimental");
+    BOOST_CHECK(!IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config));
+    BOOST_CHECK(IsValiditySidechainSingleLeafBoundedWithdrawalWitnessProfile(config));
+    BOOST_CHECK_EQUAL(
+        std::string(GetValiditySidechainBatchWithdrawalBindingMode(config)),
+        "single_leaf_in_circuit_committed_public_input_experimental");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainVerifiedWithdrawalExecutionMode(config)), "withdrawal_root_merkle_inclusion");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitExecutionMode(config)), "merkle_inclusion_current_state_root_experimental");
+    BOOST_CHECK_EQUAL(std::string(GetValiditySidechainEscapeExitRpcInputMode(config)), "legacy_leaf_list_or_explicit_state_proofs");
 }
 
 BOOST_AUTO_TEST_CASE(register_sidechain_initializes_state_and_rejects_duplicates)

@@ -21,6 +21,7 @@ enum class ValiditySidechainBatchVerifierMode : uint8_t {
     GNARK_GROTH16_TOY_BATCH_TRANSITION_V1 = 4,
     NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1 = 5,
     GROTH16_BLS12_381_POSEIDON_V2 = 6,
+    GROTH16_BLS12_381_POSEIDON_V3 = 7,
 };
 
 struct ValiditySidechainVerifierAssetsStatus

@@ -1798,6 +1798,16 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV(
         "external_prover_requires_explicit_witness_vectors",
         RequiresValiditySidechainExternalProverExplicitWitnessVectors(config));
+    result.pushKV(
+        "queue_binding_proven_in_circuit",
+        AreValiditySidechainBatchQueueBindingsProvenInCircuit(config));
+    result.pushKV(
+        "withdrawal_binding_proven_in_circuit",
+        AreValiditySidechainBatchWithdrawalBindingsProvenInCircuit(config));
+    result.pushKV(
+        "data_binding_proven_in_circuit",
+        AreValiditySidechainBatchDataBindingsProvenInCircuit(config));
+    result.pushKV("in_circuit_binding_blocker", GetValiditySidechainInCircuitBindingBlocker(config));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(config));

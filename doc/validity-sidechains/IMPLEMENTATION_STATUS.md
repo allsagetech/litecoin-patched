@@ -257,6 +257,19 @@ This means:
   vectors, and the helper now derives `l1_message_root_after`,
   `queue_prefix_commitment`, `data_root`, and `data_size` from that witness
   surface instead of trusting caller-supplied placeholders
+- `getvaliditysidechaininfo` now also reports that those canonical `v2`
+  queue / withdrawal / DA bindings are still not proven in-circuit and calls
+  out the current blocker as
+  `commitment_aware_successor_profile_pending`: the native bundle format and
+  C++ verifier now carry Groth16 commitment metadata, but wiring the
+  SHA-based witness gadgets directly into the canonical circuit would still
+  change the committed public-witness contract, so that work needs a
+  successor profile instead of silently mutating `groth16_bls12_381_poseidon_v2`
+- that successor profile now exists as
+  `groth16_bls12_381_poseidon_v3`: it keeps the 16 decomposed public inputs,
+  uses the commitment-aware native Groth16 path, and proves a bounded
+  in-circuit contract for one consumed queue entry, one withdrawal leaf, and
+  one published data chunk while leaving the broader `v2` contract unchanged
 - batch acceptance now derives the reachable consumed queue prefix, required
   force-exit coverage, `l1_message_root_after`, and `queue_prefix_commitment`
   from active chainstate before running proof verification, so the canonical

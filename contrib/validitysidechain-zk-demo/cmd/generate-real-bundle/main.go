@@ -25,18 +25,20 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const outputArtifactDirV1 = "..\\..\\artifacts\\validitysidechain\\groth16_bls12_381_poseidon_v1"
-const outputArtifactDirV2 = "..\\..\\artifacts\\validitysidechain\\groth16_bls12_381_poseidon_v2"
+const outputArtifactDirV1 = "../../artifacts/validitysidechain/groth16_bls12_381_poseidon_v1"
+const outputArtifactDirV2 = "../../artifacts/validitysidechain/groth16_bls12_381_poseidon_v2"
+const outputArtifactDirV3 = "../../artifacts/validitysidechain/groth16_bls12_381_poseidon_v3"
 
 type bundleSpec struct {
-	profileName                  string
-	outputArtifactDir            string
-	publicInputVersion           uint8
-	circuitName                  string
-	status                       string
-	validNotes                   []string
-	requireFieldSizedQueueRoots  bool
-	requireFieldSizedWithdrawal  bool
+	profileName                 string
+	outputArtifactDir           string
+	sidechainID                 uint8
+	publicInputVersion          uint8
+	circuitName                 string
+	status                      string
+	validNotes                  []string
+	requireFieldSizedQueueRoots bool
+	requireFieldSizedWithdrawal bool
 }
 
 type outputFile struct {
@@ -116,6 +118,7 @@ func resolveBundleSpec(profileName string) (bundleSpec, error) {
 		return bundleSpec{
 			profileName:                 realbatch.ProfileName,
 			outputArtifactDir:           outputArtifactDirV1,
+			sidechainID:                 9,
 			publicInputVersion:          realbatch.ExperimentalPublicInputVersion,
 			circuitName:                 "poseidon_batch_transition_v1",
 			status:                      "experimental real Groth16 profile with deterministic Poseidon2 transition semantics, host-validated queue/withdrawal fixtures, and non-empty DA test vectors",
@@ -135,6 +138,7 @@ func resolveBundleSpec(profileName string) (bundleSpec, error) {
 		return bundleSpec{
 			profileName:                 realbatch.FinalProfileName,
 			outputArtifactDir:           outputArtifactDirV2,
+			sidechainID:                 9,
 			publicInputVersion:          realbatch.FinalPublicInputVersion,
 			circuitName:                 "poseidon_batch_transition_v2",
 			status:                      "experimental decomposed-input Poseidon Groth16 profile with full-width queue, withdrawal, and DA roots plus host-validated queue/withdrawal fixtures",
@@ -148,6 +152,25 @@ func resolveBundleSpec(profileName string) (bundleSpec, error) {
 				"the queued roots and/or withdrawal root intentionally exceed the BLS12-381 scalar field to exercise the decomposed public-input layout",
 				"binds a non-empty published DA payload through data_root and data_size",
 				"verified in-process by the node native blst Groth16 path",
+			},
+		}, nil
+	case realbatch.CommitmentProfileName:
+		return bundleSpec{
+			profileName:                 realbatch.CommitmentProfileName,
+			outputArtifactDir:           outputArtifactDirV3,
+			sidechainID:                 58,
+			publicInputVersion:          realbatch.CommitmentPublicInputVersion,
+			circuitName:                 "poseidon_batch_transition_v3",
+			status:                      "experimental commitment-aware Poseidon Groth16 profile with decomposed public inputs and in-circuit single-entry queue, single-leaf withdrawal, and single-chunk DA witnesses",
+			requireFieldSizedQueueRoots: false,
+			requireFieldSizedWithdrawal: false,
+			validNotes: []string{
+				"real Groth16 proof for the commitment-aware decomposed-input poseidon batch transition circuit",
+				"proves a single consumed queue entry witness in-circuit against the decomposed queue roots",
+				"proves a single withdrawal leaf witness in-circuit against the decomposed withdrawal root",
+				"proves a single published data chunk witness in-circuit against the decomposed data root and size",
+				"uses Groth16 commitment metadata in the proof and verifying key and is verified in-process by the native blst Groth16 path",
+				"the queued roots and/or withdrawal root intentionally exceed the BLS12-381 scalar field to exercise the decomposed public-input layout",
 			},
 		}, nil
 	default:
@@ -171,8 +194,8 @@ func main() {
 		panic(err)
 	}
 
-	deposit, queueRootBefore, queueRootAfter, queuePrefixCommitment := findDepositSetup(9, spec.requireFieldSizedQueueRoots)
-	depositMessageHash := computeDepositMessageHash(9, deposit)
+	deposit, queueRootBefore, queueRootAfter, queuePrefixCommitment := findDepositSetup(spec.sidechainID, spec.requireFieldSizedQueueRoots)
+	depositMessageHash := computeDepositMessageHash(spec.sidechainID, deposit)
 	if depositMessageHash == "" {
 		panic("deposit message hash unexpectedly empty")
 	}
@@ -180,7 +203,7 @@ func main() {
 
 	request := toybatch.CommandRequest{
 		ProfileName: spec.profileName,
-		SidechainID: 9,
+		SidechainID: uint64(spec.sidechainID),
 		PublicInputs: toybatch.BatchPublicInputs{
 			BatchNumber:           1,
 			PriorStateRoot:        "1",
@@ -213,6 +236,15 @@ func main() {
 	derivedRequest, err := realbatch.DeriveRequest(request)
 	if err != nil {
 		panic(err)
+	}
+	if spec.profileName == realbatch.CommitmentProfileName {
+		request.DataChunksHex = []string{
+			hex.EncodeToString([]byte("real-batch-da")),
+		}
+		derivedRequest, err = realbatch.DeriveRequest(request)
+		if err != nil {
+			panic(err)
+		}
 	}
 	manifestPublicInputs, err := realbatch.ManifestPublicInputs(spec.publicInputVersion)
 	if err != nil {
@@ -275,7 +307,10 @@ func main() {
 		panic(err)
 	}
 
-	validProofBytes := nativegroth16.EncodeProof(&nativeProof)
+	validProofBytes, err := nativegroth16.EncodeProof(&nativeProof)
+	if err != nil {
+		panic(err)
+	}
 	corruptProofBytes := append([]byte{}, validProofBytes...)
 	corruptProofBytes[len(corruptProofBytes)-1] ^= 0x01
 
@@ -395,7 +430,7 @@ func main() {
 		OutputRoot: outputRoot,
 		Files: []outputFile{
 			utf8File("profile.json", mustJSON(manifest)),
-			base64File("batch_vk.bin", nativegroth16.EncodeVerificationKey(&nativeVK)),
+			base64File("batch_vk.bin", mustEncodeVerificationKey(&nativeVK)),
 			base64File("batch_pk.bin", rawPK.Bytes()),
 			utf8File("valid/valid_proof.json", mustJSON(validVector)),
 			utf8File("invalid/corrupt_proof.json", mustJSON(corruptVector)),
@@ -410,6 +445,14 @@ func main() {
 	if err := encoder.Encode(out); err != nil {
 		panic(err)
 	}
+}
+
+func mustEncodeVerificationKey(vk *groth16bls12381.VerifyingKey) []byte {
+	encoded, err := nativegroth16.EncodeVerificationKey(vk)
+	if err != nil {
+		panic(err)
+	}
+	return encoded
 }
 
 func findDepositSetup(sidechainID uint8, requireFieldSized bool) (depositSetup, string, string, string) {

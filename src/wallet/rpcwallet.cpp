@@ -62,6 +62,8 @@ using interfaces::FoundBlock;
 
 static const std::string WALLET_ENDPOINT_BASE = "/wallet/";
 static const std::string HELP_REQUIRING_PASSPHRASE{"\nRequires wallet passphrase to be set with walletpassphrase call if wallet is encrypted.\n"};
+static constexpr size_t VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNKS = 1;
+static constexpr size_t VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNK_BYTES = 64;
 
 static inline bool GetAvoidReuseFlag(const CWallet* const pwallet, const UniValue& param) {
     bool can_avoid_reuse = pwallet->IsWalletFlagSet(WALLET_FLAG_AVOID_REUSE);
@@ -2482,11 +2484,13 @@ static RPCHelpMan sendvaliditybatch()
                         experimental_payout_recipients);
                 }
             }
-            if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config) &&
+            if (IsValiditySidechainSingleEntryBoundedQueueWitnessProfile(sidechain.config) &&
                 public_inputs.consumed_queue_messages > 1) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
-                    "experimental real profile currently supports at most one consumed queue message");
+                    IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)
+                        ? "experimental real profile currently supports at most one consumed queue message"
+                        : "current profile supports at most one consumed queue message");
             }
             if (public_inputs.consumed_queue_messages > MAX_VALIDITY_SIDECHAIN_BATCH_QUEUE_CONSUMPTION) {
                 throw JSONRPCError(
@@ -2509,11 +2513,13 @@ static RPCHelpMan sendvaliditybatch()
                     RPC_INVALID_PARAMETER,
                     "batch queue root before does not match current queue root");
             }
-            if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config) &&
+            if (IsValiditySidechainSingleLeafBoundedWithdrawalWitnessProfile(sidechain.config) &&
                 experimental_withdrawal_leaves.size() > 1) {
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
-                    "experimental real profile currently supports at most one withdrawal leaf witness");
+                    IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain.config)
+                        ? "experimental real profile currently supports at most one withdrawal leaf witness"
+                        : "current profile supports at most one withdrawal leaf witness");
             }
             const std::vector<std::vector<unsigned char>> data_chunks =
                 (request.params.size() > 3 && !request.params[3].isNull())
@@ -2523,6 +2529,21 @@ static RPCHelpMan sendvaliditybatch()
                 throw JSONRPCError(
                     RPC_INVALID_PARAMETER,
                     "batch data chunk count exceeds consensus limit");
+            }
+            if (verifier_mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3 &&
+                data_chunks.size() > VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNKS) {
+                throw JSONRPCError(
+                    RPC_INVALID_PARAMETER,
+                    "current profile supports at most one data chunk witness");
+            }
+            if (verifier_mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3) {
+                for (const auto& chunk : data_chunks) {
+                    if (chunk.size() > VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNK_BYTES) {
+                        throw JSONRPCError(
+                            RPC_INVALID_PARAMETER,
+                            "current profile supports data chunk witnesses of at most 64 bytes");
+                    }
+                }
             }
             const uint256 computed_data_root = ComputeValiditySidechainDataRoot(data_chunks);
             uint64_t computed_data_size_u64 = 0;
@@ -2611,6 +2632,7 @@ static RPCHelpMan sendvaliditybatch()
                         public_inputs.withdrawal_root = sidechain.current_withdrawal_root;
                         break;
                     case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1:
+                    case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3:
                         public_inputs.withdrawal_root =
                             ComputeValiditySidechainWithdrawalRoot(experimental_withdrawal_leaves);
                         break;

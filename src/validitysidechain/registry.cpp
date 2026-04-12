@@ -66,6 +66,14 @@ static bool IsCanonicalTargetGroth16PoseidonProfile(const SupportedValiditySidec
            std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v2";
 }
 
+static bool IsCommitmentAwareSuccessorGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
+{
+    return IsRealGroth16PoseidonProfile(supported) &&
+           UsesDecomposedPoseidonPublicInputs(supported) &&
+           supported.profile_name != nullptr &&
+           std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v3";
+}
+
 static bool IsToyProfile(const SupportedValiditySidechainConfig& supported)
 {
     if (supported.profile_name == nullptr) {
@@ -244,6 +252,32 @@ const std::vector<SupportedValiditySidechainConfig>& GetSupportedValiditySidecha
             /* min_escape_hatch_delay     = */ 288,
             /* max_escape_hatch_delay     = */ 56 * 144,
         },
+        {
+            /* profile_name               = */ "groth16_bls12_381_poseidon_v3",
+            /* verifier_artifact_name     = */ "groth16_bls12_381_poseidon_v3",
+            /* verifier_backend           = */ "native_blst_groth16",
+            /* scaffolding_only           = */ false,
+            /* requires_external_verifier_assets = */ true,
+            /* supports_external_prover   = */ true,
+            /* version                    = */ 1,
+            /* proof_system_id            = */ 2,
+            /* circuit_family_id          = */ 1,
+            /* verifier_id                = */ 1,
+            /* public_input_version       = */ 6,
+            /* state_root_format          = */ 2,
+            /* deposit_message_format     = */ 1,
+            /* withdrawal_leaf_format     = */ 2,
+            /* balance_leaf_format        = */ 2,
+            /* data_availability_mode     = */ 1,
+            /* max_batch_data_bytes_limit = */ 64 * 1024,
+            /* max_proof_bytes_limit      = */ 4 * 1024,
+            /* min_force_inclusion_delay  = */ 12,
+            /* max_force_inclusion_delay  = */ 7 * 144,
+            /* min_deposit_reclaim_delay  = */ 144,
+            /* max_deposit_reclaim_delay  = */ 28 * 144,
+            /* min_escape_hatch_delay     = */ 288,
+            /* max_escape_hatch_delay     = */ 56 * 144,
+        },
     };
 
     return supported_configs;
@@ -340,6 +374,9 @@ const char* GetValiditySidechainProfileLifecycle(const ValiditySidechainConfig& 
     if (IsToyProfile(*supported)) {
         return "toy_migration";
     }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return "commitment_successor_migration";
+    }
     if (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported)) {
         return "experimental_real_migration";
     }
@@ -369,6 +406,15 @@ bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidech
            IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported);
 }
 
+bool IsValiditySidechainSingleEntryBoundedQueueWitnessProfile(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr &&
+           !supported->scaffolding_only &&
+           (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported) ||
+            IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
+}
+
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config)
 {
     return !IsValiditySidechainSingleEntryExperimentalQueueProfile(config);
@@ -393,7 +439,9 @@ bool RequiresValiditySidechainExternalProverCurrentChainstate(const ValiditySide
 
 bool RequiresValiditySidechainExternalProverExplicitWitnessVectors(const ValiditySidechainConfig& config)
 {
-    return IsCanonicalValiditySidechainProfile(config);
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return IsCanonicalValiditySidechainProfile(config) ||
+           (supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
 }
 
 const char* GetValiditySidechainDerivedPublicInputMode(const ValiditySidechainConfig& config)
@@ -406,6 +454,9 @@ const char* GetValiditySidechainDerivedPublicInputMode(const ValiditySidechainCo
         return "caller_supplied_scaffold";
     }
     if (IsCanonicalValiditySidechainProfile(config)) {
+        return "helper_derives_queue_withdrawal_and_da_bindings";
+    }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
         return "helper_derives_queue_withdrawal_and_da_bindings";
     }
     if (supported->supports_external_prover) {
@@ -426,7 +477,46 @@ const char* GetValiditySidechainExternalProverRequestMode(const ValiditySidechai
     if (IsCanonicalValiditySidechainProfile(config)) {
         return "current_chainstate_bound_explicit_witness_vectors";
     }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return "explicit_witness_vectors";
+    }
     return "optional_current_chainstate_context";
+}
+
+bool AreValiditySidechainBatchQueueBindingsProvenInCircuit(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported);
+}
+
+bool AreValiditySidechainBatchWithdrawalBindingsProvenInCircuit(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported);
+}
+
+bool AreValiditySidechainBatchDataBindingsProvenInCircuit(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported);
+}
+
+const char* GetValiditySidechainInCircuitBindingBlocker(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    if (supported == nullptr) {
+        return "unsupported_profile";
+    }
+    if (supported->scaffolding_only) {
+        return "scaffold_transition_only";
+    }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return "none";
+    }
+    if (IsCanonicalValiditySidechainProfile(config)) {
+        return "commitment_aware_successor_profile_pending";
+    }
+    return "not_yet_implemented";
 }
 
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config)
@@ -437,6 +527,9 @@ const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainCon
     }
     if (supported->scaffolding_only) {
         return "local_prefix_consensus_scaffold";
+    }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return "single_entry_in_circuit_committed_public_inputs_experimental";
     }
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
         return "local_prefix_consensus_single_deposit_entry_experimental";
@@ -452,6 +545,15 @@ bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySi
     return IsValiditySidechainSingleEntryExperimentalQueueProfile(config);
 }
 
+bool IsValiditySidechainSingleLeafBoundedWithdrawalWitnessProfile(const ValiditySidechainConfig& config)
+{
+    const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
+    return supported != nullptr &&
+           !supported->scaffolding_only &&
+           (IsExperimentalScalarLimitedGroth16PoseidonProfile(*supported) ||
+            IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
+}
+
 const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
@@ -460,6 +562,9 @@ const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidecha
     }
     if (supported->scaffolding_only) {
         return "local_merkle_consensus_scaffold";
+    }
+    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+        return "single_leaf_in_circuit_committed_public_input_experimental";
     }
     if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
         return "accepted_root_single_leaf_experimental";

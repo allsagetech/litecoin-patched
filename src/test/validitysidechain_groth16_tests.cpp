@@ -147,6 +147,18 @@ ValiditySidechainGroth16Proof MakeProof()
     return proof;
 }
 
+ValiditySidechainGroth16Proof MakeProofWithCommitments()
+{
+    ValiditySidechainGroth16Proof proof = MakeProof();
+    proof.commitments_g1 = {
+        CompressedG1Infinity(),
+        CompressedG1Generator(),
+    };
+    proof.commitment_pok_g1 = CompressedG1Infinity();
+    proof.has_commitment_pok = true;
+    return proof;
+}
+
 ValiditySidechainGroth16VerificationKey MakeVerificationKey(uint32_t public_input_count)
 {
     ValiditySidechainGroth16VerificationKey verifying_key;
@@ -156,6 +168,22 @@ ValiditySidechainGroth16VerificationKey MakeVerificationKey(uint32_t public_inpu
     verifying_key.gamma_g2 = CompressedG2Generator();
     verifying_key.delta_g2 = CompressedG2Generator();
     verifying_key.gamma_abc_g1.resize(public_input_count + 1, CompressedG1Generator());
+    return verifying_key;
+}
+
+ValiditySidechainGroth16VerificationKey MakeVerificationKeyWithCommitments(
+    uint32_t public_input_count,
+    uint32_t commitment_count)
+{
+    ValiditySidechainGroth16VerificationKey verifying_key = MakeVerificationKey(public_input_count);
+    verifying_key.gamma_abc_g1.resize(public_input_count + commitment_count + 1, CompressedG1Generator());
+    verifying_key.public_and_commitment_committed.resize(commitment_count);
+    verifying_key.commitment_keys.resize(commitment_count);
+    for (uint32_t i = 0; i < commitment_count; ++i) {
+        verifying_key.public_and_commitment_committed[i] = {i + 1, i + 2};
+        verifying_key.commitment_keys[i].g_g2 = CompressedG2Generator();
+        verifying_key.commitment_keys[i].g_sigma_neg_g2 = CompressedG2Multiple(i + 2);
+    }
     return verifying_key;
 }
 
@@ -374,6 +402,20 @@ BOOST_AUTO_TEST_CASE(groth16_proof_roundtrip_parses)
     BOOST_CHECK(parsed.c_g1 == proof.c_g1);
 }
 
+BOOST_AUTO_TEST_CASE(groth16_proof_commitment_roundtrip_parses)
+{
+    const ValiditySidechainGroth16Proof proof = MakeProofWithCommitments();
+    const std::vector<unsigned char> encoded = EncodeValiditySidechainGroth16Proof(proof);
+
+    ValiditySidechainGroth16Proof parsed;
+    std::string error;
+    BOOST_REQUIRE(ParseValiditySidechainGroth16Proof(encoded, parsed, &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK(parsed.commitments_g1 == proof.commitments_g1);
+    BOOST_CHECK(parsed.commitment_pok_g1 == proof.commitment_pok_g1);
+    BOOST_CHECK(parsed.has_commitment_pok);
+}
+
 BOOST_AUTO_TEST_CASE(groth16_proof_rejects_invalid_magic)
 {
     std::vector<unsigned char> encoded = EncodeValiditySidechainGroth16Proof(MakeProof());
@@ -409,6 +451,24 @@ BOOST_AUTO_TEST_CASE(groth16_verifying_key_roundtrip_parses)
     BOOST_CHECK_EQUAL(parsed.gamma_abc_g1.size(), 12U);
     BOOST_CHECK(parsed.alpha_g1 == verifying_key.alpha_g1);
     BOOST_CHECK(parsed.beta_g2 == verifying_key.beta_g2);
+}
+
+BOOST_AUTO_TEST_CASE(groth16_verifying_key_commitment_roundtrip_parses)
+{
+    const ValiditySidechainGroth16VerificationKey verifying_key =
+        MakeVerificationKeyWithCommitments(/* public_input_count= */ 11, /* commitment_count= */ 2);
+    const std::vector<unsigned char> encoded = EncodeValiditySidechainGroth16VerificationKey(verifying_key);
+
+    ValiditySidechainGroth16VerificationKey parsed;
+    std::string error;
+    BOOST_REQUIRE(ParseValiditySidechainGroth16VerificationKey(encoded, 11, parsed, &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(parsed.public_input_count, 11U);
+    BOOST_CHECK_EQUAL(parsed.gamma_abc_g1.size(), 14U);
+    BOOST_CHECK(parsed.public_and_commitment_committed == verifying_key.public_and_commitment_committed);
+    BOOST_CHECK_EQUAL(parsed.commitment_keys.size(), 2U);
+    BOOST_CHECK(parsed.commitment_keys[0].g_g2 == verifying_key.commitment_keys[0].g_g2);
+    BOOST_CHECK(parsed.commitment_keys[1].g_sigma_neg_g2 == verifying_key.commitment_keys[1].g_sigma_neg_g2);
 }
 
 BOOST_AUTO_TEST_CASE(groth16_verifying_key_rejects_wrong_public_input_count)
@@ -498,6 +558,39 @@ BOOST_AUTO_TEST_CASE(groth16_decomposed_real_profile_bundle_accepts_committed_va
         manifest_public_inputs,
         find_value(valid_vector, "public_inputs"));
     const ValiditySidechainGroth16Proof proof = ParseProofFromVector(valid_vector);
+
+    BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+    BOOST_CHECK(error.empty());
+}
+
+BOOST_AUTO_TEST_CASE(groth16_commitment_real_profile_bundle_accepts_committed_valid_vector)
+{
+    const fs::path artifact_dir =
+        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v3");
+    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
+    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
+
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    std::string error;
+    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
+        artifact_dir / "batch_vk.bin",
+        /* expected_public_input_count= */ 16,
+        verifying_key,
+        &error));
+    BOOST_CHECK(error.empty());
+    BOOST_CHECK_EQUAL(verifying_key.public_input_count, 16U);
+    BOOST_CHECK(!verifying_key.commitment_keys.empty());
+    BOOST_CHECK_EQUAL(
+        verifying_key.commitment_keys.size(),
+        verifying_key.public_and_commitment_committed.size());
+
+    const UniValue valid_vector = ReadJSONFile(artifact_dir / "valid" / "valid_proof.json");
+    const auto public_inputs = BuildManifestPublicInputs(
+        manifest_public_inputs,
+        find_value(valid_vector, "public_inputs"));
+    const ValiditySidechainGroth16Proof proof = ParseProofFromVector(valid_vector);
+    BOOST_CHECK(!proof.commitments_g1.empty());
+    BOOST_CHECK(proof.has_commitment_pok);
 
     BOOST_CHECK(VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
     BOOST_CHECK(error.empty());
@@ -798,6 +891,52 @@ BOOST_AUTO_TEST_CASE(groth16_decomposed_real_profile_bundle_rejects_committed_in
 {
     const fs::path artifact_dir =
         FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v2");
+    const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
+    const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
+
+    ValiditySidechainGroth16VerificationKey verifying_key;
+    std::string error;
+    BOOST_REQUIRE(LoadValiditySidechainGroth16VerificationKey(
+        artifact_dir / "batch_vk.bin",
+        /* expected_public_input_count= */ 16,
+        verifying_key,
+        &error));
+    BOOST_CHECK(error.empty());
+
+    for (const char* path : {
+             "invalid/public_input_mismatch.json",
+             "invalid/queue_prefix_commitment_mismatch.json",
+             "invalid/withdrawal_root_mismatch.json",
+         }) {
+        const UniValue vector_json = ReadJSONFile(artifact_dir / path);
+        const auto public_inputs = BuildManifestPublicInputs(
+            manifest_public_inputs,
+            find_value(vector_json, "public_inputs"));
+        const ValiditySidechainGroth16Proof proof = ParseProofFromVector(vector_json);
+
+        BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, proof, public_inputs, &error));
+        BOOST_CHECK_EQUAL(error, "Groth16 pairing doesn't match");
+    }
+
+    const UniValue corrupt_vector = ReadJSONFile(artifact_dir / "invalid" / "corrupt_proof.json");
+    const std::vector<unsigned char> corrupt_bytes = ParseHex(find_value(corrupt_vector, "proof_bytes_hex").get_str());
+    ValiditySidechainGroth16Proof corrupt_proof;
+    const bool parsed = ParseValiditySidechainGroth16Proof(corrupt_bytes, corrupt_proof, &error);
+    if (parsed) {
+        const auto public_inputs = BuildManifestPublicInputs(
+            manifest_public_inputs,
+            find_value(corrupt_vector, "public_inputs"));
+        BOOST_CHECK(!VerifyValiditySidechainGroth16Proof(verifying_key, corrupt_proof, public_inputs, &error));
+        BOOST_CHECK(!error.empty());
+    } else {
+        BOOST_CHECK(!error.empty());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(groth16_commitment_real_profile_bundle_rejects_committed_invalid_vectors)
+{
+    const fs::path artifact_dir =
+        FindRepoPath(fs::path{"artifacts"} / "validitysidechain" / "groth16_bls12_381_poseidon_v3");
     const UniValue manifest_json = ReadJSONFile(artifact_dir / "profile.json");
     const std::vector<std::string> manifest_public_inputs = ReadManifestPublicInputNames(manifest_json);
 

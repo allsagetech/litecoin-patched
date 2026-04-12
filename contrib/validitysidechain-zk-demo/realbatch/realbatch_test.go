@@ -268,7 +268,10 @@ func TestPoseidonV2NativeArtifactsRemainVerifierCompatible(t *testing.T) {
 	if _, err := nativeProof.ReadFrom(bytes.NewReader(rawProof.Bytes())); err != nil {
 		t.Fatalf("native proof ReadFrom returned unexpected error: %v", err)
 	}
-	encodedProof := nativegroth16.EncodeProof(&nativeProof)
+	encodedProof, err := nativegroth16.EncodeProof(&nativeProof)
+	if err != nil {
+		t.Fatalf("EncodeProof returned unexpected error: %v", err)
+	}
 	decodedProof, err := nativegroth16.DecodeProof(encodedProof)
 	if err != nil {
 		t.Fatalf("DecodeProof returned unexpected error: %v", err)
@@ -282,7 +285,10 @@ func TestPoseidonV2NativeArtifactsRemainVerifierCompatible(t *testing.T) {
 	if _, err := nativeVK.ReadFrom(bytes.NewReader(rawVK.Bytes())); err != nil {
 		t.Fatalf("native verifying key ReadFrom returned unexpected error: %v", err)
 	}
-	encodedVK := nativegroth16.EncodeVerificationKey(&nativeVK)
+	encodedVK, err := nativegroth16.EncodeVerificationKey(&nativeVK)
+	if err != nil {
+		t.Fatalf("EncodeVerificationKey returned unexpected error: %v", err)
+	}
 
 	expectedPublicInputs, err := ManifestPublicInputs(FinalPublicInputVersion)
 	if err != nil {
@@ -300,6 +306,132 @@ func TestPoseidonV2NativeArtifactsRemainVerifierCompatible(t *testing.T) {
 	}
 	if err := groth16.Verify(decodedProof, decodedVK, publicWitness); err != nil {
 		t.Fatalf("groth16.Verify returned unexpected error: %v", err)
+	}
+}
+
+func TestPoseidonV3NativeArtifactsExportCommitmentMetadata(t *testing.T) {
+	request := buildV3RequestForTest(t)
+
+	circuit, err := NewCircuit(CommitmentProfileName)
+	if err != nil {
+		t.Fatalf("NewCircuit returned unexpected error: %v", err)
+	}
+	ccs, err := frontend.Compile(ecc.BLS12_381.ScalarField(), r1cs.NewBuilder, circuit)
+	if err != nil {
+		t.Fatalf("frontend.Compile returned unexpected error: %v", err)
+	}
+	pk, vk, err := groth16.Setup(ccs)
+	if err != nil {
+		t.Fatalf("groth16.Setup returned unexpected error: %v", err)
+	}
+
+	assignment, err := BuildAssignment(request)
+	if err != nil {
+		t.Fatalf("BuildAssignment returned unexpected error: %v", err)
+	}
+	witness, err := frontend.NewWitness(assignment, ecc.BLS12_381.ScalarField())
+	if err != nil {
+		t.Fatalf("frontend.NewWitness returned unexpected error: %v", err)
+	}
+	proof, err := groth16.Prove(ccs, pk, witness)
+	if err != nil {
+		t.Fatalf("groth16.Prove returned unexpected error: %v", err)
+	}
+
+	publicAssignment, err := BuildPublicAssignment(request)
+	if err != nil {
+		t.Fatalf("BuildPublicAssignment returned unexpected error: %v", err)
+	}
+	publicWitness, err := frontend.NewWitness(publicAssignment, ecc.BLS12_381.ScalarField(), frontend.PublicOnly())
+	if err != nil {
+		t.Fatalf("frontend.NewWitness(public) returned unexpected error: %v", err)
+	}
+
+	var rawProof bytes.Buffer
+	if _, err := proof.WriteTo(&rawProof); err != nil {
+		t.Fatalf("proof.WriteTo returned unexpected error: %v", err)
+	}
+	var nativeProof groth16bls12381.Proof
+	if _, err := nativeProof.ReadFrom(bytes.NewReader(rawProof.Bytes())); err != nil {
+		t.Fatalf("native proof ReadFrom returned unexpected error: %v", err)
+	}
+	if len(nativeProof.Commitments) == 0 {
+		t.Fatal("native proof omitted commitment metadata for v3 circuit")
+	}
+	encodedProof, err := nativegroth16.EncodeProof(&nativeProof)
+	if err != nil {
+		t.Fatalf("EncodeProof returned unexpected error: %v", err)
+	}
+	decodedProof, err := nativegroth16.DecodeProof(encodedProof)
+	if err != nil {
+		t.Fatalf("DecodeProof returned unexpected error: %v", err)
+	}
+	if len(decodedProof.Commitments) == 0 {
+		t.Fatal("decoded native proof omitted commitment metadata for v3 circuit")
+	}
+
+	var rawVK bytes.Buffer
+	if _, err := vk.WriteTo(&rawVK); err != nil {
+		t.Fatalf("vk.WriteTo returned unexpected error: %v", err)
+	}
+	var nativeVK groth16bls12381.VerifyingKey
+	if _, err := nativeVK.ReadFrom(bytes.NewReader(rawVK.Bytes())); err != nil {
+		t.Fatalf("native verifying key ReadFrom returned unexpected error: %v", err)
+	}
+	if len(nativeVK.CommitmentKeys) == 0 || len(nativeVK.PublicAndCommitmentCommitted) == 0 {
+		t.Fatal("native verifying key omitted commitment metadata for v3 circuit")
+	}
+	encodedVK, err := nativegroth16.EncodeVerificationKey(&nativeVK)
+	if err != nil {
+		t.Fatalf("EncodeVerificationKey returned unexpected error: %v", err)
+	}
+
+	expectedPublicInputs, err := ManifestPublicInputs(CommitmentPublicInputVersion)
+	if err != nil {
+		t.Fatalf("ManifestPublicInputs returned unexpected error: %v", err)
+	}
+	const verifyingKeyMagicLen = 6
+	publicInputCount := binary.LittleEndian.Uint32(encodedVK[verifyingKeyMagicLen : verifyingKeyMagicLen+4])
+	if publicInputCount != uint32(len(expectedPublicInputs)) {
+		t.Fatalf("native verifying key exported %d public inputs, want %d", publicInputCount, len(expectedPublicInputs))
+	}
+
+	decodedVK, err := nativegroth16.DecodeVerificationKey(encodedVK)
+	if err != nil {
+		t.Fatalf("DecodeVerificationKey returned unexpected error: %v", err)
+	}
+	if len(decodedVK.CommitmentKeys) == 0 || len(decodedVK.PublicAndCommitmentCommitted) == 0 {
+		t.Fatal("decoded native verifying key omitted commitment metadata for v3 circuit")
+	}
+	if err := groth16.Verify(decodedProof, decodedVK, publicWitness); err != nil {
+		t.Fatalf("groth16.Verify returned unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV3RejectsMultipleDataChunkWitnesses(t *testing.T) {
+	request := buildV3RequestForTest(t)
+	request.DataChunksHex = []string{"aa", "bb"}
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for multiple data chunk witnesses")
+	}
+	if err.Error() != "commitment-aware successor profile supports at most 1 data chunk witness" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDerivedRequestV3RejectsOversizedDataChunkWitness(t *testing.T) {
+	request := buildV3RequestForTest(t)
+	request.DataChunksHex = []string{strings.Repeat("aa", commitmentDataWitnessMaxChunkBytes+1)}
+
+	err := ValidateDerivedRequest(request)
+	if err == nil {
+		t.Fatal("ValidateDerivedRequest succeeded for oversized data chunk witness")
+	}
+	expected := "data_chunks_hex[0] exceeds the commitment-aware successor witness limit of 64 bytes"
+	if err.Error() != expected {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -371,6 +503,63 @@ func buildV2RequestForTest(t *testing.T) toybatch.CommandRequest {
 	if err != nil {
 		t.Fatalf("DeriveRequest returned unexpected error: %v", err)
 	}
+	request.PublicInputs.NewStateRoot = derived.PublicInputs.NewStateRoot
+	request.PublicInputs.WithdrawalRoot = derived.PublicInputs.WithdrawalRoot
+	return request
+}
+
+func buildV3RequestForTest(t *testing.T) toybatch.CommandRequest {
+	t.Helper()
+
+	request := toybatch.CommandRequest{
+		ProfileName: CommitmentProfileName,
+		SidechainID: 57,
+		PublicInputs: toybatch.BatchPublicInputs{
+			BatchNumber:           1,
+			PriorStateRoot:        strings.Repeat("01", 32),
+			NewStateRoot:          "0",
+			L1MessageRootBefore:   strings.Repeat("ab", 32),
+			L1MessageRootAfter:    "0",
+			ConsumedQueueMessages: 1,
+			QueuePrefixCommitment: "0",
+			WithdrawalRoot:        "0",
+			DataRoot:              "0",
+			DataSize:              0,
+		},
+		ConsumedQueueEntries: []toybatch.ConsumedQueueEntry{
+			{
+				QueueIndex:  0,
+				MessageKind: 1,
+				MessageID:   strings.Repeat("11", 32),
+				MessageHash: strings.Repeat("22", 32),
+			},
+		},
+		WithdrawalLeaves: []toybatch.WithdrawalLeaf{
+			{
+				WithdrawalID:          strings.Repeat("55", 32),
+				Amount:                "0.15",
+				DestinationCommitment: strings.Repeat("77", 32),
+			},
+		},
+		DataChunksHex: []string{"7265616c2d62617463682d6461"},
+	}
+
+	request.PublicInputs.L1MessageRootAfter = computeConsumedQueueRootForTest(
+		uint8(request.SidechainID),
+		request.PublicInputs.L1MessageRootBefore,
+		request.ConsumedQueueEntries,
+	)
+	request.PublicInputs.QueuePrefixCommitment = computeQueuePrefixCommitmentForTest(
+		uint8(request.SidechainID),
+		request.ConsumedQueueEntries,
+	)
+
+	derived, err := DeriveRequest(request)
+	if err != nil {
+		t.Fatalf("DeriveRequest returned unexpected error: %v", err)
+	}
+	request.PublicInputs.DataRoot = derived.PublicInputs.DataRoot
+	request.PublicInputs.DataSize = derived.PublicInputs.DataSize
 	request.PublicInputs.NewStateRoot = derived.PublicInputs.NewStateRoot
 	request.PublicInputs.WithdrawalRoot = derived.PublicInputs.WithdrawalRoot
 	return request

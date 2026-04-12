@@ -178,7 +178,7 @@ func proveRealProfile(request toybatch.CommandRequest) {
 
 	emit(toybatch.CommandResult{
 		OK:            true,
-		ProofBytesHex: hex.EncodeToString(nativegroth16.EncodeProof(&nativeProof)),
+		ProofBytesHex: mustEncodeProofHex(&nativeProof),
 	})
 }
 
@@ -205,4 +205,12 @@ func emit(result toybatch.CommandResult) {
 	if err := encoder.Encode(result); err != nil {
 		panic(err)
 	}
+}
+
+func mustEncodeProofHex(proof *groth16bls12381.Proof) string {
+	encoded, err := nativegroth16.EncodeProof(proof)
+	if err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(encoded)
 }

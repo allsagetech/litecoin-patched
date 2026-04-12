@@ -22,17 +22,22 @@ import (
 
 const ProfileName = "groth16_bls12_381_poseidon_v1"
 const FinalProfileName = "groth16_bls12_381_poseidon_v2"
+const CommitmentProfileName = "groth16_bls12_381_poseidon_v3"
 const ExperimentalPublicInputVersion uint8 = 2
 const FinalPublicInputVersion uint8 = 5
+const CommitmentPublicInputVersion uint8 = 6
+const commitmentDataWitnessMaxChunks = 1
+const commitmentDataWitnessMaxChunkBytes = 64
 
 var queueConsumeMagic = []uint8{'V', 'S', 'C', 'Q', 'C', 0x01}
 var queuePrefixCommitmentMagic = []uint8{'V', 'S', 'C', 'Q', 'P', 0x01}
 var withdrawalRootMagic = []uint8{'V', 'S', 'C', 'W', 0x01}
 var withdrawalLeafMagic = []uint8{'V', 'S', 'C', 'W', 0x02}
 var withdrawalNodeMagic = []uint8{'V', 'S', 'C', 'W', 0x03}
+var publishedDataRootMagic = []uint8{'V', 'S', 'C', 'R', 0x01}
 
 func IsSupportedProfileName(profileName string) bool {
-	return profileName == ProfileName || profileName == FinalProfileName
+	return profileName == ProfileName || profileName == FinalProfileName || profileName == CommitmentProfileName
 }
 
 func PublicInputVersionForProfileName(profileName string) (uint8, error) {
@@ -41,6 +46,8 @@ func PublicInputVersionForProfileName(profileName string) (uint8, error) {
 		return ExperimentalPublicInputVersion, nil
 	case FinalProfileName:
 		return FinalPublicInputVersion, nil
+	case CommitmentProfileName:
+		return CommitmentPublicInputVersion, nil
 	default:
 		return 0, fmt.Errorf("unsupported profile name %q", profileName)
 	}
@@ -90,11 +97,46 @@ type PoseidonBatchTransitionCircuitDecomposedPublicInputs struct {
 	DataSize                frontend.Variable `gnark:",public"`
 }
 
+type PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs struct {
+	SidechainID             frontend.Variable `gnark:",public"`
+	BatchNumber             frontend.Variable `gnark:",public"`
+	PriorStateRoot          frontend.Variable `gnark:",public"`
+	NewStateRoot            frontend.Variable `gnark:",public"`
+	L1MessageRootBeforeLo   frontend.Variable `gnark:",public"`
+	L1MessageRootBeforeHi   frontend.Variable `gnark:",public"`
+	L1MessageRootAfterLo    frontend.Variable `gnark:",public"`
+	L1MessageRootAfterHi    frontend.Variable `gnark:",public"`
+	ConsumedQueueMessages   frontend.Variable `gnark:",public"`
+	QueuePrefixCommitmentLo frontend.Variable `gnark:",public"`
+	QueuePrefixCommitmentHi frontend.Variable `gnark:",public"`
+	WithdrawalRootLo        frontend.Variable `gnark:",public"`
+	WithdrawalRootHi        frontend.Variable `gnark:",public"`
+	DataRootLo              frontend.Variable `gnark:",public"`
+	DataRootHi              frontend.Variable `gnark:",public"`
+	DataSize                frontend.Variable `gnark:",public"`
+
+	ConsumedEntryPresent     frontend.Variable
+	ConsumedEntryQueueIndex  frontend.Variable
+	ConsumedEntryMessageKind frontend.Variable
+	ConsumedEntryMessageID   [32]uints.U8
+	ConsumedEntryMessageHash [32]uints.U8
+
+	WithdrawalLeafPresent               frontend.Variable
+	WithdrawalLeafID                    [32]uints.U8
+	WithdrawalLeafAmount                frontend.Variable
+	WithdrawalLeafDestinationCommitment [32]uints.U8
+
+	DataChunkPresent frontend.Variable
+	DataChunkLen     frontend.Variable
+	DataChunk        [commitmentDataWitnessMaxChunkBytes]uints.U8
+}
+
 func (c *PoseidonBatchTransitionCircuit) Define(api frontend.API) error {
 	// Keep the experimental native profile on the fixed 11 public inputs for now.
 	// Wiring the SHA-based queue/withdrawal witness gadgets directly into Define
-	// currently makes gnark emit an extra commitment/public-input wire, which
-	// breaks the node's native verifier artifact layout.
+	// currently makes gnark emit Groth16 commitments. That changes the public
+	// witness shape and would mutate this profile's committed verifier contract.
+	// Land that in a successor profile instead of silently changing v1.
 	transitionHasher, err := newPoseidonHasher(api)
 	if err != nil {
 		return err
@@ -155,12 +197,57 @@ func (c *PoseidonBatchTransitionCircuitDecomposedPublicInputs) Define(api fronte
 	return nil
 }
 
+func (c *PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs) Define(api frontend.API) error {
+	transitionHasher, err := newPoseidonHasher(api)
+	if err != nil {
+		return err
+	}
+	transitionHasher.Write(
+		c.SidechainID,
+		c.BatchNumber,
+		c.PriorStateRoot,
+		c.L1MessageRootBeforeLo,
+		c.L1MessageRootBeforeHi,
+		c.L1MessageRootAfterLo,
+		c.L1MessageRootAfterHi,
+		c.ConsumedQueueMessages,
+		c.QueuePrefixCommitmentLo,
+		c.QueuePrefixCommitmentHi,
+		c.WithdrawalRootLo,
+		c.WithdrawalRootHi,
+		c.DataRootLo,
+		c.DataRootHi,
+		c.DataSize,
+	)
+	transitionCommitment := transitionHasher.Sum()
+
+	stateHasher, err := newPoseidonHasher(api)
+	if err != nil {
+		return err
+	}
+	stateHasher.Write(c.PriorStateRoot, transitionCommitment)
+	api.AssertIsEqual(c.NewStateRoot, stateHasher.Sum())
+
+	if err := assertCommittedDecomposedQueueWitness(api, c); err != nil {
+		return err
+	}
+	if err := assertCommittedDecomposedWithdrawalWitness(api, c); err != nil {
+		return err
+	}
+	if err := assertCommittedDecomposedDataWitness(api, c); err != nil {
+		return err
+	}
+	return nil
+}
+
 func NewCircuit(profileName string) (frontend.Circuit, error) {
 	switch profileName {
 	case ProfileName:
 		return &PoseidonBatchTransitionCircuit{}, nil
 	case FinalProfileName:
 		return &PoseidonBatchTransitionCircuitDecomposedPublicInputs{}, nil
+	case CommitmentProfileName:
+		return &PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported profile name %q", profileName)
 	}
@@ -186,6 +273,15 @@ func BuildAssignment(request toybatch.CommandRequest) (frontend.Circuit, error) 
 			return nil, err
 		}
 		return &assignment, nil
+	case CommitmentProfileName:
+		if err := ValidateDerivedRequest(request); err != nil {
+			return nil, err
+		}
+		assignment, err := buildCommittedDecomposedAssignment(request)
+		if err != nil {
+			return nil, err
+		}
+		return &assignment, nil
 	default:
 		return nil, fmt.Errorf("unsupported profile name %q", request.ProfileName)
 	}
@@ -199,7 +295,7 @@ func BuildPublicAssignment(request toybatch.CommandRequest) (frontend.Circuit, e
 			return nil, err
 		}
 		return &assignment, nil
-	case FinalProfileName:
+	case FinalProfileName, CommitmentProfileName:
 		assignment, err := buildDecomposedPublicAssignment(request)
 		if err != nil {
 			return nil, err
@@ -210,8 +306,8 @@ func BuildPublicAssignment(request toybatch.CommandRequest) (frontend.Circuit, e
 	}
 }
 
-func profileUsesExperimentalSingleEntryWitnesses(profileName string) bool {
-	return profileName == ProfileName
+func profileUsesSingleEntryWitnesses(profileName string) bool {
+	return profileName == ProfileName || profileName == CommitmentProfileName
 }
 
 func requiresCanonicalCurrentChainstateBinding(profileName string) bool {
@@ -220,6 +316,10 @@ func requiresCanonicalCurrentChainstateBinding(profileName string) bool {
 
 func requiresExplicitCanonicalWitnessVectors(profileName string) bool {
 	return profileName == FinalProfileName
+}
+
+func requiresExplicitCommittedWitnessVectors(profileName string) bool {
+	return profileName == CommitmentProfileName
 }
 
 func buildExperimentalAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuit, error) {
@@ -430,6 +530,59 @@ func buildDecomposedPublicAssignment(request toybatch.CommandRequest) (PoseidonB
 	}, nil
 }
 
+func buildCommittedDecomposedAssignment(request toybatch.CommandRequest) (PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs, error) {
+	publicAssignment, err := buildDecomposedPublicAssignment(request)
+	if err != nil {
+		return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, err
+	}
+
+	consumedEntryPresent, consumedEntryQueueIndex, consumedEntryMessageKind, consumedEntryMessageID, consumedEntryMessageHash, err :=
+		buildConsumedQueueWitness(request)
+	if err != nil {
+		return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, err
+	}
+	withdrawalLeafPresent, withdrawalLeafID, withdrawalLeafAmount, withdrawalLeafDestinationCommitment, err :=
+		buildWithdrawalWitness(request)
+	if err != nil {
+		return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, err
+	}
+	dataChunkPresent, dataChunkLen, dataChunk, err := buildCommittedDataWitness(request)
+	if err != nil {
+		return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{}, err
+	}
+
+	return PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs{
+		SidechainID:                         publicAssignment.SidechainID,
+		BatchNumber:                         publicAssignment.BatchNumber,
+		PriorStateRoot:                      publicAssignment.PriorStateRoot,
+		NewStateRoot:                        publicAssignment.NewStateRoot,
+		L1MessageRootBeforeLo:               publicAssignment.L1MessageRootBeforeLo,
+		L1MessageRootBeforeHi:               publicAssignment.L1MessageRootBeforeHi,
+		L1MessageRootAfterLo:                publicAssignment.L1MessageRootAfterLo,
+		L1MessageRootAfterHi:                publicAssignment.L1MessageRootAfterHi,
+		ConsumedQueueMessages:               publicAssignment.ConsumedQueueMessages,
+		QueuePrefixCommitmentLo:             publicAssignment.QueuePrefixCommitmentLo,
+		QueuePrefixCommitmentHi:             publicAssignment.QueuePrefixCommitmentHi,
+		WithdrawalRootLo:                    publicAssignment.WithdrawalRootLo,
+		WithdrawalRootHi:                    publicAssignment.WithdrawalRootHi,
+		DataRootLo:                          publicAssignment.DataRootLo,
+		DataRootHi:                          publicAssignment.DataRootHi,
+		DataSize:                            publicAssignment.DataSize,
+		ConsumedEntryPresent:                consumedEntryPresent,
+		ConsumedEntryQueueIndex:             consumedEntryQueueIndex,
+		ConsumedEntryMessageKind:            consumedEntryMessageKind,
+		ConsumedEntryMessageID:              consumedEntryMessageID,
+		ConsumedEntryMessageHash:            consumedEntryMessageHash,
+		WithdrawalLeafPresent:               withdrawalLeafPresent,
+		WithdrawalLeafID:                    withdrawalLeafID,
+		WithdrawalLeafAmount:                withdrawalLeafAmount,
+		WithdrawalLeafDestinationCommitment: withdrawalLeafDestinationCommitment,
+		DataChunkPresent:                    dataChunkPresent,
+		DataChunkLen:                        dataChunkLen,
+		DataChunk:                           dataChunk,
+	}, nil
+}
+
 func ManifestPublicInputs(publicInputVersion uint8) ([]string, error) {
 	switch publicInputVersion {
 	case ExperimentalPublicInputVersion:
@@ -446,7 +599,7 @@ func ManifestPublicInputs(publicInputVersion uint8) ([]string, error) {
 			"data_root",
 			"data_size",
 		}, nil
-	case FinalPublicInputVersion:
+	case FinalPublicInputVersion, CommitmentPublicInputVersion:
 		return []string{
 			"sidechain_id",
 			"batch_number",
@@ -657,6 +810,17 @@ func ValidateProofRequestContract(request toybatch.CommandRequest) error {
 			return fmt.Errorf("data_chunks_hex must be provided explicitly for canonical v2 proof requests")
 		}
 	}
+	if requiresExplicitCommittedWitnessVectors(request.ProfileName) {
+		if request.ConsumedQueueEntries == nil {
+			return fmt.Errorf("consumed_queue_entries must be provided explicitly for commitment-aware v3 proof requests")
+		}
+		if request.WithdrawalLeaves == nil {
+			return fmt.Errorf("withdrawal_leaves must be provided explicitly for commitment-aware v3 proof requests")
+		}
+		if request.DataChunksHex == nil {
+			return fmt.Errorf("data_chunks_hex must be provided explicitly for commitment-aware v3 proof requests")
+		}
+	}
 	if err := validateCurrentChainstateBinding(request); err != nil {
 		return err
 	}
@@ -709,14 +873,14 @@ func validateCurrentChainstateBinding(request toybatch.CommandRequest) error {
 }
 
 func validateQueueWitnessForProfile(request toybatch.CommandRequest) error {
-	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return validateExperimentalQueueWitness(request)
 	}
 	return validateGenericQueueWitness(request)
 }
 
 func validateWithdrawalWitnessForProfile(request toybatch.CommandRequest) error {
-	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return validateExperimentalWithdrawalWitness(request)
 	}
 	return validateGenericWithdrawalWitness(request)
@@ -727,6 +891,11 @@ func validatePublishedDataWitness(request toybatch.CommandRequest) error {
 	if err != nil {
 		return err
 	}
+	if request.ProfileName == CommitmentProfileName {
+		if err := validateCommittedDataWitnessBounds(chunks); err != nil {
+			return err
+		}
+	}
 	expectedSize := computePublishedDataSize(chunks)
 	if uint32(expectedSize) != request.PublicInputs.DataSize {
 		return fmt.Errorf("data_size does not match provided data_chunks_hex")
@@ -734,6 +903,23 @@ func validatePublishedDataWitness(request toybatch.CommandRequest) error {
 	expectedRoot := computePublishedDataRoot(chunks)
 	if normalizeHex(request.PublicInputs.DataRoot) != normalizeHex(expectedRoot) {
 		return fmt.Errorf("data_root does not match provided data_chunks_hex")
+	}
+	return nil
+}
+
+func validateCommittedDataWitnessBounds(chunks [][]byte) error {
+	if len(chunks) > commitmentDataWitnessMaxChunks {
+		return fmt.Errorf(
+			"commitment-aware successor profile supports at most %d data chunk witness",
+			commitmentDataWitnessMaxChunks)
+	}
+	for index, chunk := range chunks {
+		if len(chunk) > commitmentDataWitnessMaxChunkBytes {
+			return fmt.Errorf(
+				"data_chunks_hex[%d] exceeds the commitment-aware successor witness limit of %d bytes",
+				index,
+				commitmentDataWitnessMaxChunkBytes)
+		}
 	}
 	return nil
 }
@@ -847,7 +1033,7 @@ func ensureDerivedTargetsCleared(request toybatch.CommandRequest) toybatch.Comma
 }
 
 func computeQueueBindingsForProfile(request toybatch.CommandRequest) (string, string, error) {
-	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return computeExperimentalQueueBindings(request)
 	}
 	return computeGenericQueueBindings(request)
@@ -967,7 +1153,7 @@ func computeTransitionCommitment(request toybatch.CommandRequest, publicInputVer
 			dataRoot,
 			dataSize,
 		)
-	case FinalPublicInputVersion:
+	case FinalPublicInputVersion, CommitmentPublicInputVersion:
 		l1MessageRootBeforeLo, l1MessageRootBeforeHi, err := parseUint256HexTo128BitLimbs(request.PublicInputs.L1MessageRootBefore, "l1_message_root_before")
 		if err != nil {
 			return nil, err
@@ -1106,6 +1292,147 @@ func assertExperimentalWithdrawalWitness(api frontend.API, circuit *PoseidonBatc
 	return nil
 }
 
+func assertCommittedDecomposedQueueWitness(api frontend.API, circuit *PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs) error {
+	bapi, err := uints.NewBytes(api)
+	if err != nil {
+		return err
+	}
+	u64api, err := uints.New[uints.U64](api)
+	if err != nil {
+		return err
+	}
+
+	api.AssertIsBoolean(circuit.ConsumedEntryPresent)
+	api.AssertIsEqual(circuit.ConsumedQueueMessages, circuit.ConsumedEntryPresent)
+
+	l1MessageRootBefore := limbs128ToLittleEndianBytes(api, bapi, circuit.L1MessageRootBeforeLo, circuit.L1MessageRootBeforeHi)
+	l1MessageRootAfter := limbs128ToLittleEndianBytes(api, bapi, circuit.L1MessageRootAfterLo, circuit.L1MessageRootAfterHi)
+	queuePrefixCommitment := limbs128ToLittleEndianBytes(api, bapi, circuit.QueuePrefixCommitmentLo, circuit.QueuePrefixCommitmentHi)
+	zeroRoot := zeroByteArray32()
+
+	consumePreimage := buildQueueStepPreimage(
+		bapi,
+		u64api,
+		queueConsumeMagic,
+		circuit.SidechainID,
+		l1MessageRootBefore,
+		circuit.ConsumedEntryQueueIndex,
+		circuit.ConsumedEntryMessageKind,
+		circuit.ConsumedEntryMessageID,
+		circuit.ConsumedEntryMessageHash,
+	)
+	consumedRoot, err := doubleSHA256(api, consumePreimage)
+	if err != nil {
+		return err
+	}
+
+	prefixPreimage := buildQueueStepPreimage(
+		bapi,
+		u64api,
+		queuePrefixCommitmentMagic,
+		circuit.SidechainID,
+		zeroRoot,
+		circuit.ConsumedEntryQueueIndex,
+		circuit.ConsumedEntryMessageKind,
+		circuit.ConsumedEntryMessageID,
+		circuit.ConsumedEntryMessageHash,
+	)
+	prefixCommitment, err := doubleSHA256(api, prefixPreimage)
+	if err != nil {
+		return err
+	}
+
+	expectedAfter := selectByteArray32(bapi, circuit.ConsumedEntryPresent, consumedRoot, l1MessageRootBefore)
+	expectedPrefix := selectByteArray32(bapi, circuit.ConsumedEntryPresent, prefixCommitment, zeroRoot)
+	assertByteArray32Equal(bapi, expectedAfter, l1MessageRootAfter)
+	assertByteArray32Equal(bapi, expectedPrefix, queuePrefixCommitment)
+	return nil
+}
+
+func assertCommittedDecomposedWithdrawalWitness(api frontend.API, circuit *PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs) error {
+	bapi, err := uints.NewBytes(api)
+	if err != nil {
+		return err
+	}
+	u64api, err := uints.New[uints.U64](api)
+	if err != nil {
+		return err
+	}
+
+	api.AssertIsBoolean(circuit.WithdrawalLeafPresent)
+	withdrawalRoot := limbs128ToLittleEndianBytes(api, bapi, circuit.WithdrawalRootLo, circuit.WithdrawalRootHi)
+	zeroRoot := zeroByteArray32()
+
+	leafPreimage := make([]uints.U8, 0, len(withdrawalLeafMagic)+32+8+32)
+	leafPreimage = append(leafPreimage, uints.NewU8Array(withdrawalLeafMagic)...)
+	leafPreimage = append(leafPreimage, circuit.WithdrawalLeafID[:]...)
+	leafPreimage = append(leafPreimage, u64api.UnpackLSB(u64api.ValueOf(circuit.WithdrawalLeafAmount))...)
+	leafPreimage = append(leafPreimage, circuit.WithdrawalLeafDestinationCommitment[:]...)
+	leafHash, err := doubleSHA256(api, leafPreimage)
+	if err != nil {
+		return err
+	}
+
+	leafCount := api.Select(circuit.WithdrawalLeafPresent, 1, 0)
+	selectedMerkleRoot := selectByteArray32(bapi, circuit.WithdrawalLeafPresent, leafHash, zeroRoot)
+	rootPreimage := make([]uints.U8, 0, len(withdrawalRootMagic)+4+32)
+	rootPreimage = append(rootPreimage, uints.NewU8Array(withdrawalRootMagic)...)
+	rootPreimage = append(rootPreimage, packUint32LittleEndian(api, bapi, leafCount)...)
+	rootPreimage = append(rootPreimage, selectedMerkleRoot[:]...)
+	expectedRoot, err := doubleSHA256(api, rootPreimage)
+	if err != nil {
+		return err
+	}
+
+	assertByteArray32Equal(bapi, expectedRoot, withdrawalRoot)
+	return nil
+}
+
+func assertCommittedDecomposedDataWitness(api frontend.API, circuit *PoseidonBatchTransitionCircuitCommittedDecomposedPublicInputs) error {
+	bapi, err := uints.NewBytes(api)
+	if err != nil {
+		return err
+	}
+
+	api.AssertIsBoolean(circuit.DataChunkPresent)
+	api.AssertIsEqual(
+		circuit.DataSize,
+		api.Select(circuit.DataChunkPresent, circuit.DataChunkLen, 0))
+	api.AssertIsEqual(
+		api.Mul(circuit.DataChunkLen, api.Sub(1, circuit.DataChunkPresent)),
+		0)
+
+	dataRoot := limbs128ToLittleEndianBytes(api, bapi, circuit.DataRootLo, circuit.DataRootHi)
+
+	preimage := make([]uints.U8, 0, len(publishedDataRootMagic)+4+4+commitmentDataWitnessMaxChunkBytes)
+	preimage = append(preimage, uints.NewU8Array(publishedDataRootMagic)...)
+	preimage = append(preimage, packUint32LittleEndian(api, bapi, circuit.DataChunkPresent)...)
+	preimage = append(preimage, packUint32LittleEndian(api, bapi, circuit.DataChunkLen)...)
+	preimage = append(preimage, circuit.DataChunk[:]...)
+
+	totalLength := api.Add(
+		len(publishedDataRootMagic)+4,
+		api.Mul(circuit.DataChunkPresent, api.Add(4, circuit.DataChunkLen)))
+
+	firstRound, err := sha2circuit.New(api)
+	if err != nil {
+		return err
+	}
+	firstRound.Write(preimage)
+	first := firstRound.FixedLengthSum(totalLength)
+
+	secondRound, err := sha2circuit.New(api)
+	if err != nil {
+		return err
+	}
+	secondRound.Write(first)
+	second := secondRound.Sum()
+	var digest [32]uints.U8
+	copy(digest[:], second)
+	assertByteArray32Equal(bapi, digest, dataRoot)
+	return nil
+}
+
 func buildQueueStepPreimage(
 	bapi *uints.Bytes,
 	u64api *uints.BinaryField[uints.U64],
@@ -1188,6 +1515,24 @@ func fieldToLittleEndianBytes(api frontend.API, bapi *uints.Bytes, value fronten
 	return out
 }
 
+func limb128ToLittleEndianBytes(api frontend.API, bapi *uints.Bytes, value frontend.Variable) [16]uints.U8 {
+	var out [16]uints.U8
+	bitsLE := bits.ToBinary(api, value, bits.WithNbDigits(128))
+	for i := 0; i < 16; i++ {
+		out[i] = bapi.ValueOf(bits.FromBinary(api, bitsLE[i*8:(i+1)*8]))
+	}
+	return out
+}
+
+func limbs128ToLittleEndianBytes(api frontend.API, bapi *uints.Bytes, low, high frontend.Variable) [32]uints.U8 {
+	var out [32]uints.U8
+	lowBytes := limb128ToLittleEndianBytes(api, bapi, low)
+	highBytes := limb128ToLittleEndianBytes(api, bapi, high)
+	copy(out[:16], lowBytes[:])
+	copy(out[16:], highBytes[:])
+	return out
+}
+
 func buildConsumedQueueWitness(request toybatch.CommandRequest) (frontend.Variable, frontend.Variable, frontend.Variable, [32]uints.U8, [32]uints.U8, error) {
 	var messageID [32]uints.U8
 	var messageHash [32]uints.U8
@@ -1257,8 +1602,32 @@ func buildWithdrawalWitness(request toybatch.CommandRequest) (frontend.Variable,
 	return new(big.Int).SetUint64(1), withdrawalID, amount, destinationCommitment, nil
 }
 
+func buildCommittedDataWitness(request toybatch.CommandRequest) (frontend.Variable, frontend.Variable, [commitmentDataWitnessMaxChunkBytes]uints.U8, error) {
+	var chunkBytes [commitmentDataWitnessMaxChunkBytes]uints.U8
+	for i := range chunkBytes {
+		chunkBytes[i] = uints.NewU8(0)
+	}
+
+	chunks, err := decodeDataChunks(request.DataChunksHex)
+	if err != nil {
+		return nil, nil, chunkBytes, err
+	}
+	if err := validateCommittedDataWitnessBounds(chunks); err != nil {
+		return nil, nil, chunkBytes, err
+	}
+	if len(chunks) == 0 {
+		return new(big.Int), new(big.Int), chunkBytes, nil
+	}
+
+	chunk := chunks[0]
+	for i := range chunk {
+		chunkBytes[i] = uints.NewU8(chunk[i])
+	}
+	return new(big.Int).SetUint64(1), new(big.Int).SetUint64(uint64(len(chunk))), chunkBytes, nil
+}
+
 func computeWithdrawalRootForProfile(request toybatch.CommandRequest) (string, error) {
-	if profileUsesExperimentalSingleEntryWitnesses(request.ProfileName) {
+	if profileUsesSingleEntryWitnesses(request.ProfileName) {
 		return computeExperimentalWithdrawalRootFromRequest(request)
 	}
 	return computeGenericWithdrawalRootFromRequest(request)
@@ -1550,8 +1919,8 @@ func computePublishedDataSize(chunks [][]byte) uint64 {
 }
 
 func computePublishedDataRoot(chunks [][]byte) string {
-	payload := make([]byte, 0, 6+4+(len(chunks)*4))
-	payload = append(payload, []byte{'V', 'S', 'C', 'R', 0x01}...)
+	payload := make([]byte, 0, len(publishedDataRootMagic)+4+(len(chunks)*4))
+	payload = append(payload, publishedDataRootMagic...)
 	var count [4]byte
 	binary.LittleEndian.PutUint32(count[:], uint32(len(chunks)))
 	payload = append(payload, count[:]...)

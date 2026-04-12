@@ -98,6 +98,10 @@ def pad_field_hex(raw_value):
     return raw_value.lower().rjust(64, "0")
 
 
+def combine_128_bit_limbs(low_hex, high_hex):
+    return high_hex.lower().rjust(32, "0") + low_hex.lower().rjust(32, "0")
+
+
 BLS12_381_SCALAR_FIELD_MAX = int(
     "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000",
     16,
@@ -471,12 +475,19 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_proving_key_present = (real_artifact_dir / "batch_pk.bin").exists()
         real_v2_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v2"
         real_v2_proving_key_present = (real_v2_artifact_dir / "batch_pk.bin").exists()
+        real_v3_artifact_dir = repo_root / "artifacts" / "validitysidechain" / "groth16_bls12_381_poseidon_v3"
+        real_v3_proving_key_present = (real_v3_artifact_dir / "batch_pk.bin").exists()
         real_valid_vector = load_json(real_artifact_dir / "valid" / "valid_proof.json")
         real_sidechain_id = int(real_valid_vector["public_inputs"]["sidechain_id"])
         real_mismatch_vector = load_json(real_artifact_dir / "invalid" / "public_input_mismatch.json")
         real_queue_prefix_mismatch_vector = load_json(real_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json")
         real_withdrawal_root_mismatch_vector = load_json(real_artifact_dir / "invalid" / "withdrawal_root_mismatch.json")
         real_corrupt_vector = load_json(real_artifact_dir / "invalid" / "corrupt_proof.json")
+        real_v3_valid_vector = load_json(real_v3_artifact_dir / "valid" / "valid_proof.json")
+        real_v3_mismatch_vector = load_json(real_v3_artifact_dir / "invalid" / "public_input_mismatch.json")
+        real_v3_queue_prefix_mismatch_vector = load_json(real_v3_artifact_dir / "invalid" / "queue_prefix_commitment_mismatch.json")
+        real_v3_withdrawal_root_mismatch_vector = load_json(real_v3_artifact_dir / "invalid" / "withdrawal_root_mismatch.json")
+        real_v3_corrupt_vector = load_json(real_v3_artifact_dir / "invalid" / "corrupt_proof.json")
         mining_address = node.getnewaddress()
         node.generatetoaddress(101, mining_address)
 
@@ -506,6 +517,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         native_toy_supported = get_supported_profile(node, "native_blst_groth16_toy_batch_transition_v1")
         real_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v1")
         real_v2_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v2")
+        real_v3_supported = get_supported_profile(node, "groth16_bls12_381_poseidon_v3")
         assert_equal(supported["profile_lifecycle"], "scaffold_migration")
         assert_equal(supported["canonical_target"], False)
         assert_equal(supported["recommended_for_new_registrations"], False)
@@ -542,6 +554,12 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["migration_only"], False)
         assert_equal(real_v2_supported["registration_default_allowed"], True)
         assert_equal(real_v2_supported["registration_requires_explicit_opt_in"], False)
+        assert_equal(real_v3_supported["profile_lifecycle"], "commitment_successor_migration")
+        assert_equal(real_v3_supported["canonical_target"], False)
+        assert_equal(real_v3_supported["recommended_for_new_registrations"], False)
+        assert_equal(real_v3_supported["migration_only"], True)
+        assert_equal(real_v3_supported["registration_default_allowed"], False)
+        assert_equal(real_v3_supported["registration_requires_explicit_opt_in"], True)
         assert_equal(supported["verified_withdrawal_execution_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["escape_exit_mode"], "merkle_inclusion_scaffold")
         assert_equal(supported["force_exit_request_mode"], "enabled_local_queue_consensus")
@@ -677,6 +695,51 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             assert_equal(real_v2_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
             assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_public_input_count"], 16)
 
+        assert_equal(real_v3_supported["scaffolding_only"], False)
+        assert_equal(real_v3_supported["requires_external_verifier_assets"], True)
+        assert_equal(real_v3_supported["supports_external_prover"], True)
+        assert_equal(real_v3_supported["verifier_backend"], "native_blst_groth16")
+        assert_equal(real_v3_supported["batch_verifier_mode"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(real_v3_supported["deposit_admission_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v3_supported["derived_public_input_mode"], "helper_derives_queue_withdrawal_and_da_bindings")
+        assert_equal(real_v3_supported["external_prover_request_mode"], "explicit_witness_vectors")
+        assert_equal(real_v3_supported["external_prover_requires_current_chainstate"], False)
+        assert_equal(real_v3_supported["external_prover_requires_explicit_witness_vectors"], True)
+        assert_equal(real_v3_supported["queue_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_supported["withdrawal_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_supported["data_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_supported["in_circuit_binding_blocker"], "none")
+        assert_equal(
+            real_v3_supported["batch_queue_binding_mode"],
+            "single_entry_in_circuit_committed_public_inputs_experimental",
+        )
+        assert_equal(
+            real_v3_supported["batch_withdrawal_binding_mode"],
+            "single_leaf_in_circuit_committed_public_input_experimental",
+        )
+        assert_equal(real_v3_supported["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_v3_supported["verified_withdrawal_rpc_input_mode"], "ordered_leaf_list_or_explicit_merkle_proofs")
+        assert_equal(real_v3_supported["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_v3_supported["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_v3_supported["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
+        assert_equal(real_v3_supported["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v3_supported["verifier_artifact_name"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(real_v3_supported["verifier_assets"]["required"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["available"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["prover_assets_present"], real_v3_proving_key_present)
+        assert_equal(real_v3_supported["verifier_assets"]["backend_ready"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["native_backend_available"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        if real_v3_supported["verifier_assets"]["profile_manifest_parsed"]:
+            assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_name_matches"], True)
+            assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
+            assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
+            assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
+            assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+            assert_equal(real_v3_supported["verifier_assets"]["valid_proof_vectors_present"], True)
+            assert_equal(real_v3_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
+            assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_public_input_count"], 16)
+
         real_v2_sidechain_id = get_unused_sidechain_id(node, preferred_id=57)
         real_v2_config = build_register_config(
             real_v2_supported,
@@ -729,6 +792,256 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
             },
             "00",
         )
+
+        real_v3_sidechain_id = get_unused_sidechain_id(
+            node,
+            preferred_id=int(real_v3_valid_vector["public_inputs"]["sidechain_id"]),
+            reserved_ids={real_sidechain_id, real_v2_sidechain_id},
+        )
+        real_v3_config = build_register_config(
+            real_v3_supported,
+            initial_state_root=pad_field_hex(real_v3_valid_vector["public_inputs"]["prior_state_root"]),
+            initial_withdrawal_root="00" * 32,
+        )
+        real_v3_register_res = node.sendvaliditysidechainregister(real_v3_sidechain_id, real_v3_config)
+        node.generate(1)
+        real_v3_sidechain = get_sidechain_info(node, real_v3_sidechain_id)
+        assert_equal(real_v3_register_res["profile_lifecycle"], "commitment_successor_migration")
+        assert_equal(real_v3_register_res["canonical_target"], False)
+        assert_equal(real_v3_register_res["migration_only"], True)
+        assert_equal(real_v3_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v3_sidechain["profile_lifecycle"], "commitment_successor_migration")
+        assert_equal(real_v3_sidechain["canonical_target"], False)
+        assert_equal(real_v3_sidechain["migration_only"], True)
+        assert_equal(real_v3_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(real_v3_sidechain["batch_queue_binding_mode"], "single_entry_in_circuit_committed_public_inputs_experimental")
+        assert_equal(real_v3_sidechain["batch_withdrawal_binding_mode"], "single_leaf_in_circuit_committed_public_input_experimental")
+        assert_equal(real_v3_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
+        assert_equal(real_v3_sidechain["escape_exit_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_v3_sidechain["escape_exit_execution_mode"], "merkle_inclusion_current_state_root_experimental")
+        assert_equal(real_v3_sidechain["escape_exit_rpc_input_mode"], "legacy_leaf_list_or_explicit_state_proofs")
+        assert_equal(real_v3_sidechain["force_exit_request_mode"], "enabled_local_queue_consensus")
+        assert_equal(real_v3_sidechain["current_withdrawal_root"], real_v3_config["initial_withdrawal_root"])
+
+        real_v3_queue_entries = []
+        for index, deposit in enumerate(real_v3_valid_vector.get("setup_deposits", [])):
+            deposit_res = node.sendvaliditydeposit(
+                real_v3_sidechain_id,
+                deposit["destination_commitment"],
+                {"script": deposit["refund_script"]},
+                Decimal(deposit["amount"]),
+                deposit["nonce"],
+                deposit["deposit_id"],
+            )
+            real_v3_queue_entries.append({
+                "queue_index": index,
+                "message_kind": 1,
+                "message_id": deposit_res["deposit_id"],
+                "message_hash": deposit_res["deposit_message_hash"],
+            })
+        if real_v3_queue_entries:
+            node.generate(1)
+
+        real_v3_sidechain = get_sidechain_info(node, real_v3_sidechain_id)
+        if real_v3_queue_entries:
+            assert_equal(real_v3_sidechain["queue_state"]["pending_message_count"], len(real_v3_queue_entries))
+            assert_equal(
+                real_v3_sidechain["queue_state"]["root"],
+                combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_before_lo"],
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_before_hi"],
+                ),
+            )
+            assert_equal(
+                compute_consumed_queue_root(
+                    real_v3_sidechain_id,
+                    real_v3_sidechain["queue_state"]["root"],
+                    real_v3_queue_entries,
+                ),
+                combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_after_lo"],
+                    real_v3_valid_vector["public_inputs"]["l1_message_root_after_hi"],
+                ),
+            )
+            assert_equal(
+                compute_queue_prefix_commitment(real_v3_sidechain_id, real_v3_queue_entries),
+                combine_128_bit_limbs(
+                    real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_lo"],
+                    real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_hi"],
+                ),
+            )
+
+        real_v3_public_inputs = {
+            "batch_number": int(real_v3_valid_vector["public_inputs"]["batch_number"]),
+            "prior_state_root": pad_field_hex(real_v3_valid_vector["public_inputs"]["prior_state_root"]),
+            "new_state_root": pad_field_hex(real_v3_valid_vector["public_inputs"]["new_state_root"]),
+            "l1_message_root_before": combine_128_bit_limbs(
+                real_v3_valid_vector["public_inputs"]["l1_message_root_before_lo"],
+                real_v3_valid_vector["public_inputs"]["l1_message_root_before_hi"],
+            ),
+            "l1_message_root_after": combine_128_bit_limbs(
+                real_v3_valid_vector["public_inputs"]["l1_message_root_after_lo"],
+                real_v3_valid_vector["public_inputs"]["l1_message_root_after_hi"],
+            ),
+            "consumed_queue_messages": int(real_v3_valid_vector["public_inputs"]["consumed_queue_messages"]),
+            "queue_prefix_commitment": combine_128_bit_limbs(
+                real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_lo"],
+                real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_hi"],
+            ),
+            "withdrawal_root": combine_128_bit_limbs(
+                real_v3_valid_vector["public_inputs"]["withdrawal_root_lo"],
+                real_v3_valid_vector["public_inputs"]["withdrawal_root_hi"],
+            ),
+            "data_root": combine_128_bit_limbs(
+                real_v3_valid_vector["public_inputs"]["data_root_lo"],
+                real_v3_valid_vector["public_inputs"]["data_root_hi"],
+            ),
+            "data_size": int(real_v3_valid_vector["public_inputs"]["data_size"]),
+        }
+        real_v3_data_chunks = list(real_v3_valid_vector.get("data_chunks_hex", []))
+        assert_raises_rpc_error(
+            -8,
+            "current profile supports at most one data chunk witness",
+            node.sendvaliditybatch,
+            real_v3_sidechain_id,
+            real_v3_public_inputs,
+            real_v3_valid_vector["proof_bytes_hex"],
+            ["aa", "bb"],
+        )
+        assert_raises_rpc_error(
+            -8,
+            "current profile supports at most one consumed queue message",
+            node.sendvaliditybatch,
+            real_v3_sidechain_id,
+            {
+                **real_v3_public_inputs,
+                "batch_number": 2,
+                "consumed_queue_messages": 2,
+            },
+            real_v3_valid_vector["proof_bytes_hex"],
+            real_v3_data_chunks,
+        )
+        if real_v3_valid_vector.get("withdrawal_leaves", []):
+            assert_raises_rpc_error(
+                -8,
+                "current profile supports at most one withdrawal leaf witness",
+                node.sendvaliditybatch,
+                real_v3_sidechain_id,
+                {
+                    **real_v3_public_inputs,
+                    "withdrawal_leaves": [
+                        real_v3_valid_vector["withdrawal_leaves"][0],
+                        {
+                            "withdrawal_id": "fe" * 32,
+                            "script": build_script_destination(node),
+                            "amount": "0.01",
+                        },
+                    ],
+                },
+                real_v3_valid_vector["proof_bytes_hex"],
+                real_v3_data_chunks,
+            )
+        assert_raises_rpc_error(
+            -8,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_v3_sidechain_id,
+            {
+                **real_v3_public_inputs,
+                "new_state_root": pad_field_hex(real_v3_mismatch_vector["public_inputs"]["new_state_root"]),
+            },
+            real_v3_mismatch_vector["proof_bytes_hex"],
+            real_v3_data_chunks,
+        )
+        assert_raises_rpc_error(
+            -8,
+            "batch queue prefix commitment does not match consumed prefix",
+            node.sendvaliditybatch,
+            real_v3_sidechain_id,
+            {
+                **real_v3_public_inputs,
+                "queue_prefix_commitment": combine_128_bit_limbs(
+                    real_v3_queue_prefix_mismatch_vector["public_inputs"]["queue_prefix_commitment_lo"],
+                    real_v3_queue_prefix_mismatch_vector["public_inputs"]["queue_prefix_commitment_hi"],
+                ),
+            },
+            real_v3_queue_prefix_mismatch_vector["proof_bytes_hex"],
+            real_v3_data_chunks,
+        )
+        assert_raises_rpc_error(
+            -8,
+            "withdrawal_root does not match withdrawal_leaves witness",
+            node.sendvaliditybatch,
+            real_v3_sidechain_id,
+            {
+                **real_v3_public_inputs,
+                "withdrawal_root": combine_128_bit_limbs(
+                    real_v3_withdrawal_root_mismatch_vector["public_inputs"]["withdrawal_root_lo"],
+                    real_v3_withdrawal_root_mismatch_vector["public_inputs"]["withdrawal_root_hi"],
+                ),
+                "withdrawal_leaves": real_v3_valid_vector["withdrawal_leaves"],
+            },
+            real_v3_withdrawal_root_mismatch_vector["proof_bytes_hex"],
+            real_v3_data_chunks,
+        )
+        assert_raises_rpc_error(
+            -8,
+            "Groth16",
+            node.sendvaliditybatch,
+            real_v3_sidechain_id,
+            real_v3_public_inputs,
+            real_v3_corrupt_vector["proof_bytes_hex"],
+            real_v3_data_chunks,
+        )
+
+        real_v3_batch_res = node.sendvaliditybatch(
+            real_v3_sidechain_id,
+            {
+                **real_v3_public_inputs,
+                "withdrawal_leaves": real_v3_valid_vector["withdrawal_leaves"],
+            },
+            real_v3_valid_vector["proof_bytes_hex"],
+            real_v3_data_chunks,
+        )
+        assert_equal(real_v3_batch_res["auto_scaffold_proof"], False)
+        assert_equal(real_v3_batch_res["auto_external_proof"], False)
+        node.generate(1)
+
+        real_v3_sidechain = get_sidechain_info(node, real_v3_sidechain_id)
+        assert_equal(real_v3_sidechain["latest_batch_number"], real_v3_public_inputs["batch_number"])
+        assert_equal(real_v3_sidechain["current_state_root"], real_v3_public_inputs["new_state_root"])
+        assert_equal(real_v3_sidechain["current_withdrawal_root"], real_v3_public_inputs["withdrawal_root"])
+        assert_equal(real_v3_sidechain["current_data_root"], real_v3_public_inputs["data_root"])
+        assert_equal(real_v3_sidechain["accepted_batches"][0]["proof_size"], len(bytes.fromhex(real_v3_valid_vector["proof_bytes_hex"])))
+        assert_equal(real_v3_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_v3_data_chunks))
+        assert_equal(real_v3_sidechain["accepted_batches"][0]["published_data_bytes"], real_v3_public_inputs["data_size"])
+        assert_equal(real_v3_sidechain["queue_state"]["head_index"], len(real_v3_queue_entries))
+        assert_equal(real_v3_sidechain["queue_state"]["pending_message_count"], 0)
+
+        real_v3_withdrawals = real_v3_valid_vector.get("withdrawal_leaves", [])
+        if real_v3_withdrawals:
+            verified_withdrawal_res = node.sendverifiedwithdrawals(
+                real_v3_sidechain_id,
+                real_v3_public_inputs["batch_number"],
+                [
+                    {
+                        "withdrawal_id": leaf["withdrawal_id"],
+                        "script": leaf["script"],
+                        "amount": Decimal(leaf["amount"]),
+                    }
+                    for leaf in real_v3_withdrawals
+                ],
+            )
+            assert_equal(verified_withdrawal_res["withdrawal_root"], real_v3_public_inputs["withdrawal_root"])
+            assert_equal(verified_withdrawal_res["withdrawal_count"], len(real_v3_withdrawals))
+            node.generate(1)
+
+            real_v3_sidechain = get_sidechain_info(node, real_v3_sidechain_id)
+            assert_equal(real_v3_sidechain["executed_withdrawal_count"], len(real_v3_withdrawals))
+            assert_equal(
+                real_v3_sidechain["escrow_balance"],
+                amount_to_sats(Decimal("1.0") - Decimal(real_v3_withdrawals[0]["amount"])),
+            )
 
         withdrawals = [
             {

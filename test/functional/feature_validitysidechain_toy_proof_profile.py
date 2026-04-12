@@ -432,6 +432,10 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         )
         assert_equal(real_v2_supported["external_prover_requires_current_chainstate"], True)
         assert_equal(real_v2_supported["external_prover_requires_explicit_witness_vectors"], True)
+        assert_equal(real_v2_supported["queue_binding_proven_in_circuit"], False)
+        assert_equal(real_v2_supported["withdrawal_binding_proven_in_circuit"], False)
+        assert_equal(real_v2_supported["data_binding_proven_in_circuit"], False)
+        assert_equal(real_v2_supported["in_circuit_binding_blocker"], "commitment_aware_successor_profile_pending")
         assert_equal(
             real_v2_supported["batch_queue_binding_mode"],
             "local_prefix_consensus_committed_public_inputs",

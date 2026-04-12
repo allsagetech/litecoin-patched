@@ -17,6 +17,15 @@ struct ValiditySidechainGroth16Proof
     std::array<unsigned char, 48> a_g1{};
     std::array<unsigned char, 96> b_g2{};
     std::array<unsigned char, 48> c_g1{};
+    std::vector<std::array<unsigned char, 48>> commitments_g1;
+    std::array<unsigned char, 48> commitment_pok_g1{};
+    bool has_commitment_pok{false};
+};
+
+struct ValiditySidechainGroth16PedersenCommitmentKey
+{
+    std::array<unsigned char, 96> g_g2{};
+    std::array<unsigned char, 96> g_sigma_neg_g2{};
 };
 
 struct ValiditySidechainGroth16VerificationKey
@@ -27,6 +36,8 @@ struct ValiditySidechainGroth16VerificationKey
     std::array<unsigned char, 96> gamma_g2{};
     std::array<unsigned char, 96> delta_g2{};
     std::vector<std::array<unsigned char, 48>> gamma_abc_g1;
+    std::vector<std::vector<uint32_t>> public_and_commitment_committed;
+    std::vector<ValiditySidechainGroth16PedersenCommitmentKey> commitment_keys;
 };
 
 std::vector<unsigned char> EncodeValiditySidechainGroth16Proof(

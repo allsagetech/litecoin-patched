@@ -38,6 +38,7 @@ static constexpr char TOY_PROFILE_NAME[] = "gnark_groth16_toy_batch_transition_v
 static constexpr char NATIVE_TOY_PROFILE_NAME[] = "native_blst_groth16_toy_batch_transition_v1";
 static constexpr char POSEIDON_PROFILE_NAME[] = "groth16_bls12_381_poseidon_v1";
 static constexpr char POSEIDON_PROFILE_NAME_V2[] = "groth16_bls12_381_poseidon_v2";
+static constexpr char POSEIDON_PROFILE_NAME_V3[] = "groth16_bls12_381_poseidon_v3";
 static constexpr char POSEIDON_PROFILE_PREFIX[] = "groth16_bls12_381_poseidon_v";
 static constexpr uint8_t POSEIDON_FINAL_DECOMPOSED_PUBLIC_INPUT_VERSION = 5;
 static constexpr size_t GROTH16_DECOMPOSED_LIMB_BYTES = 16;
@@ -890,6 +891,11 @@ ValiditySidechainBatchVerifierMode GetValiditySidechainBatchVerifierMode(const V
         std::string(supported->profile_name) == POSEIDON_PROFILE_NAME_V2) {
         return ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2;
     }
+    if (!supported->scaffolding_only &&
+        supported->profile_name != nullptr &&
+        std::string(supported->profile_name) == POSEIDON_PROFILE_NAME_V3) {
+        return ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3;
+    }
     if (supported->scaffolding_only) {
         return ValiditySidechainBatchVerifierMode::SCAFFOLD_QUEUE_PREFIX_ONLY;
     }
@@ -909,6 +915,8 @@ const char* ValiditySidechainBatchVerifierModeToString(ValiditySidechainBatchVer
             return "groth16_bls12_381_poseidon_v1";
         case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2:
             return "groth16_bls12_381_poseidon_v2";
+        case ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3:
+            return "groth16_bls12_381_poseidon_v3";
         case ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1:
             return "gnark_groth16_toy_batch_transition_v1";
         case ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1:
@@ -1204,7 +1212,8 @@ bool VerifyValiditySidechainBatch(
         mode != ValiditySidechainBatchVerifierMode::GNARK_GROTH16_TOY_BATCH_TRANSITION_V1 &&
         mode != ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1 &&
         mode != ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1 &&
-        mode != ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2) {
+        mode != ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2 &&
+        mode != ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3) {
         return FailValidation(error, "proof verifier is not implemented for this profile");
     }
 
@@ -1229,7 +1238,8 @@ bool VerifyValiditySidechainBatch(
     }
 
     if (mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1 ||
-        mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2) {
+        mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2 ||
+        mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3) {
         const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
         if (supported == nullptr) {
             return FailValidation(error, "unsupported proof configuration tuple");
