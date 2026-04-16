@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <set>
 
 namespace {
 
@@ -960,6 +961,25 @@ bool VerifyValiditySidechainWithdrawalProof(
     }
 
     return index == 0 && width == 1 && FinalizeWithdrawalRoot(proof.leaf_count, current_hash) == expected_root;
+}
+
+bool ValidateValiditySidechainWithdrawalLeafIds(
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+    std::string* error)
+{
+    std::set<uint256> withdrawal_ids;
+    for (const auto& withdrawal : withdrawals) {
+        if (!withdrawal_ids.insert(withdrawal.withdrawal_id).second) {
+            if (error != nullptr) {
+                *error = "duplicate withdrawal_id in withdrawal witness set";
+            }
+            return false;
+        }
+    }
+    if (error != nullptr) {
+        error->clear();
+    }
+    return true;
 }
 
 uint256 ComputeValiditySidechainWithdrawalRoot(const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals)

@@ -12,6 +12,7 @@
 #include <validitysidechain/state.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 struct ValiditySidechainScriptInfo
@@ -100,6 +101,9 @@ bool BuildValiditySidechainWithdrawalProof(
 bool VerifyValiditySidechainWithdrawalProof(
     const ValiditySidechainWithdrawalProof& proof,
     const uint256& expected_root);
+bool ValidateValiditySidechainWithdrawalLeafIds(
+    const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals,
+    std::string* error = nullptr);
 uint256 ComputeValiditySidechainWithdrawalRoot(const std::vector<ValiditySidechainWithdrawalLeaf>& withdrawals);
 
 std::vector<unsigned char> EncodeValiditySidechainBalanceLeaf(const ValiditySidechainBalanceLeaf& balance);

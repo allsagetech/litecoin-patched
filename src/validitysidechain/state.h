@@ -371,6 +371,8 @@ struct ValiditySidechain
     std::map<uint256, ValiditySidechainPendingDeposit> pending_deposits;
     std::map<uint256, ValiditySidechainPendingForceExit> pending_force_exits;
     std::set<uint256> executed_withdrawal_ids;
+    std::set<uint256> executed_withdrawal_claim_keys;
+    std::set<uint256> executed_withdrawal_batch_keys;
     std::set<uint256> executed_escape_exit_ids;
     std::set<uint256> executed_escape_exit_claim_keys;
     uint64_t executed_withdrawal_count{0};
@@ -393,6 +395,8 @@ struct ValiditySidechain
                   obj.pending_deposits,
                   obj.pending_force_exits,
                   obj.executed_withdrawal_ids,
+                  obj.executed_withdrawal_claim_keys,
+                  obj.executed_withdrawal_batch_keys,
                   obj.executed_escape_exit_ids,
                   obj.executed_escape_exit_claim_keys,
                   obj.executed_withdrawal_count,

@@ -16,6 +16,7 @@
 #include <primitives/block.h>
 
 #include <algorithm>
+#include <tuple>
 
 namespace {
 
@@ -23,6 +24,8 @@ static constexpr unsigned char QUEUE_APPEND_MAGIC[] = {'V', 'S', 'C', 'Q', 'A', 
 static constexpr unsigned char QUEUE_CONSUME_MAGIC[] = {'V', 'S', 'C', 'Q', 'C', 0x01};
 static constexpr unsigned char QUEUE_PREFIX_COMMITMENT_MAGIC[] = {'V', 'S', 'C', 'Q', 'P', 0x01};
 static constexpr unsigned char QUEUE_TOMBSTONE_MAGIC[] = {'V', 'S', 'C', 'Q', 'T', 0x01};
+static constexpr unsigned char WITHDRAWAL_CLAIM_KEY_MAGIC[] = {'V', 'S', 'C', 'W', 'C', 0x01};
+static constexpr unsigned char WITHDRAWAL_BATCH_KEY_MAGIC[] = {'V', 'S', 'C', 'W', 'B', 0x01};
 
 static bool DepositsEqual(const ValiditySidechainDepositData& lhs, const ValiditySidechainDepositData& rhs)
 {
@@ -39,6 +42,30 @@ static uint64_t NextQueueIndex(const ValiditySidechain& sidechain)
         return 0;
     }
     return sidechain.queue_entries.rbegin()->first + 1;
+}
+
+static uint256 ComputeExecutedWithdrawalClaimKey(
+    const uint256& accepted_batch_id,
+    uint32_t leaf_index,
+    uint32_t leaf_count)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)WITHDRAWAL_CLAIM_KEY_MAGIC, sizeof(WITHDRAWAL_CLAIM_KEY_MAGIC));
+    hw << accepted_batch_id;
+    hw << leaf_index;
+    hw << leaf_count;
+    return hw.GetHash();
+}
+
+static uint256 ComputeExecutedWithdrawalBatchKey(
+    const uint256& withdrawal_id,
+    const uint256& accepted_batch_id)
+{
+    CHashWriter hw(SER_GETHASH, 0);
+    hw.write((const char*)WITHDRAWAL_BATCH_KEY_MAGIC, sizeof(WITHDRAWAL_BATCH_KEY_MAGIC));
+    hw << withdrawal_id;
+    hw << accepted_batch_id;
+    return hw.GetHash();
 }
 
 static uint256 ComputeQueueAppendRoot(
@@ -184,8 +211,8 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
     sidechain.queue_state.matured_force_exit_count = 0;
     sidechain.queue_state.reclaimable_deposit_count = 0;
 
-    for (const auto& [queue_index, entry] : sidechain.queue_entries) {
-        (void)queue_index;
+    for (const auto& queue_entry_pair : sidechain.queue_entries) {
+        const ValiditySidechainQueueEntry& entry = queue_entry_pair.second;
         if (entry.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
             continue;
         }
@@ -210,8 +237,8 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
         ++sidechain.queue_state.head_index;
     }
 
-    for (const auto& [deposit_id, pending_deposit] : sidechain.pending_deposits) {
-        (void)deposit_id;
+    for (const auto& pending_deposit_pair : sidechain.pending_deposits) {
+        const ValiditySidechainPendingDeposit& pending_deposit = pending_deposit_pair.second;
         const auto queue_it = sidechain.queue_entries.find(pending_deposit.queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
             queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
@@ -222,8 +249,8 @@ static void RefreshQueueState(ValiditySidechain& sidechain, int height)
         }
     }
 
-    for (const auto& [request_hash, pending_force_exit] : sidechain.pending_force_exits) {
-        (void)request_hash;
+    for (const auto& pending_force_exit_pair : sidechain.pending_force_exits) {
+        const ValiditySidechainPendingForceExit& pending_force_exit = pending_force_exit_pair.second;
         const auto queue_it = sidechain.queue_entries.find(pending_force_exit.queue_index);
         if (queue_it == sidechain.queue_entries.end() ||
             queue_it->second.status != ValiditySidechainQueueEntry::QUEUE_STATUS_PENDING) {
@@ -888,7 +915,12 @@ bool ValiditySidechainState::HasExecutedEscapeExit(uint8_t sidechain_id, const u
 
 ValiditySidechain& ValiditySidechainState::GetOrCreateSidechain(uint8_t id, int registration_height)
 {
-    auto [it, inserted] = sidechains.emplace(id, ValiditySidechain{});
+    const auto emplace_result = sidechains.emplace(
+        std::piecewise_construct,
+        std::forward_as_tuple(id),
+        std::forward_as_tuple());
+    const auto it = emplace_result.first;
+    const bool inserted = emplace_result.second;
     ValiditySidechain& sidechain = it->second;
     if (inserted) {
         sidechain.id = id;
@@ -924,7 +956,11 @@ bool ValiditySidechainState::RegisterSidechain(
         return false;
     }
 
-    ValiditySidechain sidechain;
+    const auto emplace_result = sidechains.emplace(
+        std::piecewise_construct,
+        std::forward_as_tuple(id),
+        std::forward_as_tuple());
+    ValiditySidechain& sidechain = emplace_result.first->second;
     sidechain.id = id;
     sidechain.registration_height = registration_height;
     sidechain.is_active = true;
@@ -932,8 +968,6 @@ bool ValiditySidechainState::RegisterSidechain(
     sidechain.current_state_root = config.initial_state_root;
     sidechain.current_withdrawal_root = config.initial_withdrawal_root;
     RefreshQueueState(sidechain, registration_height);
-
-    sidechains.emplace(id, sidechain);
     if (error != nullptr) {
         error->clear();
     }
@@ -1302,8 +1336,16 @@ bool ValiditySidechainState::ExecuteWithdrawals(
 
     CAmount total_amount = 0;
     std::set<uint256> new_ids;
+    std::set<uint256> new_claim_keys;
+    std::set<uint256> new_batch_keys;
     for (const auto& proof : withdrawal_proofs) {
         const ValiditySidechainWithdrawalLeaf& withdrawal = proof.withdrawal;
+        const uint256 claim_key = ComputeExecutedWithdrawalClaimKey(
+            accepted_batch_id,
+            proof.leaf_index,
+            proof.leaf_count);
+        const uint256 batch_key =
+            ComputeExecutedWithdrawalBatchKey(withdrawal.withdrawal_id, accepted_batch_id);
         if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(sidechain->config) &&
             (proof.leaf_count != 1 || proof.leaf_index != 0 || !proof.sibling_hashes.empty())) {
             if (error != nullptr) {
@@ -1323,13 +1365,23 @@ bool ValiditySidechainState::ExecuteWithdrawals(
             }
             return false;
         }
-        if (!new_ids.insert(withdrawal.withdrawal_id).second) {
+        if (!new_claim_keys.insert(claim_key).second) {
             if (error != nullptr) {
-                *error = "duplicate withdrawal id in execution";
+                *error = "duplicate withdrawal claim in execution";
             }
             return false;
         }
-        if (sidechain->executed_withdrawal_ids.count(withdrawal.withdrawal_id) != 0) {
+        if (sidechain->executed_withdrawal_claim_keys.count(claim_key) != 0) {
+            if (error != nullptr) {
+                *error = "withdrawal claim already executed";
+            }
+            return false;
+        }
+        const bool executed_in_same_batch =
+            sidechain->executed_withdrawal_batch_keys.count(batch_key) != 0 ||
+            new_batch_keys.count(batch_key) != 0;
+        if (sidechain->executed_withdrawal_ids.count(withdrawal.withdrawal_id) != 0 &&
+            !executed_in_same_batch) {
             if (error != nullptr) {
                 *error = "withdrawal id already executed";
             }
@@ -1341,6 +1393,8 @@ bool ValiditySidechainState::ExecuteWithdrawals(
             }
             return false;
         }
+        new_ids.insert(withdrawal.withdrawal_id);
+        new_batch_keys.insert(batch_key);
         total_amount += withdrawal.amount;
     }
     if (!MoneyRange(total_amount) || sidechain->escrow_balance < total_amount) {
@@ -1352,7 +1406,9 @@ bool ValiditySidechainState::ExecuteWithdrawals(
 
     sidechain->escrow_balance -= total_amount;
     sidechain->executed_withdrawal_ids.insert(new_ids.begin(), new_ids.end());
-    sidechain->executed_withdrawal_count += new_ids.size();
+    sidechain->executed_withdrawal_claim_keys.insert(new_claim_keys.begin(), new_claim_keys.end());
+    sidechain->executed_withdrawal_batch_keys.insert(new_batch_keys.begin(), new_batch_keys.end());
+    sidechain->executed_withdrawal_count += static_cast<uint64_t>(withdrawal_proofs.size());
     if (error != nullptr) {
         error->clear();
     }
@@ -1794,9 +1850,8 @@ bool ValiditySidechainState::ConnectBlock(const CBlock& block, const CBlockIndex
         }
     }
 
-    for (auto& [sidechain_id, sidechain] : sidechains) {
-        (void)sidechain_id;
-        RefreshQueueState(sidechain, height);
+    for (auto& sidechain_pair : sidechains) {
+        RefreshQueueState(sidechain_pair.second, height);
     }
 
     return true;

@@ -205,12 +205,6 @@ static fs::path ResolveVerifierArtifactDir(const SupportedValiditySidechainConfi
         return datadir_candidate;
     }
 
-    const fs::path repo_candidate =
-        fs::path(VERIFIER_ARTIFACTS_DIR) / VERIFIER_NAMESPACE_DIR / supported.verifier_artifact_name;
-    if (fs::exists(repo_candidate)) {
-        return repo_candidate;
-    }
-
     return datadir_candidate;
 }
 

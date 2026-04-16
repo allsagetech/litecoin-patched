@@ -580,6 +580,26 @@ BOOST_AUTO_TEST_CASE(escape_exit_state_proof_rejects_oversized_merkle_depth)
     BOOST_CHECK(!DecodeValiditySidechainEscapeExitStateProof(encoded, decoded));
 }
 
+BOOST_AUTO_TEST_CASE(withdrawal_leaf_validator_rejects_duplicate_ids)
+{
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawals{
+        {
+            uint256S("2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f"),
+            COIN,
+            uint256S("3030303030303030303030303030303030303030303030303030303030303030"),
+        },
+        {
+            uint256S("2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f"),
+            2 * COIN,
+            uint256S("3131313131313131313131313131313131313131313131313131313131313131"),
+        },
+    };
+
+    std::string error;
+    BOOST_CHECK(!ValidateValiditySidechainWithdrawalLeafIds(withdrawals, &error));
+    BOOST_CHECK_EQUAL(error, "duplicate withdrawal_id in withdrawal witness set");
+}
+
 BOOST_AUTO_TEST_CASE(execute_and_reclaim_markers_roundtrip)
 {
     const uint8_t sidechain_id = 12;

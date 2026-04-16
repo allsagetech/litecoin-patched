@@ -5,6 +5,7 @@
 #include <wallet/wallet.h>
 
 #include <future>
+#include <limits>
 #include <memory>
 #include <stdint.h>
 #include <vector>
@@ -19,6 +20,7 @@
 #include <util/translation.h>
 #include <validation.h>
 #include <wallet/coincontrol.h>
+#include <wallet/rpcwallet.h>
 #include <wallet/test/wallet_test_fixture.h>
 
 #include <boost/test/unit_test.hpp>
@@ -73,6 +75,21 @@ static void AddKey(CWallet& wallet, const CKey& key)
     auto spk_man = wallet.GetOrCreateLegacyScriptPubKeyMan();
     LOCK2(wallet.cs_wallet, spk_man->cs_KeyStore);
     spk_man->AddKeyPubKey(key, key.GetPubKey());
+}
+
+BOOST_AUTO_TEST_CASE(parse_uint64_rpc_value_supports_full_range)
+{
+    const uint64_t max_value = ParseUint64RPCValue(
+        UniValue(UniValue::VNUM, "18446744073709551615"),
+        "nonce");
+    BOOST_CHECK_EQUAL(max_value, std::numeric_limits<uint64_t>::max());
+
+    BOOST_CHECK_THROW(
+        ParseUint64RPCValue(UniValue(UniValue::VNUM, "-1"), "nonce"),
+        UniValue);
+    BOOST_CHECK_THROW(
+        ParseUint64RPCValue(UniValue(UniValue::VNUM, "18446744073709551616"), "nonce"),
+        UniValue);
 }
 
 BOOST_FIXTURE_TEST_CASE(scan_for_wallet_transactions, TestChain100Setup)

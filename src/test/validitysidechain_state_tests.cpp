@@ -4,6 +4,7 @@
 
 #include <chain.h>
 #include <consensus/validation.h>
+#include <fs.h>
 #include <hash.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
@@ -11,6 +12,7 @@
 #include <test/util/setup_common.h>
 #include <uint256.h>
 #include <util/strencodings.h>
+#include <util/system.h>
 #include <validitysidechain/blst_backend.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
@@ -24,9 +26,13 @@
 namespace {
 
 static constexpr unsigned char TEST_QUEUE_CONSUME_MAGIC[] = {'V', 'S', 'C', 'Q', 'C', 0x01};
+void ConfigureVerifierArtifactsDirForTests();
 
 ValiditySidechainConfig MakeSupportedConfig(size_t supported_index = 0)
 {
+    if (supported_index >= 2) {
+        ConfigureVerifierArtifactsDirForTests();
+    }
     const auto& supported_configs = GetSupportedValiditySidechainConfigs();
     if (supported_index >= supported_configs.size()) {
         BOOST_FAIL("requested unsupported config index");
@@ -58,6 +64,39 @@ ValiditySidechainConfig MakeSupportedConfig(size_t supported_index = 0)
         config.initial_withdrawal_root = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     }
     return config;
+}
+
+fs::path FindRepoPath(const fs::path& relative)
+{
+    std::vector<fs::path> roots;
+    roots.push_back(fs::current_path());
+
+    fs::path source_path{__FILE__};
+    if (source_path.is_relative()) {
+        source_path = fs::current_path() / source_path;
+    }
+    roots.push_back(source_path.parent_path());
+
+    for (fs::path root : roots) {
+        for (;;) {
+            const fs::path candidate = root / relative;
+            if (fs::exists(candidate)) {
+                return candidate;
+            }
+            if (!root.has_parent_path() || root.parent_path() == root) {
+                break;
+            }
+            root = root.parent_path();
+        }
+    }
+
+    BOOST_FAIL("failed to locate repo path " + relative.string());
+    return {};
+}
+
+void ConfigureVerifierArtifactsDirForTests()
+{
+    gArgs.ForceSetArg("-validityartifactsdir", FindRepoPath("artifacts").string());
 }
 
 ValiditySidechainDepositData MakeDeposit(const uint256& deposit_id, const CScript& refund_script, CAmount amount = 5 * COIN)
@@ -395,8 +434,35 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_CHECK(!IsValiditySidechainRegistrationDefaultAllowedProfile(MakeSupportedConfig(/* supported_index= */ 4)));
 }
 
+BOOST_AUTO_TEST_CASE(verifier_asset_resolution_ignores_process_cwd)
+{
+    const auto& supported = GetSupportedValiditySidechainConfigs().at(4);
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
+    const fs::path fake_cwd = GetDataDir() / "validity_artifact_cwd_poison";
+    const fs::path fake_candidate =
+        fake_cwd / "artifacts" / "validitysidechain" / supported.verifier_artifact_name;
+    fs::create_directories(fake_candidate);
+
+    const fs::path original_cwd = fs::current_path();
+    fs::current_path(fake_cwd);
+
+    ValiditySidechainVerifierAssetsStatus status;
+    const bool status_ok = GetValiditySidechainVerifierAssetsStatus(config, status);
+
+    fs::current_path(original_cwd);
+    BOOST_REQUIRE(status_ok);
+
+    const fs::path expected_dir = gArgs.IsArgSet("-validityartifactsdir")
+        ? AbsPathForConfigVal(fs::path(gArgs.GetArg("-validityartifactsdir", "")), /* net_specific= */ false) /
+              "validitysidechain" / supported.verifier_artifact_name
+        : GetDataDir() / "artifacts" / "validitysidechain" / supported.verifier_artifact_name;
+    BOOST_CHECK(fs::path(status.artifact_dir).lexically_normal() == expected_dir.lexically_normal());
+    BOOST_CHECK(fs::path(status.artifact_dir).lexically_normal() != fake_candidate.lexically_normal());
+}
+
 BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist)
 {
+    ConfigureVerifierArtifactsDirForTests();
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 4);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
@@ -428,6 +494,7 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist
 
 BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_native_backend_ready_when_assets_exist)
 {
+    ConfigureVerifierArtifactsDirForTests();
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
@@ -456,6 +523,7 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_native_backend_ready_wh
 
 BOOST_AUTO_TEST_CASE(native_toy_profile_reports_native_backend_ready_when_assets_exist)
 {
+    ConfigureVerifierArtifactsDirForTests();
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 3);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
@@ -491,6 +559,7 @@ BOOST_AUTO_TEST_CASE(native_blst_backend_self_test_passes)
 
 BOOST_AUTO_TEST_CASE(toy_profile_requires_external_command_or_assets)
 {
+    ConfigureVerifierArtifactsDirForTests();
     const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 2);
     ValiditySidechainVerifierAssetsStatus status;
     BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
@@ -1693,7 +1762,60 @@ BOOST_AUTO_TEST_CASE(execute_withdrawals_marks_ids_and_reduces_escrow)
     BOOST_CHECK(state.HasExecutedWithdrawal(8, withdrawals[1].withdrawal_id));
 
     BOOST_CHECK(!state.ExecuteWithdrawals(/* sidechain_id= */ 8, accepted_batch_id, withdrawal_proofs, &error));
-    BOOST_CHECK_EQUAL(error, "withdrawal id already executed");
+    BOOST_CHECK_EQUAL(error, "withdrawal claim already executed");
+}
+
+BOOST_AUTO_TEST_CASE(execute_withdrawals_allows_duplicate_ids_within_same_batch)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 32, /* registration_height= */ 720, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(32);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 10 * COIN;
+
+    const uint256 shared_withdrawal_id =
+        uint256S("2222222222222222222222222222222222222222222222222222222222222222");
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawals{
+        MakeWithdrawalLeaf(shared_withdrawal_id, CScript() << OP_6, 2 * COIN),
+        MakeWithdrawalLeaf(shared_withdrawal_id, CScript() << OP_7, 3 * COIN),
+    };
+    InstallAcceptedWithdrawalBatch(state, /* sidechain_id= */ 32, /* batch_number= */ 1, withdrawals, /* accepted_height= */ 721);
+
+    const uint256 accepted_batch_id = ComputeValiditySidechainAcceptedBatchId(
+        /* scid= */ 32,
+        /* batch_number= */ 1,
+        ComputeValiditySidechainWithdrawalRoot(withdrawals));
+    const std::vector<ValiditySidechainWithdrawalProof> withdrawal_proofs =
+        BuildWithdrawalProofsForTest(withdrawals);
+
+    std::string error;
+    BOOST_REQUIRE(state.ExecuteWithdrawals(
+        /* sidechain_id= */ 32,
+        accepted_batch_id,
+        {withdrawal_proofs[0]},
+        &error));
+    BOOST_CHECK(error.empty());
+    BOOST_REQUIRE(state.ExecuteWithdrawals(
+        /* sidechain_id= */ 32,
+        accepted_batch_id,
+        {withdrawal_proofs[1]},
+        &error));
+    BOOST_CHECK(error.empty());
+
+    sidechain = state.GetSidechain(32);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 5 * COIN);
+    BOOST_CHECK_EQUAL(sidechain->executed_withdrawal_count, 2U);
+    BOOST_CHECK(state.HasExecutedWithdrawal(32, shared_withdrawal_id));
+
+    BOOST_CHECK(!state.ExecuteWithdrawals(
+        /* sidechain_id= */ 32,
+        accepted_batch_id,
+        {withdrawal_proofs[0]},
+        &error));
+    BOOST_CHECK_EQUAL(error, "withdrawal claim already executed");
 }
 
 BOOST_AUTO_TEST_CASE(execute_withdrawals_rejects_invalid_merkle_proof)

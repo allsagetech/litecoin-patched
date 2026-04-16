@@ -30,6 +30,7 @@
 #include <util/message.h> // For MessageSign()
 #include <util/moneystr.h>
 #include <util/ref.h>
+#include <util/strencodings.h>
 #include <util/string.h>
 #include <util/system.h>
 #include <util/translation.h>
@@ -55,6 +56,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <limits>
 #include <univalue.h>
 
 
@@ -755,7 +757,6 @@ static void ParseValidityEscapeExitLeaves(
 }
 
 static uint32_t ParseUint32Value(const UniValue& value, const std::string& field_name);
-static uint64_t ParseUint64Value(const UniValue& value, const std::string& field_name);
 
 static std::vector<uint256> ParseHashArrayField(const UniValue& value, const std::string& field_name)
 {
@@ -862,8 +863,8 @@ static void ParseValidityAccountStateProofObject(
     out_proof.account.account_id = ParseHashO(obj, "account_id");
     out_proof.account.spend_key_commitment = ParseHashO(obj, "spend_key_commitment");
     out_proof.account.balance_root = ParseHashO(obj, "balance_root");
-    out_proof.account.account_nonce = ParseUint64Value(find_value(obj, "account_nonce"), context + ".account_nonce");
-    out_proof.account.last_forced_exit_nonce = ParseUint64Value(find_value(obj, "last_forced_exit_nonce"), context + ".last_forced_exit_nonce");
+    out_proof.account.account_nonce = ParseUint64RPCValue(find_value(obj, "account_nonce"), context + ".account_nonce");
+    out_proof.account.last_forced_exit_nonce = ParseUint64RPCValue(find_value(obj, "last_forced_exit_nonce"), context + ".last_forced_exit_nonce");
     out_proof.leaf_index = ParseUint32Value(find_value(obj, "leaf_index"), context + ".leaf_index");
     out_proof.leaf_count = ParseUint32Value(find_value(obj, "leaf_count"), context + ".leaf_count");
     if (out_proof.leaf_count == 0 || out_proof.leaf_index >= out_proof.leaf_count) {
@@ -932,10 +933,10 @@ static ValidityEscapeExitInputMode ParseValidityEscapeExitClaims(
         const CScript script = ParseRpcPayoutScript(obj, context);
         proof.destination_commitment = ComputeRpcScriptCommitment(script);
         proof.required_account_nonce = obj.exists("required_account_nonce") && !obj["required_account_nonce"].isNull()
-            ? ParseUint64Value(obj["required_account_nonce"], context + ".required_account_nonce")
+            ? ParseUint64RPCValue(obj["required_account_nonce"], context + ".required_account_nonce")
             : proof.account_proof.account.account_nonce;
         proof.required_last_forced_exit_nonce = obj.exists("required_last_forced_exit_nonce") && !obj["required_last_forced_exit_nonce"].isNull()
-            ? ParseUint64Value(obj["required_last_forced_exit_nonce"], context + ".required_last_forced_exit_nonce")
+            ? ParseUint64RPCValue(obj["required_last_forced_exit_nonce"], context + ".required_last_forced_exit_nonce")
             : proof.account_proof.account.last_forced_exit_nonce;
 
         const uint256 computed_exit_id = ComputeValiditySidechainEscapeExitStateId(sidechain_id, proof);
@@ -1391,13 +1392,18 @@ static uint32_t ParseUint32Value(const UniValue& value, const std::string& field
     return static_cast<uint32_t>(value_int);
 }
 
-static uint64_t ParseUint64Value(const UniValue& value, const std::string& field_name)
+uint64_t ParseUint64RPCValue(const UniValue& value, const std::string& field_name)
 {
-    const int64_t value_int = value.get_int64();
-    if (value_int < 0) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, field_name + " must be non-negative");
+    uint64_t value_out{0};
+    if (!value.isNum() || !ParseUInt64(value.getValStr(), &value_out)) {
+        throw JSONRPCError(
+            RPC_INVALID_PARAMETER,
+            strprintf(
+                "%s must be between 0 and %s",
+                field_name,
+                ToString(std::numeric_limits<uint64_t>::max())));
     }
-    return static_cast<uint64_t>(value_int);
+    return value_out;
 }
 
 static CScript ParseRpcScriptObject(const UniValue& obj, const std::string& context)
@@ -2151,7 +2157,7 @@ static RPCHelpMan sendvaliditydeposit()
             deposit.refund_script_commitment = ComputeRpcScriptCommitment(refund_script);
             const bool nonce_provided = request.params.size() > 4 && !request.params[4].isNull();
             deposit.nonce = nonce_provided
-                ? ParseUint64Value(request.params[4], "nonce")
+                ? ParseUint64RPCValue(request.params[4], "nonce")
                 : FastRandomContext().rand64();
             deposit.deposit_id = (request.params.size() > 5 && !request.params[5].isNull())
                 ? ParseHashV(request.params[5], "deposit_id")
@@ -2268,7 +2274,7 @@ static RPCHelpMan sendforceexitrequest()
             request_data.max_exit_amount = AmountFromValue(request.params[3]);
             request_data.destination_commitment = ComputeRpcScriptCommitment(ParseRpcScriptObject(request.params[4], "destination"));
             request_data.nonce = (request.params.size() > 5 && !request.params[5].isNull())
-                ? ParseUint64Value(request.params[5], "nonce")
+                ? ParseUint64RPCValue(request.params[5], "nonce")
                 : FastRandomContext().rand64();
 
             LOCK(pwallet->cs_wallet);
@@ -2340,7 +2346,7 @@ static RPCHelpMan sendstaledepositreclaim()
             deposit.amount = AmountFromValue(find_value(deposit_obj, "amount"));
             deposit.destination_commitment = ParseHashO(deposit_obj, "destination_commitment");
             deposit.refund_script_commitment = ComputeRpcScriptCommitment(refund_script);
-            deposit.nonce = ParseUint64Value(find_value(deposit_obj, "nonce"), "deposit.nonce");
+            deposit.nonce = ParseUint64RPCValue(find_value(deposit_obj, "nonce"), "deposit.nonce");
 
             bool allow_unbroadcast = false;
             if (request.params.size() > 3 && !request.params[3].isNull()) {
@@ -2483,6 +2489,12 @@ static RPCHelpMan sendvaliditybatch()
                         withdrawal_leaves,
                         experimental_withdrawal_leaves,
                         experimental_payout_recipients);
+                    std::string withdrawal_witness_error;
+                    if (!ValidateValiditySidechainWithdrawalLeafIds(
+                            experimental_withdrawal_leaves,
+                            &withdrawal_witness_error)) {
+                        throw JSONRPCError(RPC_INVALID_PARAMETER, withdrawal_witness_error);
+                    }
                 }
             }
             const uint32_t committed_queue_witness_limit =
