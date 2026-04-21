@@ -6,7 +6,6 @@
 
 #include <chain.h>
 #include <chainparams.h>
-#include <drivechain/state.h>
 #include <interfaces/handler.h>
 #include <interfaces/wallet.h>
 #include <net.h>
@@ -252,15 +251,6 @@ public:
         return FillBlock(ancestor, ancestor_out, lock) & FillBlock(block1, block1_out, lock) & FillBlock(block2, block2_out, lock);
     }
     void findCoins(std::map<COutPoint, Coin>& coins) override { return FindCoins(m_node, coins); }
-    bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, DrivechainSidechainPolicy& sidechain_policy) override
-    {
-        LOCK(::cs_main);
-        const Sidechain* sc = ::ChainstateActive().GetDrivechainState().GetSidechain(sidechain_id);
-        if (!sc) return false;
-        owner_auth_required = sc->owner_auth_required;
-        sidechain_policy = sc->sidechain_policy;
-        return true;
-    }
     std::vector<ValiditySidechain> getValiditySidechains() override
     {
         LOCK(::cs_main);
@@ -318,6 +308,13 @@ public:
         // Chain clients only care about failures to accept the tx to the mempool. Disregard non-mempool related failures.
         // Note: this will need to be updated if BroadcastTransactions() is updated to return other non-mempool failures
         // that Chain clients do not need to know about.
+        return TransactionError::OK == err;
+    }
+    bool checkMempoolAcceptance(const CTransactionRef& tx,
+        const CAmount& max_tx_fee,
+        std::string& err_string) override
+    {
+        const TransactionError err = CheckTransactionAcceptance(m_node, tx, err_string, max_tx_fee);
         return TransactionError::OK == err;
     }
     void getTransactionAncestry(const uint256& txid, size_t& ancestors, size_t& descendants) override

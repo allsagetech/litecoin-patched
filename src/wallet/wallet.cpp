@@ -3207,6 +3207,13 @@ void CWallet::CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::ve
     // Notify that old coins are spent
     for (const CTxInput& txin : tx->GetInputs()) {
         CWalletTx* coin = FindPrevTx(txin);
+        if (coin == nullptr) {
+            WalletLogPrintf(
+                "CommitTransaction(): Unable to find previous wallet transaction for input %s while committing %s\n",
+                txin.ToString(),
+                tx->GetHash().ToString());
+            continue;
+        }
         coin->MarkDirty();
         NotifyTransactionChanged(this, coin->GetHash(), CT_UPDATED);
     }

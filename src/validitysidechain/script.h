@@ -35,6 +35,7 @@ struct ValiditySidechainScriptInfo
     std::vector<std::vector<unsigned char>> metadata_pushes;
 };
 
+bool IsValiditySidechainTransport(const CScript& scriptPubKey);
 bool DecodeValiditySidechainScript(const CScript& scriptPubKey, ValiditySidechainScriptInfo& out_info);
 CScript BuildValiditySidechainScript(
     ValiditySidechainScriptInfo::Kind kind,

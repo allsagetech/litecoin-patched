@@ -129,19 +129,6 @@ Example usage:
     cd .../src
     ../contrib/devtools/circular-dependencies.py {*,*/*,*/*/*}.{h,cpp}
 
-drivechain_production_gate.py
-=============================
-
-Static production-readiness gate checks for the legacy Drivechain integration.
-This script fails if required docs, CI hooks, and critical test coverage wiring
-are missing.
-Use `test_drivechain_production_gate.py` for parser and release-gate unit tests.
-
-Example usage:
-
-    python3 -m contrib.devtools.test_drivechain_production_gate
-    python3 contrib/devtools/drivechain_production_gate.py
-
 generate_spdx_sbom.py
 =====================
 

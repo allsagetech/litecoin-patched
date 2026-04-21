@@ -5,7 +5,6 @@
 #include <validitysidechain/state.h>
 
 #include <chain.h>
-#include <drivechain/script.h>
 #include <hash.h>
 #include <validitysidechain/groth16.h>
 #include <validitysidechain/registry.h>
@@ -319,10 +318,7 @@ static bool MatchWithdrawalOutputs(
     for (size_t i = 0; i < withdrawal_proofs.size(); ++i) {
         const CTxOut& txout = tx.vout[start + i];
         const ValiditySidechainWithdrawalLeaf& withdrawal = withdrawal_proofs[i].withdrawal;
-        ValiditySidechainScriptInfo validity_info;
-        DrivechainScriptInfo drivechain_info;
-        if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) ||
-            DecodeDrivechainScript(txout.scriptPubKey, drivechain_info) ||
+        if (IsValiditySidechainTransport(txout.scriptPubKey) ||
             txout.nValue != withdrawal.amount) {
             return false;
         }
@@ -351,10 +347,7 @@ static bool MatchEscapeExitOutputs(
     for (size_t i = 0; i < exit_proofs.size(); ++i) {
         const CTxOut& txout = tx.vout[start + i];
         const ValiditySidechainEscapeExitLeaf& exit = exit_proofs[i].exit;
-        ValiditySidechainScriptInfo validity_info;
-        DrivechainScriptInfo drivechain_info;
-        if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) ||
-            DecodeDrivechainScript(txout.scriptPubKey, drivechain_info) ||
+        if (IsValiditySidechainTransport(txout.scriptPubKey) ||
             txout.nValue != exit.amount) {
             return false;
         }
@@ -383,10 +376,7 @@ static bool MatchEscapeExitOutputs(
     for (size_t i = 0; i < exit_state_proofs.size(); ++i) {
         const CTxOut& txout = tx.vout[start + i];
         const ValiditySidechainEscapeExitStateProof& exit = exit_state_proofs[i];
-        ValiditySidechainScriptInfo validity_info;
-        DrivechainScriptInfo drivechain_info;
-        if (DecodeValiditySidechainScript(txout.scriptPubKey, validity_info) ||
-            DecodeDrivechainScript(txout.scriptPubKey, drivechain_info) ||
+        if (IsValiditySidechainTransport(txout.scriptPubKey) ||
             txout.nValue != exit.amount) {
             return false;
         }

@@ -13,8 +13,6 @@
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
-#include <drivechain/script.h>
-#include <drivechain/state.h>
 #include <mw/consensus/Params.h>
 #include <policy/feerate.h>
 #include <policy/policy.h>
@@ -53,143 +51,6 @@ void RegenerateCommitments(CBlock& block)
     GenerateCoinbaseCommitment(block, WITH_LOCK(cs_main, return LookupBlockIndex(block.hashPrevBlock)), Params().GetConsensus());
 
     block.hashMerkleRoot = BlockMerkleRoot(block);
-}
-
-static bool TryGetExecuteBundleKey(const CTransaction& tx, std::pair<uint8_t, uint256>& out_key)
-{
-    int execute_marker_index = -1;
-    DrivechainScriptInfo execute_info;
-
-    for (size_t out_i = 0; out_i < tx.vout.size(); ++out_i) {
-        DrivechainScriptInfo info;
-        if (!DecodeDrivechainScript(tx.vout[out_i].scriptPubKey, info)) continue;
-        if (info.kind != DrivechainScriptInfo::Kind::EXECUTE) continue;
-
-        if (execute_marker_index != -1) {
-            return false;
-        }
-        execute_marker_index = static_cast<int>(out_i);
-        execute_info = info;
-    }
-
-    if (execute_marker_index == -1) {
-        return false;
-    }
-
-    out_key = std::make_pair(execute_info.sidechain_id, execute_info.payload);
-    return true;
-}
-
-static bool TryGetBmmRequestKey(const CTransaction& tx, std::pair<uint8_t, uint256>& out_key)
-{
-    int request_count = 0;
-    DrivechainBmmRequestInfo request_info;
-
-    for (const auto& txout : tx.vout) {
-        DrivechainBmmRequestInfo info;
-        if (!DecodeDrivechainBmmRequestScript(txout.scriptPubKey, info)) continue;
-        ++request_count;
-        if (request_count > 1) {
-            return false;
-        }
-        request_info = info;
-    }
-
-    if (request_count == 0) {
-        return false;
-    }
-
-    out_key = std::make_pair(request_info.sidechain_id, request_info.side_block_hash);
-    return true;
-}
-
-static CScript BuildDrivechainVoteScript(uint8_t sidechain_id, const uint256& bundle_hash)
-{
-    std::vector<unsigned char> sidechain_v{sidechain_id};
-    std::vector<unsigned char> payload(bundle_hash.begin(), bundle_hash.end());
-    const std::string vote_mode = ToLower(gArgs.GetArg("-drivechainvote", "yes"));
-    const bool vote_no = (vote_mode == "no");
-    const unsigned char vote_tag = vote_no ? static_cast<unsigned char>(0x04) : static_cast<unsigned char>(0x02);
-    std::vector<unsigned char> tag{vote_tag}; // VOTE_NO / VOTE_YES
-
-    CScript script;
-    script << OP_RETURN << OP_DRIVECHAIN << sidechain_v << payload << tag;
-    return script;
-}
-
-static bool FindBundleToVoteYes(
-    const Sidechain& sc,
-    const Consensus::Params& params,
-    const int next_height,
-    uint256& out_bundle_hash)
-{
-    for (const auto& bundle_it : sc.bundles) {
-        const uint256& bundle_hash = bundle_it.first;
-        const Bundle& bundle = bundle_it.second;
-
-        if (bundle.approved || bundle.executed) {
-            continue;
-        }
-
-        DrivechainBundleSchedule schedule;
-        if (!ComputeDrivechainBundleSchedule(params, bundle.first_seen_height, schedule)) {
-            continue;
-        }
-
-        if (next_height < schedule.vote_start_height || next_height > schedule.vote_end_height) {
-            continue;
-        }
-
-        out_bundle_hash = bundle_hash;
-        return true;
-    }
-
-    return false;
-}
-
-static void AddDrivechainVotesToCoinbase(
-    CMutableTransaction& coinbase_tx,
-    const Consensus::Params& params,
-    const CBlockIndex* pindexPrev)
-{
-    if (!IsDrivechainEnabled(pindexPrev, params)) {
-        return;
-    }
-
-    const int next_height = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
-
-    const DrivechainState& drivechain_state = ::ChainstateActive().GetDrivechainState();
-    for (const auto& sc_it : drivechain_state.sidechains) {
-        const uint8_t sidechain_id = sc_it.first;
-        const Sidechain& sc = sc_it.second;
-
-        uint256 bundle_hash;
-        if (!FindBundleToVoteYes(sc, params, next_height, bundle_hash)) {
-            continue;
-        }
-
-        coinbase_tx.vout.emplace_back(CTxOut(/*nValue=*/0, BuildDrivechainVoteScript(sidechain_id, bundle_hash)));
-    }
-}
-
-static void AddDrivechainBmmAcceptsToCoinbase(CMutableTransaction& coinbase_tx, const CBlock& block)
-{
-    std::map<uint8_t, uint256> requests_by_sidechain;
-
-    for (size_t tx_index = 1; tx_index < block.vtx.size(); ++tx_index) {
-        const CTransaction& tx = *block.vtx[tx_index];
-        for (const auto& txout : tx.vout) {
-            DrivechainBmmRequestInfo request_info;
-            if (!DecodeDrivechainBmmRequestScript(txout.scriptPubKey, request_info)) continue;
-            requests_by_sidechain[request_info.sidechain_id] = request_info.side_block_hash;
-        }
-    }
-
-    for (const auto& request : requests_by_sidechain) {
-        coinbase_tx.vout.emplace_back(CTxOut(
-            /*nValue=*/0,
-            BuildDrivechainBmmAcceptScript(request.first, request.second)));
-    }
 }
 
 BlockAssembler::Options::Options() {
@@ -316,8 +177,6 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vout.resize(1);
     coinbaseTx.vout[0].scriptPubKey = scriptPubKeyIn;
     coinbaseTx.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
-    AddDrivechainVotesToCoinbase(coinbaseTx, chainparams.GetConsensus(), pindexPrev);
-    AddDrivechainBmmAcceptsToCoinbase(coinbaseTx, *pblock);
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     pblocktemplate->vchCoinbaseCommitment = GenerateCoinbaseCommitment(*pblock, pindexPrev, chainparams.GetConsensus());
@@ -392,35 +251,6 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
 bool BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
 {
     const CTransaction& tx = iter->GetTx();
-
-    if (tx.HasDrivechainStuff()) {
-        TxValidationState drivechain_state;
-        if (!CheckDrivechainTxForCurrentState(tx, chainparams, ::ChainActive().Tip(), drivechain_state)) {
-            return false;
-        }
-
-        std::pair<uint8_t, uint256> execute_key;
-        if (TryGetExecuteBundleKey(tx, execute_key)) {
-            for (const CTxMemPool::txiter& in_block_iter : inBlock) {
-                std::pair<uint8_t, uint256> in_block_key;
-                if (!TryGetExecuteBundleKey(in_block_iter->GetTx(), in_block_key)) continue;
-                if (in_block_key == execute_key) {
-                    return false;
-                }
-            }
-        }
-
-        std::pair<uint8_t, uint256> bmm_request_key;
-        if (TryGetBmmRequestKey(tx, bmm_request_key)) {
-            for (const CTxMemPool::txiter& in_block_iter : inBlock) {
-                std::pair<uint8_t, uint256> in_block_bmm_request_key;
-                if (!TryGetBmmRequestKey(in_block_iter->GetTx(), in_block_bmm_request_key)) continue;
-                if (in_block_bmm_request_key.first == bmm_request_key.first) {
-                    return false;
-                }
-            }
-        }
-    }
 
     if (tx.HasMWEBTx() && !mweb_miner.AddMWEBTransaction(iter)) {
         return false;

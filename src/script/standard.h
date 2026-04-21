@@ -100,8 +100,8 @@ public:
  * +2 for the pushdata opcodes.
  */
 static const unsigned int MAX_OP_RETURN_RELAY = 83;
-/** Maximum standard relay size for TxoutType::DRIVECHAIN scripts (allows commit auth signatures). */
-static const unsigned int MAX_DRIVECHAIN_RELAY = 223;
+/** Maximum standard relay size for sidechain metadata scripts. */
+static const unsigned int MAX_SIDECHAIN_RELAY = 223;
 
 /**
  * A data carrying output is an unspendable output containing data. The script
@@ -136,7 +136,7 @@ enum class TxoutType {
     WITNESS_MWEB_PEGIN, //!< Hash of the peg-in kernel
     WITNESS_MWEB_HOGADDR, //!< HogAddr (first output of HogEx)
     WITNESS_UNKNOWN, //!< Only for Witness versions not already defined above
-    DRIVECHAIN,
+    SIDECHAIN,
 };
 
 class CNoDestination {

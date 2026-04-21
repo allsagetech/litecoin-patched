@@ -10,7 +10,6 @@
 #include <consensus/params.h>
 #include <consensus/validation.h>
 #include <core_io.h>
-#include <drivechain/script.h>
 #include <key_io.h>
 #include <miner.h>
 #include <net.h>
@@ -167,50 +166,6 @@ static UniValue generateBlocks(ChainstateManager& chainman, const CTxMemPool& me
         }
     }
     return blockHashes;
-}
-
-static UniValue GetDrivechainVotesFromCoinbase(const CTransaction& coinbase_tx)
-{
-    UniValue votes(UniValue::VARR);
-
-    for (const auto& txout : coinbase_tx.vout) {
-        DrivechainScriptInfo info;
-        if (!DecodeDrivechainScript(txout.scriptPubKey, info)) {
-            continue;
-        }
-
-        if (info.kind != DrivechainScriptInfo::Kind::VOTE_YES &&
-            info.kind != DrivechainScriptInfo::Kind::VOTE_NO) {
-            continue;
-        }
-
-        UniValue vote(UniValue::VOBJ);
-        vote.pushKV("sidechain_id", static_cast<int>(info.sidechain_id));
-        vote.pushKV("bundle_hash", info.payload.GetHex());
-        vote.pushKV("vote", info.kind == DrivechainScriptInfo::Kind::VOTE_YES ? "yes" : "no");
-        votes.push_back(vote);
-    }
-
-    return votes;
-}
-
-static UniValue GetDrivechainBmmAcceptsFromCoinbase(const CTransaction& coinbase_tx)
-{
-    UniValue accepts(UniValue::VARR);
-
-    for (const auto& txout : coinbase_tx.vout) {
-        DrivechainBmmAcceptInfo info;
-        if (!DecodeDrivechainBmmAcceptScript(txout.scriptPubKey, info)) {
-            continue;
-        }
-
-        UniValue accept(UniValue::VOBJ);
-        accept.pushKV("sidechain_id", static_cast<int>(info.sidechain_id));
-        accept.pushKV("side_block_hash", info.side_block_hash.GetHex());
-        accepts.push_back(accept);
-    }
-
-    return accepts;
 }
 
 static bool getScriptFromDescriptor(const std::string& descriptor, CScript& script, std::string& error)
@@ -621,23 +576,6 @@ static RPCHelpMan getblocktemplate()
                             {RPCResult::Type::STR_HEX, "key", "values must be in the coinbase (keys may be ignored)"},
                         }},
                         {RPCResult::Type::NUM, "coinbasevalue", "maximum allowable input to coinbase transaction, including the generation award and transaction fees (in satoshis)"},
-                        {RPCResult::Type::ARR, "drivechainvotes", "drivechain votes selected into the coinbase for this template",
-                            {
-                                {RPCResult::Type::OBJ, "", "",
-                                    {
-                                        {RPCResult::Type::NUM, "sidechain_id", "sidechain identifier (0-255)"},
-                                        {RPCResult::Type::STR_HEX, "bundle_hash", "bundle hash being voted"},
-                                        {RPCResult::Type::STR, "vote", "vote value ('yes' or 'no')"},
-                                    }},
-                            }},
-                        {RPCResult::Type::ARR, "drivechainbmmaccepts", "BIP301 BMM accepts selected into the coinbase for this template",
-                            {
-                                {RPCResult::Type::OBJ, "", "",
-                                    {
-                                        {RPCResult::Type::NUM, "sidechain_id", "sidechain identifier (0-255)"},
-                                        {RPCResult::Type::STR_HEX, "side_block_hash", "sidechain block hash being accepted"},
-                                    }},
-                            }},
                         {RPCResult::Type::STR, "longpollid", "an id to include with a request to longpoll on an update to this template"},
                         {RPCResult::Type::STR, "target", "The hash target"},
                         {RPCResult::Type::NUM_TIME, "mintime", "The minimum timestamp appropriate for the next block time, expressed in " + UNIX_EPOCH_TIME},
@@ -943,8 +881,6 @@ static RPCHelpMan getblocktemplate()
     result.pushKV("transactions", transactions);
     result.pushKV("coinbaseaux", aux);
     result.pushKV("coinbasevalue", (int64_t)pblock->vtx[0]->vout[0].nValue);
-    result.pushKV("drivechainvotes", GetDrivechainVotesFromCoinbase(*pblock->vtx[0]));
-    result.pushKV("drivechainbmmaccepts", GetDrivechainBmmAcceptsFromCoinbase(*pblock->vtx[0]));
     result.pushKV("longpollid", ::ChainActive().Tip()->GetBlockHash().GetHex() + ToString(nTransactionsUpdatedLast));
     result.pushKV("target", hashTarget.GetHex());
     result.pushKV("mintime", (int64_t)pindexPrev->GetMedianTimePast()+1);

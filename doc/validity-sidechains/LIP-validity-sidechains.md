@@ -20,7 +20,7 @@ escrow on Litecoin, sidechain batches are finalized only when Litecoin validates
 their proofs and data-availability commitments, and withdrawals are released only
 when Litecoin verifies inclusion against an accepted withdrawal root.
 
-This protocol is not classic drivechain. The miner-voted withdrawal model is
+This protocol does not use the miner-voted withdrawal model. Peg-outs are
 replaced by proof-verified batch commitments, permissionless withdrawal
 execution, forced inclusion of L1 exit requests, and an escape hatch for
 sequencer halt.
@@ -29,7 +29,7 @@ sequencer halt.
 
 # Motivation
 
-The current drivechain-style model is trust-minimized, but not trustless:
+The legacy miner-voted sidechain model is trust-minimized, but not trustless:
 
 - miners decide whether a withdrawal bundle is valid
 - operators can be given owner-auth powers over bundle commits
@@ -176,16 +176,14 @@ require replaying the entire queue history.
 
 # Transaction Families
 
-This draft assumes the implementation may temporarily reuse the existing
-`OP_DRIVECHAIN (0xb4)` transport opcode while the codebase is migrated away from
-drivechain naming. The normative protocol names below describe the target
-semantics, not the temporary wire label.
+This draft uses the dedicated `OP_SIDECHAIN (0xb4)` transport opcode for
+validity-sidechain messages.
 
 All validity-sidechain outputs have the form:
 
 ```text
 OP_RETURN
-OP_DRIVECHAIN
+OP_SIDECHAIN
 <1-byte: sidechain_id>
 <32-byte: payload>
 <1-byte: tag>
@@ -203,9 +201,7 @@ OP_DRIVECHAIN
 | 0x0B | RECLAIM_STALE_DEPOSIT |
 | 0x0C | EXECUTE_ESCAPE_EXIT |
 
-The temporary tag range begins at `0x06` so the staged migration does not
-collide with the legacy drivechain `REGISTER` tag `0x05` while both parsers
-still exist in the codebase.
+The tag range begins at `0x06` for the validity-sidechain protocol family.
 
 ---
 
@@ -585,7 +581,7 @@ Litecoin consensus must track at least:
 - executed withdrawal nullifiers or executed leaf identifiers
 - executed escape-exit nullifiers
 
-This replaces the drivechain state model of owner-auth policies, vote windows,
+This replaces the legacy withdrawal state model of owner-auth policies, vote windows,
 bundle yes/no counts, and approval delays.
 
 ---
@@ -647,7 +643,7 @@ Residual risks remain:
 # Implementation Guidance
 
 This draft should be implemented as a new protocol family in the codebase, not
-as a cosmetic rename of drivechain. The current drivechain-specific concepts of
+as a cosmetic rename of the legacy withdrawal path. The current legacy concepts of
 bundle voting, owner-auth commit signatures, and miner approval windows should
 be retired from the withdrawal path entirely.
 

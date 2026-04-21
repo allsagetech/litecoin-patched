@@ -16,14 +16,14 @@ You can import a key by running the following command with that individual's
 fingerprint: `gpg --recv-keys "<fingerprint>"`. Ensure that you put quotes
 around fingerprints containing spaces.
 
-## Drivechain Security Program
+## Validity Sidechain Security Readiness
 
-Drivechain-specific production sign-off and external review evidence are tracked in:
+Sidechain activation and trustlessness gates are tracked in:
 
-- `doc/drivechain/PRODUCTION_READINESS.md`
-- `doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md`
+- `doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md`
+- `doc/validity-sidechains/IMPLEMENTATION_STATUS.md`
 
-If you are reporting a Drivechain-specific vulnerability, include:
+If you are reporting a validity-sidechain-specific vulnerability, include:
 
 - affected RPC(s) and reject reason(s),
 - minimal reproducer (transaction/block),

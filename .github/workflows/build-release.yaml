@@ -23,35 +23,12 @@ env:
 
 jobs:
   # ------------------------------------------------------------
-  # 0) Legacy Drivechain production readiness gates (static checks)
-  # ------------------------------------------------------------
-  drivechain-production-gates:
-    name: Legacy Drivechain production gates
-    runs-on: ubuntu-22.04
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Run production gate checks
-        env:
-          DRIVECHAIN_ENFORCE_EXTERNAL_SIGNOFF: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
-        run: |
-          python3 -m contrib.devtools.test_drivechain_production_gate
-          python3 contrib/devtools/drivechain_production_gate.py
-
-  # ------------------------------------------------------------
   # 1) SegWit functional tests
   # ------------------------------------------------------------
   segwit-functional-tests:
     name: SegWit functional tests
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-    needs: [drivechain-production-gates]
 
     steps:
       - name: Checkout repository
@@ -193,7 +170,6 @@ jobs:
     name: Signet functional tests
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-    needs: [drivechain-production-gates]
 
     steps:
       - name: Checkout repository
@@ -324,183 +300,6 @@ jobs:
           }
 
           run_one feature_signet.py
-          run_one feature_drivechain_signet.py
-
-  # ------------------------------------------------------------
-  # 3) Legacy Drivechain functional tests (everything but master)
-  # ------------------------------------------------------------
-  drivechain-functional-tests:
-    name: Legacy Drivechain functional tests
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
-    needs: [drivechain-production-gates, segwit-functional-tests, signet-functional-tests]
-
-    steps:
-      - name: Checkout repository
-        id: checkout_primary
-        continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Fallback checkout with retries
-        if: steps.checkout_primary.outcome == 'failure'
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf .git
-          git init .
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-
-          attempts=10
-          for i in $(seq 1 "${attempts}"); do
-            echo "Fallback fetch attempt ${i}/${attempts} for ${GITHUB_SHA}"
-            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
-              git checkout --force FETCH_HEAD
-              git reset --hard FETCH_HEAD
-              exit 0
-            fi
-            sleep $((i * 10))
-          done
-
-          echo "Fallback checkout failed after ${attempts} attempts"
-          exit 1
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.11"
-
-      - name: install Linux deps (tests)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            libtool \
-            autotools-dev \
-            automake \
-            pkg-config \
-            bsdmainutils \
-            curl \
-            python3 \
-            python3-pip \
-            libevent-dev \
-            libfmt-dev \
-            libboost-program-options-dev \
-            libboost-system-dev \
-            libboost-filesystem-dev \
-            libboost-thread-dev \
-            libboost-chrono-dev \
-            libboost-test-dev \
-            libdb++-dev
-
-      - name: Install Python deps for functional tests
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install blake3
-          python3 -m pip install pycryptodome
-
-          # litecoin_scrypt: prefer in-tree module if present, else PyPI
-          if [ -d "test/functional/litecoin_scrypt" ] || [ -f "test/functional/litecoin_scrypt/setup.py" ] || [ -f "test/functional/litecoin_scrypt/pyproject.toml" ]; then
-            python3 -m pip install ./test/functional/litecoin_scrypt
-          elif [ -d "test/functional/test_framework/litecoin_scrypt" ] || [ -f "test/functional/test_framework/litecoin_scrypt/setup.py" ] || [ -f "test/functional/test_framework/litecoin_scrypt/pyproject.toml" ]; then
-            python3 -m pip install ./test/functional/test_framework/litecoin_scrypt
-          else
-            python3 -m pip install litecoin_scrypt
-          fi
-
-      - name: autogen
-        run: ./autogen.sh
-
-      - name: configure (wallet enabled; allow non-4.8 BDB on CI)
-        env:
-          CXXFLAGS: "-pthread"
-          LDFLAGS: "-pthread"
-          LIBS: "-pthread"
-        run: |
-          ./configure \
-            --without-gui \
-            --disable-bench \
-            --with-incompatible-bdb
-
-      - name: build
-        run: make -j4
-
-      - name: Run legacy drivechain unit tests
-        run: |
-          src/test/test_litecoin --catch_system_errors=no --run_test=drivechain_script_tests
-
-      - name: Run legacy drivechain functional tests
-        env:
-          LC_ALL: C
-        run: |
-          set -euo pipefail
-
-          run_one () {
-            local t="$1"
-            echo "=== Running ${t} ==="
-            python3 "test/functional/${t}" --loglevel=debug --nocleanup || {
-              echo ""
-              echo "=== ${t} FAILED: dumping logs ==="
-              TD="$(ls -dt /tmp/litecoin_func_test_* 2>/dev/null | head -n1 || true)"
-              echo "Temp dir: ${TD:-<none>}"
-
-              if [ -n "${TD:-}" ] && [ -f "test/functional/combine_logs.py" ]; then
-                python3 test/functional/combine_logs.py "${TD}" || true
-              fi
-
-              if [ -n "${TD:-}" ]; then
-                echo ""
-                echo "--- test_framework.log ---"
-                sed -n '1,200p' "${TD}/test_framework.log" 2>/dev/null || true
-                echo ""
-                echo "--- node0 debug.log (tail) ---"
-                tail -n 200 "${TD}/node0/regtest/debug.log" 2>/dev/null || true
-                echo ""
-                echo "--- node1 debug.log (tail) ---"
-                tail -n 200 "${TD}/node1/regtest/debug.log" 2>/dev/null || true
-              fi
-
-              exit 1
-            }
-          }
-
-          run_one feature_drivechain_activation.py
-          run_one feature_drivechain_state.py
-          run_one feature_drivechain_miner_votes.py
-          run_one feature_drivechain_gbt_votes.py
-          run_one feature_drivechain_bmm.py
-          run_one feature_drivechain_reorg_cache_metrics.py
-          run_one drivechain_restart_state_persistence.py
-          run_one drivechain_bundle_replace_rules.py
-          run_one drivechain_check_connect_alignment.py
-          run_one drivechain_bundle_requires_sidechain.py
-          run_one drivechain_bundle_pruning.py
-          run_one drivechain_bundlehash_mismatch_reject.py
-          run_one drivechain_execute_duplicate_bundle_reject.py
-          run_one drivechain_stale_execute_template.py
-          run_one drivechain_execute_escrow_credit.py
-          run_one drivechain_execute_requires_approval.py
-          run_one drivechain_reject_pre_activation.py
-          run_one drivechain_softfork_activation_boundary.py
-          run_one drivechain_softfork_reorg_deactivation.py
-          run_one drivechain_reorg_state_rollback.py
-          run_one drivechain_reorg_snapshot_fallback.py
-          run_one drivechain_same_block_deposit_escrow.py
-          run_one drivechain_vote_coinbase_only.py
-          run_one drivechain_vote_single_per_sidechain.py
-          run_one drivechain_vote_arg_validation.py
-          run_one drivechain_owner_auth_enforcement.py
-          run_one drivechain_owner_auth_restart_reorg.py
-          run_one drivechain_register_auto_id.py
-          run_one drivechain_register_mempool_conflict.py
-          run_one drivechain_register_confirmation_required.py
-          run_one drivechain_vote_required_in_window.py
-          run_one drivechain_vote_window_boundary.py
-          run_one drivechain_bmm_block_rules.py
-          run_one drivechain_bmm_request_rpc.py
-          run_one drivechain_bmm_stale_request_replacement.py
 
   # ------------------------------------------------------------
   # 4) Validity sidechain functional tests
@@ -509,7 +308,7 @@ jobs:
     name: Validity sidechain functional tests
     runs-on: ubuntu-22.04
     timeout-minutes: 120
-    needs: [drivechain-production-gates, segwit-functional-tests, signet-functional-tests]
+    needs: [segwit-functional-tests, signet-functional-tests]
 
     steps:
       - name: Checkout repository
@@ -693,7 +492,7 @@ jobs:
     if: github.event_name == 'push' && (github.ref_name == 'master' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-    needs: [drivechain-production-gates, drivechain-functional-tests, validity-functional-tests]
+    needs: [segwit-functional-tests, signet-functional-tests, validity-functional-tests]
 
     permissions:
       contents: write

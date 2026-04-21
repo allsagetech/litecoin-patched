@@ -214,8 +214,6 @@ BITCOIN_CORE_H = \
   mweb/mweb_policy.h \
   mweb/mweb_transact.h \
   mweb/mweb_wallet.h \
-  drivechain/script.h \
-  drivechain/state.h \
   validitysidechain/blst_backend.h \
   validitysidechain/groth16.h \
   validitysidechain/registry.h \
@@ -407,7 +405,6 @@ libbitcoin_server_a_SOURCES = \
   txrequest.cpp \
   txmempool.cpp \
   validation.cpp \
-  drivechain/state.cpp \
   validitysidechain/blst_backend.cpp \
   validitysidechain/groth16.cpp \
   validitysidechain/registry.cpp \
@@ -562,8 +559,6 @@ libbitcoin_consensus_a_SOURCES = \
   script/script.h \
   script/script_error.cpp \
   script/script_error.h \
-  drivechain/script.cpp \
-  drivechain/script.h \
   validitysidechain/script.cpp \
   validitysidechain/script.h \
   serialize.h \

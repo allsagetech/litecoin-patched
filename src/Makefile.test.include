@@ -47,7 +47,6 @@ FUZZ_TARGETS = \
   test/fuzz/crypto_poly1305 \
   test/fuzz/cuckoocache \
   test/fuzz/decode_tx \
-  test/fuzz/drivechain_script \
   test/fuzz/descriptor_parse \
   test/fuzz/diskblockindex_deserialize \
   test/fuzz/eval_script \
@@ -237,7 +236,6 @@ BITCOIN_TESTS =\
   test/cuckoocache_tests.cpp \
   test/denialofservice_tests.cpp \
   test/descriptor_tests.cpp \
-  test/drivechain_script_tests.cpp \
   test/flatfile_tests.cpp \
   test/fs_tests.cpp \
   test/getarg_tests.cpp \
@@ -643,12 +641,6 @@ test_fuzz_decode_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_fuzz_decode_tx_LDADD = $(FUZZ_SUITE_LD_COMMON)
 test_fuzz_decode_tx_LDFLAGS = $(FUZZ_SUITE_LDFLAGS_COMMON)
 test_fuzz_decode_tx_SOURCES = test/fuzz/decode_tx.cpp
-
-test_fuzz_drivechain_script_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
-test_fuzz_drivechain_script_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-test_fuzz_drivechain_script_LDADD = $(FUZZ_SUITE_LD_COMMON)
-test_fuzz_drivechain_script_LDFLAGS = $(FUZZ_SUITE_LDFLAGS_COMMON)
-test_fuzz_drivechain_script_SOURCES = test/fuzz/drivechain_script.cpp
 
 test_fuzz_descriptor_parse_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 test_fuzz_descriptor_parse_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)

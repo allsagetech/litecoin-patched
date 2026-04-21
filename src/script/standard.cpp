@@ -4,7 +4,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <script/standard.h>
-#include <drivechain/script.h>
 #include <validitysidechain/script.h>
 
 #include <crypto/sha256.h>
@@ -61,7 +60,7 @@ std::string GetTxnOutputType(TxoutType t)
     case TxoutType::WITNESS_MWEB_PEGIN: return "witness_mweb_pegin";
     case TxoutType::WITNESS_MWEB_HOGADDR: return "witness_mweb_hogaddr";
     case TxoutType::WITNESS_UNKNOWN: return "witness_unknown";
-    case TxoutType::DRIVECHAIN: return "drivechain";
+    case TxoutType::SIDECHAIN: return "sidechain";
     } // no default case, so the compiler can warn about missing cases
     assert(false);
 }
@@ -112,35 +111,9 @@ static bool MatchMultisig(const CScript& script, unsigned int& required, std::ve
     return (it + 1 == script.end());
 }
 
-static inline std::vector<unsigned char> PackLE32(uint32_t v)
-{
-    return {
-        (unsigned char)((v >> 0) & 0xff),
-        (unsigned char)((v >> 8) & 0xff),
-        (unsigned char)((v >> 16) & 0xff),
-        (unsigned char)((v >> 24) & 0xff),
-    };
-}
-
 TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned char>>& vSolutionsRet)
 {
     vSolutionsRet.clear();
-
-    DrivechainScriptInfo info;
-    if (DecodeDrivechainScript(scriptPubKey, info)) {
-        vSolutionsRet.resize(0);
-        vSolutionsRet.reserve(info.kind == DrivechainScriptInfo::Kind::EXECUTE ? 4 : 3);
-
-        vSolutionsRet.push_back(std::vector<unsigned char>{static_cast<unsigned char>(info.kind)});
-        vSolutionsRet.push_back(std::vector<unsigned char>{info.sidechain_id});
-        vSolutionsRet.push_back(std::vector<unsigned char>(info.payload.begin(), info.payload.end()));
-
-        if (info.kind == DrivechainScriptInfo::Kind::EXECUTE) {
-            vSolutionsRet.push_back(PackLE32(info.n_withdrawals));
-        }
-
-        return TxoutType::DRIVECHAIN;
-    }
 
     ValiditySidechainScriptInfo validity_info;
     if (DecodeValiditySidechainScript(scriptPubKey, validity_info)) {
@@ -149,7 +122,7 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
         vSolutionsRet.push_back(std::vector<unsigned char>{static_cast<unsigned char>(validity_info.kind)});
         vSolutionsRet.push_back(std::vector<unsigned char>{validity_info.sidechain_id});
         vSolutionsRet.push_back(std::vector<unsigned char>(validity_info.payload.begin(), validity_info.payload.end()));
-        return TxoutType::DRIVECHAIN;
+        return TxoutType::SIDECHAIN;
     }
 
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:

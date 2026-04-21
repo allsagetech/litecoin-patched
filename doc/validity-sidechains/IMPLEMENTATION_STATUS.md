@@ -3,7 +3,6 @@
 This document is the branch-status companion to:
 
 - `doc/validity-sidechains/LIP-validity-sidechains.md`
-- `doc/validity-sidechains/MIGRATION_MAP.md`
 - `doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md`
 - `doc/validity-sidechains/PROPOSED_ZK_SYSTEM.md`
 
@@ -23,18 +22,21 @@ As of the current `litecoin-validity-sidechains` branch tip:
   scaffolding
 - the branch is still `scaffolding`, not `trustless`, not `activation
   candidate`, and not `production-ready`
-- the legacy drivechain consensus path still exists and remains active
 
 The authoritative read-only status RPC is:
 
 - `getvaliditysidechaininfo`
 
-That RPC currently reports:
+Key RPC fields currently report:
 
 - `implementation_status = "scaffolding"`
 - `trustless_enforced = false`
 - `activation_candidate = false`
-- `legacy_drivechain_withdrawal_path_active = true`
+- `canonical_profile_name = <configured>`
+- `recommended_profile_name = <configured>`
+- `migration_profiles_retained = true`
+- `migration_profile_registration_requires_opt_in = true`
+- `state_persistence_enabled = true`
 - `force_exit_request_mode = "profile_specific"`
 - `batch_validation_mode = "profile_specific"`
 - `batch_queue_binding_mode = "profile_specific"`
@@ -353,21 +355,17 @@ but this is still experimental rather than final because:
 - the dormant account/balance witness format is not yet wired into block or
   mempool validation
 
-## 4. Legacy Drivechain Status
+## 4. Legacy Withdrawal Path Status
 
-Legacy drivechain has not been removed yet.
+The legacy miner-voted / owner-authorized withdrawal path has been removed from
+this branch.
 
-Current legacy status:
+Current status:
 
-- the drivechain consensus path is still compiled and active
-- `getdrivechaininfo` still exists, but is marked deprecated
-- `senddrivechainbundle` still exists, but is marked deprecated and now
-  requires `-deprecatedrpc=senddrivechainbundle`
-- `senddrivechainexecute` still exists, but is marked deprecated and now
-  requires `-deprecatedrpc=senddrivechainexecute`
-
-This deprecation is intentional. The branch has not yet reached the point where
-legacy consensus behavior can be deleted safely.
+- the retired RPC methods are absent from the command table
+- block templates no longer expose the old vote / BMM fields
+- active consensus, mempool, miner, and wallet code only track the
+  validity-sidechain transaction families
 
 ## 5. Wallet and RPC Surface
 
@@ -553,9 +551,6 @@ After the core trustless blockers above, the remaining activation blockers are:
 
 Only after the new path is the sole supported withdrawal model should the branch:
 
-- delete deprecated legacy drivechain withdrawal RPCs and consensus logic in
-  `src/rpc/blockchain.cpp`, `src/wallet/rpcwallet.cpp`, `src/validation.cpp`,
-  `src/drivechain/state.*`, `src/miner.cpp`, and `src/txmempool.*`
 - expand ergonomics, tooling, and broader operator convenience beyond the trust
   and activation gates
 
@@ -735,7 +730,6 @@ Primary files:
 - `src/rpc/blockchain.cpp`
 - `src/wallet/rpcwallet.cpp`
 - `src/validation.cpp`
-- `src/drivechain/state.*`
 - `src/miner.cpp`
 - `src/txmempool.*`
 - `doc/validity-sidechains/*.md`
@@ -744,8 +738,7 @@ Work:
 
 - benchmark verifier and DA validation costs
 - get external review of verifier integration and public-input binding
-- remove or hard-fail legacy withdrawal RPCs and then remove the legacy
-  consensus path
+- keep the retired legacy withdrawal path absent from future releases
 - update docs so they stop describing the new path as scaffolding once the
   formal gates are actually cleared
 
@@ -779,8 +772,7 @@ For a future chat:
 
 1. Start with this file for current branch truth.
 2. Use `LIP-validity-sidechains.md` for the target protocol semantics.
-3. Use `MIGRATION_MAP.md` for the codebase transition plan.
-4. Use `ACTIVATION_REQUIREMENTS.md` to avoid overstating readiness or
+3. Use `ACTIVATION_REQUIREMENTS.md` to avoid overstating readiness or
    trustlessness.
 
 If any of those documents disagree, treat this file as the implementation

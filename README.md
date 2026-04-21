@@ -71,22 +71,7 @@ Trustless sidechain redesign materials are documented in:
 
 - [doc/validity-sidechains/IMPLEMENTATION_STATUS.md](doc/validity-sidechains/IMPLEMENTATION_STATUS.md)
 - [doc/validity-sidechains/LIP-validity-sidechains.md](doc/validity-sidechains/LIP-validity-sidechains.md)
-- [doc/validity-sidechains/MIGRATION_MAP.md](doc/validity-sidechains/MIGRATION_MAP.md)
 - [doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md](doc/validity-sidechains/ACTIVATION_REQUIREMENTS.md)
-
-### Legacy Drivechain Docs
-
-The current branch still contains legacy drivechain implementation material. It
-is retained only as migration context while the validity-sidechain design is
-specified and implemented:
-
-- [CREDITS_DRIVECHAIN.md](CREDITS_DRIVECHAIN.md)
-- [doc/drivechain/LIP-drivechain.md](doc/drivechain/LIP-drivechain.md)
-- [doc/drivechain/OPERATIONS.md](doc/drivechain/OPERATIONS.md)
-- [doc/drivechain/PRODUCTION_READINESS.md](doc/drivechain/PRODUCTION_READINESS.md)
-- [doc/drivechain/INCIDENT_RESPONSE_RUNBOOK.md](doc/drivechain/INCIDENT_RESPONSE_RUNBOOK.md)
-- [doc/drivechain/STAGED_ROLLOUT_PLAN.md](doc/drivechain/STAGED_ROLLOUT_PLAN.md)
-- [doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md](doc/drivechain/EXTERNAL_SECURITY_SIGNOFF.md)
 
 ### Manual Quality Assurance (QA) Testing
 

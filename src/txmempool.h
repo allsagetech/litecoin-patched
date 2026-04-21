@@ -620,19 +620,9 @@ public:
     std::map<OutputIndex, const CTransaction*> mapNextTx GUARDED_BY(cs);
 
     /**
-     * Index drivechain EXECUTE intents by (sidechain_id, bundle_hash).
+     * Index validity-sidechain registration intents by sidechain id.
      */
-    std::map<std::pair<uint8_t, uint256>, uint256> mapDrivechainExecByBundle GUARDED_BY(cs);
-
-    /**
-     * Index BIP301 BMM requests by sidechain id.
-     */
-    std::map<uint8_t, uint256> mapDrivechainBmmRequestBySidechain GUARDED_BY(cs);
-
-    /**
-     * Index DRIVECHAIN REGISTER intents by sidechain id.
-     */
-    std::map<uint8_t, uint256> mapDrivechainRegisterBySidechain GUARDED_BY(cs);
+    std::map<uint8_t, uint256> mapValiditySidechainRegisterBySidechain GUARDED_BY(cs);
 
     /**
      * Index validity-sidechain deposit requests by (sidechain_id, deposit_id).
@@ -734,17 +724,8 @@ public:
     /** Translate a set of hashes into a set of pool iterators to avoid repeated lookups */
     setEntries GetIterSet(const std::set<uint256>& hashes) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    /** Return true if a mempool tx already EXECUTEs the same (sidechain_id, bundle_hash). */
-    bool HasDrivechainExecuteBundle(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    /** Return true if a mempool tx already has a BMM request for this sidechain. */
-    bool HasDrivechainBmmRequestForSidechain(uint8_t sidechain_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-    /** Return the mempool txid of the current BMM request for a sidechain, if present. */
-    bool GetDrivechainBmmRequestTxidForSidechain(uint8_t sidechain_id, uint256& out_txid) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-    /** Return true if a mempool tx already REGISTERs this sidechain id. */
-    bool HasDrivechainRegisterForSidechain(uint8_t sidechain_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
-    /** Return the mempool txid of the current REGISTER tx for a sidechain, if present. */
-    bool GetDrivechainRegisterTxidForSidechain(uint8_t sidechain_id, uint256& out_txid) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    /** Return true if a mempool tx already REGISTERs this validity sidechain id. */
+    bool HasValiditySidechainRegisterForSidechain(uint8_t sidechain_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return true if a mempool tx already uses this validity-sidechain deposit id. */
     bool HasValiditySidechainDeposit(const std::pair<uint8_t, uint256>& key) const EXCLUSIVE_LOCKS_REQUIRED(cs);
     /** Return true if a mempool tx already reclaims this validity-sidechain deposit id. */

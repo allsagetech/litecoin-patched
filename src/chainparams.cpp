@@ -160,10 +160,6 @@ public:
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 6048; // 75% of 8064
         consensus.nMinerConfirmationWindow = 8064; // nPowTargetTimespan / nPowTargetSpacing * 4
-        consensus.nDrivechainVoteWindow = 8064;
-        consensus.nDrivechainApprovalThreshold = 6048;
-        consensus.nDrivechainFinalizationDelay = 8064;
-        consensus.nDrivechainMinRegisterAmount = 1 * COIN;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -177,14 +173,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].bit = 4;
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartHeight = 2217600; // End Feb 2022
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = 2427264; // 364 days later
-
-        // Deployment of Drivechain (LIP-DRIVECHAIN-OPCODE-WHATEVER)
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout   = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight   = 3072384;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = 3282048;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].lockin_on_timeout = false;
 
 
         consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000146878abee06fa883e0a");
@@ -292,10 +280,6 @@ public:
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
         consensus.nMinerConfirmationWindow = 2016; // nPowTargetTimespan / nPowTargetSpacing
-        consensus.nDrivechainVoteWindow = 8064;
-        consensus.nDrivechainApprovalThreshold = 6048;
-        consensus.nDrivechainFinalizationDelay = 8064;
-        consensus.nDrivechainMinRegisterAmount = 1 * COIN;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -309,14 +293,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].bit = 4;
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartHeight = 2209536; // Jan/Feb 2022
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = 2419200; // 364 days later
-
-        // Deployment of Drivechain (testnet)
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout   = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight   = 2360736;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = 2560320;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].lockin_on_timeout = false;
 
 
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000000004260a1758f04aa");
@@ -404,10 +380,6 @@ public:
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
         consensus.nMinerConfirmationWindow = 2016;
-        consensus.nDrivechainVoteWindow = 2016;
-        consensus.nDrivechainApprovalThreshold = 1512;
-        consensus.nDrivechainFinalizationDelay = 2016;
-        consensus.nDrivechainMinRegisterAmount = 1 * COIN;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -420,13 +392,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].bit = 4;
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartHeight = 2209536;
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = 2419200;
-
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = std::numeric_limits<int>::max();
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].lockin_on_timeout = false;
 
         consensus.nMinimumChainWork = uint256();
         consensus.defaultAssumeValid = uint256();
@@ -503,11 +468,6 @@ public:
         consensus.fPowNoRetargeting = true;
         consensus.nRuleChangeActivationThreshold = 108; // 75% for testchains
         consensus.nMinerConfirmationWindow = 144; // Faster than normal for regtest (144 instead of 2016)
-        consensus.nDrivechainVoteWindow = 20;
-        consensus.nDrivechainApprovalThreshold = 15;
-        consensus.nDrivechainFinalizationDelay = 20;
-        consensus.nDrivechainMinRegisterAmount = 1 * COIN;
-
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -520,14 +480,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].bit = 4;
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartTime = 1601450001; // September 30, 2020
         consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-
-        // Deployment of Drivechain
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeout   = Consensus::BIP9Deployment::NO_TIMEOUT;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nStartHeight   = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].nTimeoutHeight = std::numeric_limits<int>::max();
-        consensus.vDeployments[Consensus::DEPLOYMENT_DRIVECHAIN].lockin_on_timeout = false;
 
         consensus.nMinimumChainWork = uint256{};
         consensus.defaultAssumeValid = uint256{};

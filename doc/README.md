@@ -64,9 +64,7 @@ The Litecoin repo's [root README](/README.md) contains relevant information on t
 - [Benchmarking](benchmarking.md)
 - [Validity Sidechain Implementation Status](validity-sidechains/IMPLEMENTATION_STATUS.md)
 - [Validity-Enforced Sidechains Draft](validity-sidechains/LIP-validity-sidechains.md)
-- [Drivechain Migration Map](validity-sidechains/MIGRATION_MAP.md)
 - [Validity Sidechain Activation Requirements](validity-sidechains/ACTIVATION_REQUIREMENTS.md)
-- [Legacy Drivechain Docs](drivechain/README.md)
 
 ### Resources
 * Discuss on the [LitecoinTalk](https://litecointalk.io/) forums.

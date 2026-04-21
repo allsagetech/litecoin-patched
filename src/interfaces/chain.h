@@ -5,7 +5,6 @@
 #ifndef BITCOIN_INTERFACES_CHAIN_H
 #define BITCOIN_INTERFACES_CHAIN_H
 
-#include <drivechain/policy.h>
 #include <optional.h>               // For Optional and nullopt
 #include <primitives/transaction.h> // For CTransactionRef
 #include <util/settings.h>          // For util::SettingsValue
@@ -160,10 +159,6 @@ public:
     //! populates the values.
     virtual void findCoins(std::map<COutPoint, Coin>& coins) = 0;
 
-    //! Look up registered sidechain owner-auth policy data from active chain state.
-    //! Returns false if the sidechain is not registered.
-    virtual bool getDrivechainSidechain(uint8_t sidechain_id, bool& owner_auth_required, DrivechainSidechainPolicy& sidechain_policy) = 0;
-
     //! Return the currently tracked validity-sidechain scaffold state from the active chain.
     virtual std::vector<ValiditySidechain> getValiditySidechains() = 0;
 
@@ -294,6 +289,12 @@ public:
     //! to be prepared to handle this by ignoring notifications about unknown
     //! removed transactions and already added new transactions.
     virtual void requestMempoolTransactions(Notifications& notifications) = 0;
+
+    //! Dry-run mempool acceptance without adding the transaction to the mempool
+    //! or notifying validation interface clients.
+    virtual bool checkMempoolAcceptance(const CTransactionRef& tx,
+        const CAmount& max_tx_fee,
+        std::string& err_string) = 0;
 };
 
 //! Interface to let node manage chain clients (wallets, or maybe tools for

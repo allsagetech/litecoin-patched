@@ -17,7 +17,6 @@ enum DeploymentPos
     DEPLOYMENT_TESTDUMMY,
     DEPLOYMENT_TAPROOT, // Deployment of Schnorr/Taproot (BIPs 340-342)
     DEPLOYMENT_MWEB, // Deployment of MWEB (LIPs 0002-0004)
-    DEPLOYMENT_DRIVECHAIN,
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };
@@ -90,15 +89,6 @@ struct Params {
      */
     uint32_t nRuleChangeActivationThreshold;
     uint32_t nMinerConfirmationWindow;
-
-    /** Drivechain bundle voting window size (in blocks). */
-    int nDrivechainVoteWindow{0};
-    /** Drivechain bundle approval threshold (yes votes). */
-    int nDrivechainApprovalThreshold{0};
-    /** Delay after the voting window before an approved bundle may execute. */
-    int nDrivechainFinalizationDelay{0};
-    /** Minimum burn amount for sidechain REGISTER outputs. */
-    CAmount nDrivechainMinRegisterAmount{0};
 
     BIP9Deployment vDeployments[MAX_VERSION_BITS_DEPLOYMENTS];
     /** Proof of work parameters */

@@ -63,17 +63,17 @@ BOOST_AUTO_TEST_CASE(register_script_roundtrip)
     BOOST_CHECK(info.payload == ComputeValiditySidechainConfigHash(decoded_config));
 }
 
-BOOST_AUTO_TEST_CASE(register_script_is_classified_as_drivechain)
+BOOST_AUTO_TEST_CASE(register_script_uses_validity_transport)
 {
     const CScript script = BuildValiditySidechainRegisterScript(/* scid= */ 3, MakeRegisterConfig());
-    BOOST_CHECK(script.IsDrivechain());
+    BOOST_CHECK(IsValiditySidechainTransport(script));
 }
 
-BOOST_AUTO_TEST_CASE(register_transaction_reports_drivechain_stuff)
+BOOST_AUTO_TEST_CASE(register_transaction_reports_sidechain_data)
 {
     CMutableTransaction tx;
     tx.vout.emplace_back(/* nValueIn= */ 1, BuildValiditySidechainRegisterScript(/* scid= */ 4, MakeRegisterConfig()));
-    BOOST_CHECK(CTransaction(tx).HasDrivechainStuff());
+    BOOST_CHECK(CTransaction(tx).HasSidechainData());
 }
 
 BOOST_AUTO_TEST_CASE(config_decode_rejects_zero_limits)
@@ -712,7 +712,7 @@ BOOST_AUTO_TEST_CASE(validity_parser_rejects_legacy_register_tag)
 {
     const std::vector<unsigned char> payload(32, 0x42);
     CScript script;
-    script << OP_RETURN << OP_DRIVECHAIN << std::vector<unsigned char>{1} << payload << std::vector<unsigned char>{0x05};
+    script << OP_RETURN << OP_SIDECHAIN << std::vector<unsigned char>{1} << payload << std::vector<unsigned char>{0x05};
 
     ValiditySidechainScriptInfo info;
     BOOST_CHECK(!DecodeValiditySidechainScript(script, info));

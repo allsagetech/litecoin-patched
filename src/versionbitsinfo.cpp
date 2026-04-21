@@ -19,8 +19,4 @@ const struct VBDeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION_B
         /*.name =*/ "mweb",
         /*.gbt_force =*/ true,
     },
-    {
-        /*.name =*/ "drivechain",
-        /*.gbt_force =*/ true,
-    },
 };

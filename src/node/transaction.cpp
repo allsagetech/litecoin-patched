@@ -26,6 +26,42 @@ static TransactionError HandleATMPError(const TxValidationState& state, std::str
     }
 }
 
+TransactionError CheckTransactionAcceptance(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee)
+{
+    assert(node.mempool);
+
+    LOCK(cs_main);
+
+    CCoinsViewCache& view = ::ChainstateActive().CoinsTip();
+    for (const CTxOutput& o : tx->GetOutputs()) {
+        if (view.HaveCoin(o.GetIndex())) return TransactionError::ALREADY_IN_CHAIN;
+    }
+
+    if (node.mempool->exists(tx->GetHash())) {
+        return TransactionError::OK;
+    }
+
+    TxValidationState state;
+    if (max_tx_fee > 0) {
+        CAmount fee{0};
+        if (!AcceptToMemoryPool(*node.mempool, state, tx,
+                nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true, &fee)) {
+            return HandleATMPError(state, err_string);
+        }
+        if (fee > max_tx_fee) {
+            return TransactionError::MAX_FEE_EXCEEDED;
+        }
+        return TransactionError::OK;
+    }
+
+    if (!AcceptToMemoryPool(*node.mempool, state, tx,
+            nullptr /* plTxnReplaced */, false /* bypass_limits */, /* test_accept */ true)) {
+        return HandleATMPError(state, err_string);
+    }
+
+    return TransactionError::OK;
+}
+
 TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback)
 {
     // BroadcastTransaction can be called by either sendrawtransaction RPC or wallet RPCs.

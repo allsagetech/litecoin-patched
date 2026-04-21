@@ -4,7 +4,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <script/script.h>
-#include <drivechain/script.h>
 
 #include <mw/models/crypto/Hash.h>
 #include <util/strencodings.h>
@@ -199,17 +198,6 @@ unsigned int CScript::GetSigOpCount(const CScript& scriptSig) const
     /// ... and return its opcount:
     CScript subscript(vData.begin(), vData.end());
     return subscript.GetSigOpCount(true);
-}
-
-bool CScript::IsDrivechain() const
-{
-    DrivechainScriptInfo info;
-    if (DecodeDrivechainScript(*this, info)) {
-        return true;
-    }
-
-    ValiditySidechainScriptInfo validity_info;
-    return DecodeValiditySidechainScript(*this, validity_info);
 }
 
 bool CScript::IsPayToScriptHash() const

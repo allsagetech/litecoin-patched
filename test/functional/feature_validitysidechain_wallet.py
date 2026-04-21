@@ -497,7 +497,6 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(info["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(info["migration_profiles_retained"], True)
         assert_equal(info["migration_profile_registration_requires_opt_in"], True)
-        assert_equal(info["legacy_drivechain_rpc_deprecated"], True)
         assert_equal(info["deposit_admission_mode"], "profile_specific")
         assert_equal(info["force_exit_request_mode"], "profile_specific")
         assert_equal(info["batch_validation_mode"], "profile_specific")

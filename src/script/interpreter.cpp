@@ -1238,9 +1238,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
-                case OP_DRIVECHAIN:
+                case OP_SIDECHAIN:
                 {
-                    if (!(flags & SCRIPT_VERIFY_DRIVECHAIN)) {
+                    if (!(flags & SCRIPT_VERIFY_SIDECHAIN)) {
                         if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS) {
                             return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
                         }

@@ -38,4 +38,7 @@ static const CFeeRate DEFAULT_MAX_RAW_TX_FEE_RATE{COIN / 10};
  */
 NODISCARD TransactionError BroadcastTransaction(NodeContext& node, CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback);
 
+//! Dry-run mempool acceptance without adding the transaction to the mempool.
+NODISCARD TransactionError CheckTransactionAcceptance(NodeContext& node, CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee);
+
 #endif // BITCOIN_NODE_TRANSACTION_H

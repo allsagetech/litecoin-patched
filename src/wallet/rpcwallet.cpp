@@ -46,7 +46,6 @@
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 #include <wallet/walletutil.h>
-#include <drivechain/script.h>
 #include <hash.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
@@ -444,187 +443,6 @@ void ParseRecipients(const UniValue& address_amounts, const UniValue& subtract_f
     }
 }
 
-static void ParseOutputsArray(const UniValue& outputs_in, std::vector<CRecipient>& recipients)
-{
-    RPCTypeCheckArgument(outputs_in, UniValue::VARR);
-
-    std::set<CTxDestination> dests_seen;
-    std::set<CScript> scripts_seen;
-
-    for (size_t i = 0; i < outputs_in.size(); ++i) {
-        const UniValue& out = outputs_in[i];
-        RPCTypeCheckArgument(out, UniValue::VOBJ);
-
-        // Require amount
-        if (!out.exists("amount")) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Output %u missing 'amount'", (unsigned)i));
-        }
-        const CAmount amount = AmountFromValue(out["amount"]);
-
-        // Optional subtract_fee (default false)
-        bool subtract_fee = false;
-        if (out.exists("subtract_fee") && !out["subtract_fee"].isNull()) {
-            subtract_fee = out["subtract_fee"].get_bool();
-        }
-
-        const bool has_addr = out.exists("address") && !out["address"].isNull();
-        const bool has_script = out.exists("script") && !out["script"].isNull();
-        if (has_addr == has_script) {
-            throw JSONRPCError(
-                RPC_INVALID_PARAMETER,
-                strprintf("Output %u must contain exactly one of 'address' or 'script'", (unsigned)i));
-        }
-
-        if (has_addr) {
-            const std::string addr_str = out["address"].get_str();
-            const CTxDestination dest = DecodeDestination(addr_str);
-            if (!IsValidDestination(dest)) {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Litecoin address: " + addr_str);
-            }
-            if (dests_seen.count(dest)) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Duplicate address in outputs: " + addr_str);
-            }
-            dests_seen.insert(dest);
-
-            DestinationAddr recipient_addr(dest);
-            recipients.push_back({recipient_addr, amount, subtract_fee});
-        } else {
-            const std::string script_hex = out["script"].get_str();
-            if (!IsHex(script_hex)) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Output %u 'script' is not hex", (unsigned)i));
-            }
-            const CScript script = CScript(ParseHex(script_hex).begin(), ParseHex(script_hex).end());
-            if (scripts_seen.count(script)) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Duplicate script in outputs at index %u", (unsigned)i));
-            }
-            scripts_seen.insert(script);
-
-            recipients.push_back({script, amount, subtract_fee});
-        }
-    }
-
-    if (recipients.empty()) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "outputs array must not be empty");
-    }
-}
-
-static void ParseDepositAmounts(const UniValue& amounts_in, const UniValue& subtract_fee_in, const CScript& deposit_script, std::vector<CRecipient>& recipients)
-{
-    RPCTypeCheckArgument(amounts_in, UniValue::VARR);
-    if (amounts_in.empty()) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "amounts must be a non-empty array");
-    }
-
-    // Decide which outputs subtract fee
-    bool subtract_all = false;
-    std::set<size_t> subtract_indices;
-
-    if (!subtract_fee_in.isNull()) {
-        if (subtract_fee_in.isBool()) {
-            subtract_all = subtract_fee_in.get_bool();
-        } else if (subtract_fee_in.isArray()) {
-            for (size_t i = 0; i < subtract_fee_in.size(); ++i) {
-                const UniValue& v = subtract_fee_in[i];
-                if (!v.isNum()) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee array must contain numeric indices");
-                }
-                const int idx = v.get_int();
-                if (idx < 0) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee indices must be >= 0");
-                }
-                subtract_indices.insert((size_t)idx);
-            }
-        } else {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee must be a boolean or an array of indices");
-        }
-    }
-
-    recipients.clear();
-    recipients.reserve(amounts_in.size());
-
-    for (size_t i = 0; i < amounts_in.size(); ++i) {
-        const CAmount amount = AmountFromValue(amounts_in[i]);
-        if (amount <= 0) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "deposit amounts must be > 0");
-        }
-
-        const bool subtract_here = subtract_all || subtract_indices.count(i) > 0;
-        recipients.push_back(CRecipient{deposit_script, amount, subtract_here});
-    }
-
-    // Validate indices in subtract_fee array (must be in-range)
-    for (size_t idx : subtract_indices) {
-        if (idx >= recipients.size()) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "subtract_fee index out of range for amounts array");
-        }
-    }
-}
-
-static void ParseWithdrawalsArray( const UniValue& arr, std::vector<CRecipient>& out_recipients, CAmount& out_sum)
-{
-    RPCTypeCheckArgument(arr, UniValue::VARR);
-    if (arr.empty()) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawals array must not be empty");
-    }
-
-    out_recipients.clear();
-    out_recipients.reserve(arr.size());
-
-    CAmount sum{0};
-
-    for (size_t i = 0; i < arr.size(); ++i) {
-        const UniValue& o = arr[i];
-        RPCTypeCheckArgument(o, UniValue::VOBJ);
-
-        if (!o.exists("amount")) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("withdrawals[%u] missing amount", (unsigned)i));
-        }
-        const CAmount amt = AmountFromValue(o["amount"]);
-        if (amt <= 0 || !MoneyRange(amt)) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("withdrawals[%u] invalid amount", (unsigned)i));
-        }
-
-        const bool has_addr = o.exists("address") && !o["address"].isNull();
-        const bool has_script = o.exists("script") && !o["script"].isNull();
-        if (has_addr == has_script) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER,
-                strprintf("withdrawals[%u] must contain exactly one of address or script", (unsigned)i));
-        }
-
-        CScript spk;
-        if (has_addr) {
-            const std::string addr = o["address"].get_str();
-            const CTxDestination dest = DecodeDestination(addr);
-            if (!IsValidDestination(dest)) {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid address: " + addr);
-            }
-            spk = GetScriptForDestination(dest);
-        } else {
-            const std::string hex = o["script"].get_str();
-            if (!IsHex(hex)) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("withdrawals[%u] script is not hex", (unsigned)i));
-            }
-            const std::vector<unsigned char> bytes = ParseHex(hex);
-            spk = CScript(bytes.begin(), bytes.end());
-        }
-
-        if (spk.size() > 255) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER,
-                strprintf("withdrawals[%u] scriptPubKey too long (max 255 bytes)", (unsigned)i));
-        }
-
-        // Never subtract fee from withdrawals.
-        out_recipients.push_back({spk, amt, /*fSubtractFeeFromAmount=*/false});
-
-        sum += amt;
-        if (!MoneyRange(sum)) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "withdrawal sum out of range");
-        }
-    }
-
-    out_sum = sum;
-}
-
 static uint256 ComputeRpcScriptCommitment(const CScript& script);
 
 static const ValiditySidechainAcceptedBatch* FindAcceptedValidityBatch(
@@ -1005,7 +823,7 @@ static UniValue SendMoneyNoShuffle(
 
     CAmount nFeeRequired = 0;
     // Keep change output after caller-provided outputs.
-    // This preserves recipient ordering for consensus-sensitive outputs (e.g. Drivechain EXECUTE).
+    // This preserves recipient ordering for consensus-sensitive sidechain outputs.
     int nChangePosRet = (int)recipients.size();
     bilingual_str error;
     CTransactionRef tx;
@@ -1018,11 +836,12 @@ static UniValue SendMoneyNoShuffle(
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, error.original);
     }
 
-    // Preflight mempool acceptance so callers get immediate RPC errors for
-    // policy/consensus rejections instead of a txid that failed broadcast.
+    // Dry-run mempool acceptance so callers get immediate RPC errors for
+    // policy/consensus rejections without inserting the transaction before
+    // CommitTransaction records it in the wallet.
     if (preflight_mempool_accept && pwallet->GetBroadcastTransactions()) {
         std::string err_string;
-        if (!pwallet->chain().broadcastTransaction(tx, pwallet->m_default_max_tx_fee, /*relay=*/false, err_string)) {
+        if (!pwallet->chain().checkMempoolAcceptance(tx, pwallet->m_default_max_tx_fee, err_string)) {
             throw JSONRPCError(RPC_TRANSACTION_REJECTED, err_string);
         }
     }
@@ -1038,7 +857,7 @@ static UniValue SendMoneyNoShuffle(
     return tx->GetHash().GetHex();
 }
 
-static std::string SendToDrivechainOutputs(
+static std::string SendToSidechainOutputs(
     CWallet& wallet,
     std::vector<CRecipient>& recipients,
     CCoinControl& coin_control,
@@ -1056,7 +875,7 @@ static std::string SendToDrivechainOutputs(
 
     if (preflight_mempool_accept && wallet.GetBroadcastTransactions()) {
         std::string err_string;
-        if (!wallet.chain().broadcastTransaction(tx, wallet.m_default_max_tx_fee, /*relay=*/false, err_string)) {
+        if (!wallet.chain().checkMempoolAcceptance(tx, wallet.m_default_max_tx_fee, err_string)) {
             throw JSONRPCError(RPC_TRANSACTION_REJECTED, err_string);
         }
     }
@@ -1065,7 +884,7 @@ static std::string SendToDrivechainOutputs(
     return tx->GetHash().GetHex();
 }
 
-static std::string SendToDrivechainScript(
+static std::string SendToSidechainScript(
     CWallet& wallet,
     const CScript& script,
     CAmount amount,
@@ -1075,20 +894,7 @@ static std::string SendToDrivechainScript(
 {
     std::vector<CRecipient> recipients;
     recipients.push_back(CRecipient{script, amount, subtract_fee_from_amount});
-    return SendToDrivechainOutputs(wallet, recipients, coin_control, preflight_mempool_accept);
-}
-
-static void RequireDeprecatedLegacyDrivechainRpc(const char* method)
-{
-    if (IsDeprecatedRPCEnabled(method)) {
-        return;
-    }
-    throw JSONRPCError(
-        RPC_METHOD_DEPRECATED,
-        strprintf(
-            "%s is a deprecated legacy drivechain withdrawal RPC. Restart litecoind with -deprecatedrpc=%s to use it while the migration path still exists.",
-            method,
-            method));
+    return SendToSidechainOutputs(wallet, recipients, coin_control, preflight_mempool_accept);
 }
 
 static void RequireValiditySidechainMigrationProfileRegistrationOptIn(const ValiditySidechainConfig& config)
@@ -1108,269 +914,6 @@ static void RequireValiditySidechainMigrationProfileRegistrationOptIn(const Vali
             recommended_supported != nullptr && recommended_supported->profile_name != nullptr ? recommended_supported->profile_name : "recommended_profile"));
 }
 
-static bool IsDrivechainRegisterSidechainExistsError(const UniValue& err)
-{
-    if (!err.isObject()) return false;
-
-    const UniValue& code = find_value(err, "code");
-    const UniValue& message = find_value(err, "message");
-    if (!code.isNum() || !message.isStr()) return false;
-
-    return code.get_int() == RPC_TRANSACTION_REJECTED &&
-           message.get_str().find("drivechain-register-sidechain-exists") != std::string::npos;
-}
-
-struct DrivechainOwnerKeyEntry
-{
-    CKey key;
-    uint256 key_hash;
-};
-
-static void PushDrivechainPolicyResult(UniValue& out, const DrivechainSidechainPolicy& policy)
-{
-    const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(policy);
-    out.pushKV("policy_hash", policy_hash.GetHex());
-    out.pushKV("policy_hash_payload", HexStr(std::vector<unsigned char>(policy_hash.begin(), policy_hash.end())));
-    out.pushKV("auth_threshold", static_cast<int>(policy.auth_threshold));
-
-    UniValue owner_key_hashes(UniValue::VARR);
-    UniValue owner_key_hashes_payload(UniValue::VARR);
-    for (const uint256& key_hash : policy.owner_key_hashes) {
-        owner_key_hashes.push_back(key_hash.GetHex());
-        owner_key_hashes_payload.push_back(HexStr(std::vector<unsigned char>(key_hash.begin(), key_hash.end())));
-    }
-    out.pushKV("owner_key_hashes", owner_key_hashes);
-    out.pushKV("owner_key_hashes_payload", owner_key_hashes_payload);
-    out.pushKV("max_escrow_amount", policy.max_escrow_amount);
-    out.pushKV("max_bundle_withdrawal", policy.max_bundle_withdrawal);
-
-    if (policy.owner_key_hashes.size() == 1) {
-        const uint256& owner_key_hash = policy.owner_key_hashes.front();
-        out.pushKV("owner_key_hash", owner_key_hash.GetHex());
-        out.pushKV("owner_key_hash_payload", HexStr(std::vector<unsigned char>(owner_key_hash.begin(), owner_key_hash.end())));
-    }
-}
-
-static CScript BuildDrivechainRegisterScript(
-    uint8_t scid,
-    const DrivechainSidechainPolicy& policy,
-    const std::vector<std::vector<unsigned char>>& auth_sigs)
-{
-    const std::vector<unsigned char> scid_v{scid};
-    const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(policy);
-    const std::vector<unsigned char> payload(policy_hash.begin(), policy_hash.end());
-    const std::vector<unsigned char> tag{0x05};
-    const std::vector<unsigned char> encoded_policy = EncodeDrivechainSidechainPolicy(policy);
-
-    CScript script;
-    script << OP_RETURN << OP_DRIVECHAIN << scid_v << payload << tag << encoded_policy;
-    for (const auto& auth_sig : auth_sigs) {
-        if (!auth_sig.empty()) {
-            script << auth_sig;
-        }
-    }
-    return script;
-}
-
-static CScript BuildDrivechainBundleScript(
-    uint8_t scid,
-    const uint256& bundle_hash,
-    const std::vector<std::vector<unsigned char>>& auth_sigs)
-{
-    const std::vector<unsigned char> scid_v{scid};
-    const std::vector<unsigned char> payload(bundle_hash.begin(), bundle_hash.end());
-    const std::vector<unsigned char> tag{0x01};
-
-    CScript script;
-    script << OP_RETURN << OP_DRIVECHAIN << scid_v << payload << tag;
-    for (const auto& auth_sig : auth_sigs) {
-        if (!auth_sig.empty()) {
-            script << auth_sig;
-        }
-    }
-    return script;
-}
-
-static void GetDrivechainOwnerKeyEntryFromWalletAddress(
-    const CWallet& wallet,
-    const std::string& owner_address,
-    DrivechainOwnerKeyEntry& out_entry)
-{
-    const CTxDestination dest = DecodeDestination(owner_address);
-    if (!IsValidDestination(dest)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must be a valid wallet address");
-    }
-
-    const DestinationAddr dest_addr(dest);
-    ScriptPubKeyMan* const spk_man = wallet.GetScriptPubKeyMan(dest_addr);
-    if (spk_man == nullptr) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must belong to this wallet");
-    }
-
-    std::unique_ptr<SigningProvider> solving_provider = wallet.GetSolvingProvider(dest_addr);
-    if (!solving_provider) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must refer to a single-key address");
-    }
-
-    const CKeyID key_id = GetKeyForDestination(*solving_provider, dest);
-    if (key_id.IsNull()) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must refer to a single-key address");
-    }
-
-    CPubKey owner_pubkey;
-    if (!spk_man->GetKeyForDestination(dest, out_entry.key, owner_pubkey)) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "owner_address private key is not available in this wallet");
-    }
-
-    if (!owner_pubkey.IsValid() || !owner_pubkey.IsCompressed()) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_address must resolve to a valid compressed public key");
-    }
-
-    const std::vector<unsigned char> owner_pubkey_bytes(owner_pubkey.begin(), owner_pubkey.end());
-    out_entry.key_hash = Hash(owner_pubkey_bytes);
-}
-
-static std::vector<DrivechainOwnerKeyEntry> GetDrivechainOwnerKeyEntriesFromWalletParam(
-    const CWallet& wallet,
-    const UniValue& owner_param)
-{
-    std::vector<std::string> owner_addresses;
-    if (owner_param.isStr()) {
-        const std::string owner_arg = owner_param.get_str();
-        UniValue parsed_owner_array;
-        if (!owner_arg.empty() && owner_arg.front() == '[' &&
-            parsed_owner_array.read(owner_arg) && parsed_owner_array.isArray()) {
-            for (size_t i = 0; i < parsed_owner_array.size(); ++i) {
-                if (!parsed_owner_array[i].isStr()) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses array must contain only wallet address strings");
-                }
-                owner_addresses.push_back(parsed_owner_array[i].get_str());
-            }
-        } else {
-            owner_addresses.push_back(owner_arg);
-        }
-    } else if (owner_param.isArray()) {
-        for (size_t i = 0; i < owner_param.size(); ++i) {
-            if (!owner_param[i].isStr()) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses array must contain only wallet address strings");
-            }
-            owner_addresses.push_back(owner_param[i].get_str());
-        }
-    } else {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses must be a wallet address or an array of wallet addresses");
-    }
-
-    if (owner_addresses.empty()) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses must not be empty");
-    }
-    if (owner_addresses.size() > MAX_DRIVECHAIN_OWNER_KEYS) {
-        throw JSONRPCError(
-            RPC_INVALID_PARAMETER,
-            strprintf("owner_addresses must contain at most %u entries", MAX_DRIVECHAIN_OWNER_KEYS));
-    }
-
-    std::vector<DrivechainOwnerKeyEntry> owner_keys;
-    owner_keys.reserve(owner_addresses.size());
-    for (const std::string& owner_address : owner_addresses) {
-        DrivechainOwnerKeyEntry entry;
-        GetDrivechainOwnerKeyEntryFromWalletAddress(wallet, owner_address, entry);
-        owner_keys.push_back(std::move(entry));
-    }
-
-    std::sort(owner_keys.begin(), owner_keys.end(), [](const DrivechainOwnerKeyEntry& a, const DrivechainOwnerKeyEntry& b) {
-        return a.key_hash < b.key_hash;
-    });
-
-    for (size_t i = 1; i < owner_keys.size(); ++i) {
-        if (owner_keys[i - 1].key_hash == owner_keys[i].key_hash) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses must resolve to distinct public keys");
-        }
-    }
-
-    return owner_keys;
-}
-
-static std::vector<std::vector<unsigned char>> SignDrivechainAuthMessage(
-    const std::vector<DrivechainOwnerKeyEntry>& owner_keys,
-    const uint256& auth_msg,
-    const char* failure_message)
-{
-    std::vector<std::vector<unsigned char>> auth_sigs;
-    auth_sigs.reserve(owner_keys.size());
-    for (const DrivechainOwnerKeyEntry& owner_key : owner_keys) {
-        std::vector<unsigned char> auth_sig;
-        if (!owner_key.key.SignCompact(auth_msg, auth_sig)) {
-            throw JSONRPCError(RPC_WALLET_ERROR, failure_message);
-        }
-        auth_sigs.push_back(std::move(auth_sig));
-    }
-    return auth_sigs;
-}
-
-static DrivechainSidechainPolicy BuildDrivechainSidechainPolicy(
-    const std::vector<DrivechainOwnerKeyEntry>& owner_keys,
-    int auth_threshold,
-    CAmount max_escrow_amount,
-    CAmount max_bundle_withdrawal)
-{
-    if (auth_threshold <= 0 || auth_threshold > owner_keys.size() || auth_threshold > MAX_DRIVECHAIN_OWNER_KEYS) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "auth_threshold must be between 1 and the number of owner keys");
-    }
-    if (max_escrow_amount <= 0) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "max_escrow_amount must be greater than 0");
-    }
-    if (max_bundle_withdrawal <= 0) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "max_bundle_withdrawal must be greater than 0");
-    }
-    if (max_bundle_withdrawal > max_escrow_amount) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "max_bundle_withdrawal must not exceed max_escrow_amount");
-    }
-
-    DrivechainSidechainPolicy policy;
-    policy.auth_threshold = static_cast<uint8_t>(auth_threshold);
-    policy.max_escrow_amount = max_escrow_amount;
-    policy.max_bundle_withdrawal = max_bundle_withdrawal;
-    policy.owner_key_hashes.reserve(owner_keys.size());
-    for (const DrivechainOwnerKeyEntry& owner_key : owner_keys) {
-        policy.owner_key_hashes.push_back(owner_key.key_hash);
-    }
-    return policy;
-}
-
-static std::pair<std::string, uint8_t> SendDrivechainRegisterWithAutoId(
-    CWallet& wallet,
-    const std::vector<DrivechainOwnerKeyEntry>& owner_keys,
-    const DrivechainSidechainPolicy& policy,
-    CAmount amount,
-    bool subtract_fee_from_amount)
-{
-    for (int scid_i = 0; scid_i <= 255; ++scid_i) {
-        const uint8_t sidechain_id = static_cast<uint8_t>(scid_i);
-        const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(
-            sidechain_id,
-            ComputeDrivechainSidechainPolicyHash(policy));
-        const std::vector<std::vector<unsigned char>> auth_sigs = SignDrivechainAuthMessage(
-            owner_keys,
-            auth_msg,
-            "failed to create registration authorization signature");
-        const CScript register_script = BuildDrivechainRegisterScript(sidechain_id, policy, auth_sigs);
-        CCoinControl coin_control;
-        try {
-            const std::string txid = SendToDrivechainScript(
-                wallet,
-                register_script,
-                amount,
-                coin_control,
-                subtract_fee_from_amount);
-            return {txid, sidechain_id};
-        } catch (const UniValue& err) {
-            if (IsDrivechainRegisterSidechainExistsError(err)) continue;
-            throw;
-        }
-    }
-
-    throw JSONRPCError(RPC_INVALID_PARAMETER, "No unused sidechain_id available (all 0-255 are in use)");
-}
 
 static uint8_t ParseUint8Value(const UniValue& value, const std::string& field_name)
 {
@@ -1459,22 +1002,21 @@ static bool GetValiditySidechainFromChain(CWallet& wallet, uint8_t sidechain_id,
 
 static bool HasValiditySidechainInChain(CWallet& wallet, uint8_t sidechain_id)
 {
-    ValiditySidechain sidechain;
-    return GetValiditySidechainFromChain(wallet, sidechain_id, sidechain);
-}
-
-static bool IsSidechainIdInUse(CWallet& wallet, uint8_t sidechain_id)
-{
     if (!wallet.HaveChain()) {
         return false;
     }
 
-    bool owner_auth_required = false;
-    DrivechainSidechainPolicy policy;
-    if (wallet.chain().getDrivechainSidechain(sidechain_id, owner_auth_required, policy)) {
-        return true;
+    for (const auto& sidechain : wallet.chain().getValiditySidechains()) {
+        if (sidechain.id == sidechain_id) {
+            return true;
+        }
     }
 
+    return false;
+}
+
+static bool IsSidechainIdInUse(CWallet& wallet, uint8_t sidechain_id)
+{
     return HasValiditySidechainInChain(wallet, sidechain_id);
 }
 
@@ -1556,448 +1098,6 @@ static std::vector<std::vector<unsigned char>> ParseHexArray(const UniValue& arr
     return out;
 }
 
-static RPCHelpMan senddrivechainregister()
-{
-    return RPCHelpMan{
-        "senddrivechainregister",
-        "Create, fund, sign and broadcast a Drivechain REGISTER transaction.\n"
-        "This is the secure sidechain ownership path: the wallet signs the registration binding with one or more wallet-held owner keys.\n"
-        "Owner keys are canonicalized by key hash before the sidechain policy hash is computed.\n"
-        "If sidechain_id is omitted, the wallet picks the lowest currently unused id from 0-255.\n",
-        std::vector<RPCArg>{
-            {"owner_addresses", RPCArg::Type::STR, RPCArg::Optional::NO, "Wallet owner address, or a JSON array of wallet owner addresses, whose compressed public keys become the registered owner policy"},
-            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional sidechain id (0-255). If omitted, lowest unused id is selected."},
-            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Amount to attach to register output (default: 1.0)"},
-            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
-            {"auth_threshold", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Required distinct owner signatures. Default: number of owner keys provided."},
-            {"max_escrow_amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Maximum total escrow balance allowed for this sidechain (default: network MAX_MONEY)."},
-            {"max_bundle_withdrawal", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Maximum withdrawal amount allowed in a single EXECUTE bundle (default: max_escrow_amount)."},
-        },
-        RPCResult{RPCResult::Type::OBJ, "", "",
-            {
-                {RPCResult::Type::STR_HEX, "txid", "The transaction id"},
-                {RPCResult::Type::NUM, "sidechain_id", "Registered sidechain id"},
-                {RPCResult::Type::STR_HEX, "policy_hash", "Sidechain policy hash in RPC uint256 display format"},
-                {RPCResult::Type::STR_HEX, "policy_hash_payload", "Sidechain policy hash in raw script payload byte order"},
-                {RPCResult::Type::NUM, "auth_threshold", "Required distinct owner signatures"},
-                {RPCResult::Type::NUM, "max_escrow_amount", "Maximum total escrow balance in satoshis"},
-                {RPCResult::Type::NUM, "max_bundle_withdrawal", "Maximum per-bundle withdrawal in satoshis"},
-                {RPCResult::Type::STR_HEX, "owner_key_hash", "Legacy single-owner compatibility field. Present only for 1-of-1 policies."},
-                {RPCResult::Type::STR_HEX, "owner_key_hash_payload", "Legacy single-owner compatibility field in raw script payload byte order."},
-            }},
-        RPCExamples{
-            HelpExampleCli("senddrivechainregister",
-                "\"rltc1q...\"") +
-            HelpExampleCli("senddrivechainregister",
-                "\"[\\\"rltc1q...\\\",\\\"rltc1q...\\\"]\" 7 1.0 false 2 100.0 25.0") +
-            HelpExampleRpc("senddrivechainregister",
-                "[\"rltc1q...\",\"rltc1q...\"], 7, 1.0, false, 2, 100.0, 25.0")
-        },
-        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
-            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-            if (!wallet) return NullUniValue;
-            CWallet* const pwallet = wallet.get();
-
-            Optional<uint8_t> maybe_sidechain_id;
-            if (request.params.size() > 1 && !request.params[1].isNull()) {
-                const int scid_i = request.params[1].get_int();
-                if (scid_i < 0 || scid_i > 255) {
-                    throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
-                }
-                maybe_sidechain_id = static_cast<uint8_t>(scid_i);
-            }
-
-            CAmount amount = COIN;
-            if (request.params.size() > 2 && !request.params[2].isNull()) {
-                amount = AmountFromValue(request.params[2]);
-            }
-            const CAmount min_register_amount = Params().GetConsensus().nDrivechainMinRegisterAmount;
-            if (amount < min_register_amount) {
-                throw JSONRPCError(
-                    RPC_INVALID_PARAMETER,
-                    strprintf("amount must be at least %s LTC", FormatMoney(min_register_amount)));
-            }
-
-            bool subtract_fee_from_amount = false;
-            if (request.params.size() > 3 && !request.params[3].isNull()) {
-                subtract_fee_from_amount = request.params[3].get_bool();
-            }
-
-            LOCK(pwallet->cs_wallet);
-            EnsureWalletIsUnlocked(pwallet);
-
-            const std::vector<DrivechainOwnerKeyEntry> owner_keys =
-                GetDrivechainOwnerKeyEntriesFromWalletParam(*pwallet, request.params[0]);
-
-            int auth_threshold = owner_keys.size();
-            if (request.params.size() > 4 && !request.params[4].isNull()) {
-                auth_threshold = request.params[4].get_int();
-            }
-
-            CAmount max_escrow_amount = MAX_MONEY;
-            if (request.params.size() > 5 && !request.params[5].isNull()) {
-                max_escrow_amount = AmountFromValue(request.params[5]);
-            }
-
-            CAmount max_bundle_withdrawal = max_escrow_amount;
-            if (request.params.size() > 6 && !request.params[6].isNull()) {
-                max_bundle_withdrawal = AmountFromValue(request.params[6]);
-            }
-
-            const DrivechainSidechainPolicy policy = BuildDrivechainSidechainPolicy(
-                owner_keys,
-                auth_threshold,
-                max_escrow_amount,
-                max_bundle_withdrawal);
-
-            std::string txid;
-            uint8_t sidechain_id = 0;
-
-            if (maybe_sidechain_id) {
-                sidechain_id = *maybe_sidechain_id;
-                const uint256 auth_msg = ComputeDrivechainRegisterAuthMessage(
-                    sidechain_id,
-                    ComputeDrivechainSidechainPolicyHash(policy));
-                const std::vector<std::vector<unsigned char>> auth_sigs = SignDrivechainAuthMessage(
-                    owner_keys,
-                    auth_msg,
-                    "failed to create registration authorization signature");
-                const CScript register_script = BuildDrivechainRegisterScript(sidechain_id, policy, auth_sigs);
-                CCoinControl coin_control;
-                txid = SendToDrivechainScript(*pwallet, register_script, amount, coin_control, subtract_fee_from_amount);
-            } else {
-                std::pair<std::string, uint8_t> auto_result = SendDrivechainRegisterWithAutoId(
-                    *pwallet,
-                    owner_keys,
-                    policy,
-                    amount,
-                    subtract_fee_from_amount);
-                txid = std::move(auto_result.first);
-                sidechain_id = auto_result.second;
-            }
-
-            UniValue result(UniValue::VOBJ);
-            result.pushKV("txid", txid);
-            result.pushKV("sidechain_id", static_cast<int>(sidechain_id));
-            PushDrivechainPolicyResult(result, policy);
-            return result;
-        },
-    };
-}
-
-static RPCHelpMan senddrivechaindeposit()
-{
-    return RPCHelpMan{
-        "senddrivechaindeposit",
-        "Create, fund, sign and broadcast a Drivechain DEPOSIT transaction.\n"
-        "This RPC only creates drivechain deposit outputs (script generated internally).\n"
-        "You may specify multiple deposit outputs in one transaction.\n"
-        "The sidechain must already be registered and confirmed on-chain before deposits are accepted.\n",
-        std::vector<RPCArg>{
-            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
-            {"payload", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte payload hex (64 hex chars)"},
-            {"amounts", RPCArg::Type::ARR, RPCArg::Optional::NO, "Array of deposit amounts (LTC)",
-                {
-                    {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Deposit amount"}
-                }
-            },
-            {"subtract_fee", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from all deposit outputs (default: false)."},
-        },
-        RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id"},
-        RPCExamples{
-            HelpExampleCli("senddrivechaindeposit",
-                "1 0000000000000000000000000000000000000000000000000000000000000000 \"[0.5, 1.25]\"") +
-            HelpExampleCli("senddrivechaindeposit",
-                "1 0000000000000000000000000000000000000000000000000000000000000000 \"[0.5, 1.25]\" true") +
-            HelpExampleCli("senddrivechaindeposit",
-                "1 0000000000000000000000000000000000000000000000000000000000000000 \"[0.5, 1.25]\" \"[0]\"")
-        },
-        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
-            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-            if (!wallet) return NullUniValue;
-            CWallet* const pwallet = wallet.get();
-
-            const int scid_i = request.params[0].get_int();
-            if (scid_i < 0 || scid_i > 255) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
-            }
-            const uint8_t scid = static_cast<uint8_t>(scid_i);
-
-            const std::string payload_hex = request.params[1].get_str();
-            if (!IsHex(payload_hex) || payload_hex.size() != 64) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "payload must be 32 bytes (64 hex chars)");
-            }
-            const std::vector<unsigned char> payload = ParseHex(payload_hex);
-
-            CScript deposit_script;
-            deposit_script << OP_RETURN
-                        << OP_DRIVECHAIN
-                        << std::vector<unsigned char>{scid}
-                        << payload
-                        << std::vector<unsigned char>{0x00};
-
-            const UniValue subtract_fee =
-                request.params.size() > 3 ? request.params[3] : UniValue();
-
-            std::vector<CRecipient> recipients;
-            ParseDepositAmounts(request.params[2], subtract_fee, deposit_script, recipients);
-
-            CCoinControl coin_control;
-
-            LOCK(pwallet->cs_wallet);
-            const std::string txid = SendToDrivechainOutputs(*pwallet, recipients, coin_control);
-            return txid;
-        },
-    };
-}
-
-static RPCHelpMan senddrivechainbundle()
-{
-    return RPCHelpMan{
-        "senddrivechainbundle",
-        "DEPRECATED legacy RPC.\n"
-        "Create, fund, sign and broadcast a drivechain BUNDLE_COMMIT transaction.\n"
-        "This remains available only while the legacy drivechain withdrawal path is still active.\n"
-        "Restart litecoind with -deprecatedrpc=senddrivechainbundle to use it.\n"
-        "This publishes a bundle hash for a sidechain.\n"
-        "The sidechain must already exist (created by a prior confirmed REGISTER).\n"
-        "Commit outputs are always created with zero value to avoid burning funds.\n",
-        {
-            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
-            {"bundle_hash",  RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte bundle hash"},
-            {"owner_addresses", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Wallet owner address, or a JSON array of wallet owner addresses, used to sign the owner authorization. Required when the registered sidechain has owner auth enabled."},
-        },
-        RPCResult{
-            RPCResult::Type::STR_HEX, "txid", "The transaction id"
-        },
-        RPCExamples{
-            HelpExampleCli("senddrivechainbundle",
-                           "1 0000000000000000000000000000000000000000000000000000000000000000 \"rltc1q...\"") +
-            HelpExampleCli("senddrivechainbundle",
-                           "1 0000000000000000000000000000000000000000000000000000000000000000 "
-                           "\"[\\\"rltc1q...\\\",\\\"rltc1q...\\\"]\"") +
-            HelpExampleRpc("senddrivechainbundle",
-                           "1, \"0000...0000\", [\"rltc1q...\", \"rltc1q...\"]")
-        },
-        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
-            RequireDeprecatedLegacyDrivechainRpc("senddrivechainbundle");
-
-            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-            if (!wallet) return NullUniValue;
-            CWallet* const pwallet = wallet.get();
-
-            if (request.params.size() < 2) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
-            }
-
-            int sidechain_id_int = request.params[0].get_int();
-            if (sidechain_id_int < 0 || sidechain_id_int > 255) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
-            }
-            uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
-
-            const uint256 bundle_hash = ParseHashV(request.params[1], "bundle_hash");
-            const bool owner_addresses_provided = request.params.size() > 2 && !request.params[2].isNull();
-            bool owner_auth_required = false;
-            DrivechainSidechainPolicy registered_policy;
-            if (pwallet->HaveChain()) {
-                if (pwallet->chain().getDrivechainSidechain(sidechain_id, owner_auth_required, registered_policy) &&
-                    owner_auth_required) {
-                    if (!owner_addresses_provided) {
-                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses are required for registered sidechains with owner auth");
-                    }
-                }
-            }
-
-            std::vector<std::vector<unsigned char>> auth_sigs;
-            if (owner_addresses_provided) {
-                LOCK(pwallet->cs_wallet);
-                EnsureWalletIsUnlocked(pwallet);
-
-                const std::vector<DrivechainOwnerKeyEntry> owner_keys =
-                    GetDrivechainOwnerKeyEntriesFromWalletParam(*pwallet, request.params[2]);
-
-                if (owner_auth_required) {
-                    if (owner_keys.size() < registered_policy.auth_threshold) {
-                        throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses do not satisfy the registered auth_threshold");
-                    }
-                    for (const DrivechainOwnerKeyEntry& owner_key : owner_keys) {
-                        if (std::find(
-                                registered_policy.owner_key_hashes.begin(),
-                                registered_policy.owner_key_hashes.end(),
-                                owner_key.key_hash) == registered_policy.owner_key_hashes.end()) {
-                            throw JSONRPCError(RPC_INVALID_PARAMETER, "owner_addresses contain a key that is not part of the registered owner policy");
-                        }
-                    }
-                }
-
-                const uint256 auth_msg = ComputeDrivechainBundleAuthMessage(sidechain_id, bundle_hash);
-                auth_sigs = SignDrivechainAuthMessage(
-                    owner_keys,
-                    auth_msg,
-                    "failed to create owner authorization signature");
-            }
-
-            const CScript script = BuildDrivechainBundleScript(sidechain_id, bundle_hash, auth_sigs);
-
-            CCoinControl coin_control;
-
-            LOCK(pwallet->cs_wallet);
-            std::string txid = SendToDrivechainScript(*pwallet, script, /*amount=*/0, coin_control, /*subtract_fee_from_amount=*/false);
-            return txid;
-        },
-    };
-}
-
-static RPCHelpMan senddrivechainbmmrequest()
-{
-    return RPCHelpMan{
-        "senddrivechainbmmrequest",
-        "Create, fund, sign and broadcast a drivechain BMM_REQUEST transaction.\n"
-        "This publishes a BIP301 sidechain block request for the current mainchain tip.\n",
-        {
-            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
-            {"side_block_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte sidechain block hash"},
-            {"prev_main_block_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Expected previous mainchain block hash"},
-            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::OMITTED, "Amount to attach to request output (default: 0)"},
-            {"subtractfeefromamount", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Subtract fee from amount (default: false)"},
-        },
-        RPCResult{
-            RPCResult::Type::STR_HEX, "txid", "The transaction id"
-        },
-        RPCExamples{
-            HelpExampleCli("senddrivechainbmmrequest",
-                           "1 1111111111111111111111111111111111111111111111111111111111111111 "
-                           "2222222222222222222222222222222222222222222222222222222222222222") +
-            HelpExampleRpc("senddrivechainbmmrequest",
-                           "1, \"1111...1111\", \"2222...2222\"")
-        },
-        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
-            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-            if (!wallet) return NullUniValue;
-            CWallet* const pwallet = wallet.get();
-
-            if (request.params.size() < 3) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing parameters");
-            }
-
-            const int sidechain_id_int = request.params[0].get_int();
-            if (sidechain_id_int < 0 || sidechain_id_int > 255) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
-            }
-            const uint8_t sidechain_id = static_cast<uint8_t>(sidechain_id_int);
-
-            const uint256 side_block_hash = ParseHashV(request.params[1], "side_block_hash");
-            const uint256 prev_main_block_hash = ParseHashV(request.params[2], "prev_main_block_hash");
-
-            CAmount amount = 0;
-            if (request.params.size() > 3 && !request.params[3].isNull()) {
-                amount = AmountFromValue(request.params[3]);
-            }
-
-            bool subtract_fee_from_amount = false;
-            if (request.params.size() > 4 && !request.params[4].isNull()) {
-                subtract_fee_from_amount = request.params[4].get_bool();
-            }
-
-            const CScript script = BuildDrivechainBmmRequestScript(sidechain_id, side_block_hash, prev_main_block_hash);
-            CCoinControl coin_control;
-
-            LOCK(pwallet->cs_wallet);
-            std::string txid = SendToDrivechainScript(*pwallet, script, amount, coin_control, subtract_fee_from_amount);
-            return txid;
-        },
-    };
-}
-
-static RPCHelpMan senddrivechainexecute()
-{
-    return RPCHelpMan{
-        "senddrivechainexecute",
-        "DEPRECATED legacy RPC.\n"
-        "Create, fund, sign and broadcast a Drivechain EXECUTE transaction paying exact withdrawals.\n"
-        "This remains available only while the legacy drivechain withdrawal path is still active.\n"
-        "Restart litecoind with -deprecatedrpc=senddrivechainexecute to use it.\n",
-        {
-            {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
-            {"bundle_hash", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Committed bundle hash (32 bytes hex)"},
-            {"withdrawals", RPCArg::Type::ARR, RPCArg::Optional::NO, "Array of withdrawals",
-                {
-                    {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
-                        {
-                            {"address", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Destination address (exactly one of address/script)"},
-                            {"script",  RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Raw scriptPubKey hex (exactly one of address/script)"},
-                            {"amount",  RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Amount in LTC"},
-                        }
-                    }
-                }
-            },
-            {"allow_unbroadcast", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED,
-                "If true, skip preflight mempool rejection and return txid even if broadcast fails immediately (default: false)."},
-        },
-        RPCResult{RPCResult::Type::STR_HEX, "txid", "The transaction id"},
-        RPCExamples{
-            HelpExampleCli("senddrivechainexecute",
-                "1 0000000000000000000000000000000000000000000000000000000000000000 "
-                "'[{\"address\":\"ltc1q...\",\"amount\":1.0},{\"script\":\"0014...\",\"amount\":0.5}]'") +
-            HelpExampleCli("senddrivechainexecute",
-                "1 0000000000000000000000000000000000000000000000000000000000000000 "
-                "'[{\"address\":\"ltc1q...\",\"amount\":1.0}]' true")
-        },
-        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
-            RequireDeprecatedLegacyDrivechainRpc("senddrivechainexecute");
-
-            std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
-            if (!wallet) return NullUniValue;
-            CWallet* const pwallet = wallet.get();
-
-            const int scid_i = request.params[0].get_int();
-            if (scid_i < 0 || scid_i > 255) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "sidechain_id must be between 0 and 255");
-            }
-            const uint8_t scid = static_cast<uint8_t>(scid_i);
-
-            const uint256 bundle_hash = ParseHashV(request.params[1], "bundle_hash");
-
-            bool allow_unbroadcast = false;
-            if (request.params.size() > 3 && !request.params[3].isNull()) {
-                allow_unbroadcast = request.params[3].get_bool();
-            }
-
-            // Parse withdrawals
-            std::vector<CRecipient> withdrawal_recipients;
-            CAmount withdraw_sum{0};
-            ParseWithdrawalsArray(request.params[2], withdrawal_recipients, withdraw_sum);
-
-            // Build marker script with nWithdrawals
-            const uint32_t n_withdrawals = (uint32_t)withdrawal_recipients.size();
-            const CScript exec_script = BuildDrivechainExecuteScript(scid, bundle_hash, n_withdrawals);
-
-            // Recipients must be in consensus order:
-            // [0] marker (value 0)
-            // [1..n] withdrawals
-            std::vector<CRecipient> recipients;
-            recipients.reserve(1 + withdrawal_recipients.size());
-
-            recipients.push_back({exec_script, /*nAmount=*/0, /*subtract_fee=*/false});
-            recipients.insert(recipients.end(), withdrawal_recipients.begin(), withdrawal_recipients.end());
-
-            CCoinControl coin_control;
-            mapValue_t map_value;
-            LOCK(pwallet->cs_wallet);
-
-            // IMPORTANT: no shuffle
-            UniValue res = SendMoneyNoShuffle(
-                pwallet,
-                coin_control,
-                recipients,
-                map_value,
-                /*verbose=*/false,
-                /*preflight_mempool_accept=*/!allow_unbroadcast);
-            return res;
-        },
-    };
-}
 
 static RPCHelpMan sendvaliditysidechainregister()
 {
@@ -2081,7 +1181,7 @@ static RPCHelpMan sendvaliditysidechainregister()
             }
 
             CCoinControl coin_control;
-            const std::string txid = SendToDrivechainScript(
+            const std::string txid = SendToSidechainScript(
                 *pwallet,
                 BuildValiditySidechainRegisterScript(sidechain_id, config),
                 amount,
@@ -2208,7 +1308,7 @@ static RPCHelpMan sendvaliditydeposit()
             EnsureWalletIsUnlocked(pwallet);
 
             CCoinControl coin_control;
-            const std::string txid = SendToDrivechainScript(
+            const std::string txid = SendToSidechainScript(
                 *pwallet,
                 BuildValiditySidechainDepositScript(sidechain_id, deposit),
                 deposit.amount,
@@ -2281,7 +1381,7 @@ static RPCHelpMan sendforceexitrequest()
             EnsureWalletIsUnlocked(pwallet);
 
             CCoinControl coin_control;
-            const std::string txid = SendToDrivechainScript(
+            const std::string txid = SendToSidechainScript(
                 *pwallet,
                 BuildValiditySidechainForceExitScript(sidechain_id, request_data),
                 /*amount=*/0,
@@ -2771,7 +1871,7 @@ static RPCHelpMan sendvaliditybatch()
             EnsureWalletIsUnlocked(pwallet);
 
             CCoinControl coin_control;
-            const std::string txid = SendToDrivechainScript(
+            const std::string txid = SendToSidechainScript(
                 *pwallet,
                 BuildValiditySidechainCommitScript(sidechain_id, public_inputs, proof_bytes, data_chunks),
                 /*amount=*/0,
@@ -7467,11 +6567,6 @@ static const CRPCCommand commands[] =
     { "wallet",             "setwalletflag",                    &setwalletflag,                 {"flag","value"} },
     { "wallet",             "signmessage",                      &signmessage,                   {"address","message"} },
     { "wallet",             "signrawtransactionwithwallet",     &signrawtransactionwithwallet,  {"hexstring","prevtxs","sighashtype"} },
-    { "wallet",             "senddrivechainregister",           &senddrivechainregister,        {"owner_addresses", "sidechain_id", "amount", "subtractfeefromamount", "auth_threshold", "max_escrow_amount", "max_bundle_withdrawal"} },
-    { "wallet",             "senddrivechaindeposit",            &senddrivechaindeposit,         {"sidechain_id", "payload", "amounts", "subtract_fee"} },
-    { "wallet",             "senddrivechainbundle",             &senddrivechainbundle,          {"sidechain_id", "bundle_hash", "owner_addresses"} },
-    { "wallet",             "senddrivechainbmmrequest",         &senddrivechainbmmrequest,      {"sidechain_id", "side_block_hash", "prev_main_block_hash", "amount", "subtractfeefromamount"} },
-    { "wallet",             "senddrivechainexecute",            &senddrivechainexecute,         {"sidechain_id", "bundle_hash", "withdrawals", "allow_unbroadcast"} },
     { "wallet",             "sendvaliditysidechainregister",    &sendvaliditysidechainregister, {"sidechain_id", "config", "amount", "subtractfeefromamount"} },
     { "wallet",             "sendvaliditydeposit",              &sendvaliditydeposit,           {"sidechain_id", "destination_commitment", "refund_destination", "amount", "nonce", "deposit_id", "subtractfeefromamount"} },
     { "wallet",             "sendforceexitrequest",             &sendforceexitrequest,          {"sidechain_id", "account_id", "exit_asset_id", "max_exit_amount", "destination", "nonce"} },

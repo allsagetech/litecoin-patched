@@ -12,8 +12,6 @@
 #include <coins.h>
 #include <consensus/validation.h>
 #include <core_io.h>
-#include <drivechain/script.h>
-#include <drivechain/state.h>
 #include <hash.h>
 #include <index/blockfilterindex.h>
 #include <node/coinstats.h>
@@ -1545,116 +1543,12 @@ RPCHelpMan getblockchaininfo()
     VBSoftForkDescPushBack(softforks, "testdummy", consensusParams, Consensus::DEPLOYMENT_TESTDUMMY);
     VBSoftForkDescPushBack(softforks, "taproot", consensusParams, Consensus::DEPLOYMENT_TAPROOT);
     VBSoftForkDescPushBack(softforks, "mweb", consensusParams, Consensus::DEPLOYMENT_MWEB);
-    VBSoftForkDescPushBack(softforks, "drivechain", consensusParams, Consensus::DEPLOYMENT_DRIVECHAIN);
     obj.pushKV("softforks",             softforks);
 
     obj.pushKV("warnings", GetWarnings(false).original);
     return obj;
 },
     };
-}
-
-static RPCHelpMan getdrivechaininfo()
-{
-    return RPCHelpMan{
-        "getdrivechaininfo",
-        "DEPRECATED legacy RPC.\n"
-        "Returns basic information about legacy drivechains tracked by this node.\n"
-        "Use getvaliditysidechaininfo for the validity-sidechain migration path.\n",
-        {},
-        RPCResults{},
-        RPCExamples{
-            HelpExampleCli("getdrivechaininfo", "") +
-            HelpExampleRpc("getdrivechaininfo", "")
-        }
-    };
-}
-
-static UniValue getdrivechaininfo(const JSONRPCRequest& request)
-{
-    const RPCHelpMan& help = getdrivechaininfo();
-    help.Check(request);
-
-    UniValue result(UniValue::VOBJ);
-    UniValue scs(UniValue::VARR);
-
-    {
-        LOCK(cs_main);
-        const DrivechainState& drivechain_state = ::ChainstateActive().GetDrivechainState();
-        for (const auto& it : drivechain_state.sidechains) {
-            const uint8_t id = it.first;
-            const Sidechain& sc = it.second;
-
-            UniValue o(UniValue::VOBJ);
-            o.pushKV("id", (int)id);
-            o.pushKV("escrow_balance", sc.escrow_balance);
-            o.pushKV("creation_height", sc.creation_height);
-            o.pushKV("is_active", sc.is_active);
-            o.pushKV("owner_auth_required", sc.owner_auth_required);
-            if (sc.owner_auth_required) {
-                const uint256 policy_hash = ComputeDrivechainSidechainPolicyHash(sc.sidechain_policy);
-                o.pushKV("policy_hash", policy_hash.GetHex());
-                o.pushKV("policy_hash_payload", HexStr(std::vector<unsigned char>(policy_hash.begin(), policy_hash.end())));
-                o.pushKV("auth_threshold", static_cast<int>(sc.sidechain_policy.auth_threshold));
-
-                UniValue owner_key_hashes(UniValue::VARR);
-                UniValue owner_key_hashes_payload(UniValue::VARR);
-                for (const uint256& key_hash : sc.sidechain_policy.owner_key_hashes) {
-                    owner_key_hashes.push_back(key_hash.GetHex());
-                    owner_key_hashes_payload.push_back(HexStr(std::vector<unsigned char>(key_hash.begin(), key_hash.end())));
-                }
-                o.pushKV("owner_key_hashes", owner_key_hashes);
-                o.pushKV("owner_key_hashes_payload", owner_key_hashes_payload);
-                o.pushKV("max_escrow_amount", sc.sidechain_policy.max_escrow_amount);
-                o.pushKV("max_bundle_withdrawal", sc.sidechain_policy.max_bundle_withdrawal);
-
-                if (sc.sidechain_policy.owner_key_hashes.size() == 1) {
-                    const uint256& owner_key_hash = sc.sidechain_policy.owner_key_hashes.front();
-                    o.pushKV("owner_key_hash", owner_key_hash.GetHex());
-                    o.pushKV("owner_key_hash_payload", HexStr(std::vector<unsigned char>(owner_key_hash.begin(), owner_key_hash.end())));
-                }
-            }
-
-            UniValue bundles(UniValue::VARR);
-            for (const auto& b_it : sc.bundles) {
-                const uint256& hash_key = b_it.first;
-                const Bundle& bundle = b_it.second;
-
-                UniValue b(UniValue::VOBJ);
-                b.pushKV("hash", hash_key.GetHex());
-                b.pushKV("first_seen_height", bundle.first_seen_height);
-                DrivechainBundleSchedule schedule;
-                if (ComputeDrivechainBundleSchedule(Params().GetConsensus(), bundle.first_seen_height, schedule)) {
-                    b.pushKV("vote_start_height", schedule.vote_start_height);
-                    b.pushKV("vote_end_height", schedule.vote_end_height);
-                    b.pushKV("approval_height", schedule.approval_height);
-                    b.pushKV("executable_height", schedule.executable_height);
-                }
-                b.pushKV("yes_votes", bundle.yes_votes);
-                b.pushKV("no_votes", bundle.no_votes);
-                b.pushKV("approved", bundle.approved);
-                b.pushKV("executed", bundle.executed);
-                bundles.push_back(b);
-            }
-            o.pushKV("bundles", bundles);
-
-            scs.push_back(o);
-        }
-    }
-
-    result.pushKV("sidechains", scs);
-    result.pushKV("deprecated", true);
-    result.pushKV("replacement_rpc", "getvaliditysidechaininfo");
-    const DrivechainStateCacheStats cache_stats = GetDrivechainStateCacheStats();
-    UniValue cache(UniValue::VOBJ);
-    cache.pushKV("entries", static_cast<int64_t>(cache_stats.cache_entries));
-    cache.pushKV("max_entries", static_cast<int64_t>(cache_stats.max_entries));
-    cache.pushKV("hits", static_cast<int64_t>(cache_stats.cache_hits));
-    cache.pushKV("misses", static_cast<int64_t>(cache_stats.cache_misses));
-    cache.pushKV("recompute_fallbacks", static_cast<int64_t>(cache_stats.recompute_fallbacks));
-    cache.pushKV("snapshots_written", static_cast<int64_t>(cache_stats.snapshots_written));
-    result.pushKV("state_cache", cache);
-    return result;
 }
 
 static UniValue ValiditySidechainConfigToJSON(const ValiditySidechainConfig& config)
@@ -2030,8 +1924,6 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
             : "");
     result.pushKV("migration_profiles_retained", true);
     result.pushKV("migration_profile_registration_requires_opt_in", true);
-    result.pushKV("legacy_drivechain_withdrawal_path_active", true);
-    result.pushKV("legacy_drivechain_rpc_deprecated", true);
     result.pushKV("state_persistence_enabled", true);
     result.pushKV("registration_validation_available", true);
     result.pushKV("deposit_admission_mode", "profile_specific");
@@ -3169,7 +3061,6 @@ static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         argNames
   //  --------------------- ------------------------  -----------------------  ----------
     { "blockchain",         "getblockchaininfo",      &getblockchaininfo,      {} },
-    { "blockchain",         "getdrivechaininfo",      &getdrivechaininfo,      {} },
     { "blockchain",         "getvaliditysidechaininfo", &getvaliditysidechaininfo, {} },
     { "blockchain",         "getchaintxstats",        &getchaintxstats,        {"nblocks", "blockhash"} },
     { "blockchain",         "getblockstats",          &getblockstats,          {"hash_or_height", "stats"} },

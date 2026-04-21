@@ -57,10 +57,6 @@ TEST_EXIT_FAILED = 1
 TEST_EXIT_SKIPPED = 77
 
 TMPDIR_PREFIX = "litecoin_func_test_"
-LEGACY_DRIVECHAIN_RPC_FLAGS = [
-    "-deprecatedrpc=senddrivechainbundle",
-    "-deprecatedrpc=senddrivechainexecute",
-]
 VALIDITY_MIGRATION_PROFILE_FLAGS = [
     "-validityallowmigrationprofiles=1",
 ]
@@ -429,25 +425,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 n.createwallet(wallet_name=wallet_name, descriptors=self.options.descriptors, load_on_startup=True)
             n.importprivkey(privkey=n.get_deterministic_priv_key().key, label='coinbase')
 
-    def _should_enable_legacy_drivechain_rpcs(self):
-        script_name = os.path.basename(sys.argv[0]).lower()
-        return "drivechain" in script_name
-
     def _should_enable_validity_migration_profiles(self):
         script_name = os.path.basename(sys.argv[0]).lower()
         return "validitysidechain" in script_name
-
-    def _augment_legacy_drivechain_extra_args(self, extra_args):
-        if not self._should_enable_legacy_drivechain_rpcs():
-            return extra_args
-        if extra_args is None:
-            return LEGACY_DRIVECHAIN_RPC_FLAGS.copy()
-
-        augmented = list(extra_args)
-        for flag in LEGACY_DRIVECHAIN_RPC_FLAGS:
-            if flag not in augmented:
-                augmented.append(flag)
-        return augmented
 
     def _augment_validity_migration_extra_args(self, extra_args):
         if not self._should_enable_validity_migration_profiles():
@@ -462,9 +442,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         return augmented
 
     def _augment_test_specific_extra_args(self, extra_args):
-        augmented = self._augment_legacy_drivechain_extra_args(extra_args)
-        augmented = self._augment_validity_migration_extra_args(augmented)
-        return augmented
+        return self._augment_validity_migration_extra_args(extra_args)
 
     def run_test(self):
         """Tests must override this method to define test logic"""

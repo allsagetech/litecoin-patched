@@ -330,14 +330,23 @@ static ValiditySidechainScriptInfo::Kind DecodeTag(uint8_t tag)
 
 } // namespace
 
+bool IsValiditySidechainTransport(const CScript& scriptPubKey)
+{
+    CScript::const_iterator pc = scriptPubKey.begin();
+    opcodetype opcode;
+
+    return scriptPubKey.GetOp(pc, opcode) &&
+           opcode == OP_RETURN &&
+           scriptPubKey.GetOp(pc, opcode) &&
+           opcode == OP_SIDECHAIN;
+}
+
 bool DecodeValiditySidechainScript(const CScript& scriptPubKey, ValiditySidechainScriptInfo& out_info)
 {
-    // The new validity-sidechain path temporarily reuses OP_DRIVECHAIN transport,
-    // but intentionally keeps a non-overlapping tag range while the legacy
-    // drivechain withdrawal model still exists in the codebase.
+    // The validity-sidechain path uses dedicated sidechain transport.
     //
     // [0]: OP_RETURN
-    // [1]: OP_DRIVECHAIN
+    // [1]: OP_SIDECHAIN
     // [2]: PUSHDATA(1)  -> sidechain_id
     // [3]: PUSHDATA(32) -> payload
     // [4]: PUSHDATA(1)  -> tag
@@ -349,7 +358,7 @@ bool DecodeValiditySidechainScript(const CScript& scriptPubKey, ValiditySidechai
     if (!scriptPubKey.GetOp(pc, opcode) || opcode != OP_RETURN) {
         return false;
     }
-    if (!scriptPubKey.GetOp(pc, opcode) || opcode != OP_DRIVECHAIN) {
+    if (!scriptPubKey.GetOp(pc, opcode) || opcode != OP_SIDECHAIN) {
         return false;
     }
 
@@ -428,7 +437,7 @@ CScript BuildValiditySidechainScript(
     const std::vector<unsigned char> tag_v{static_cast<uint8_t>(kind)};
 
     CScript script;
-    script << OP_RETURN << OP_DRIVECHAIN << sidechain_v << payload_v << tag_v;
+    script << OP_RETURN << OP_SIDECHAIN << sidechain_v << payload_v << tag_v;
     for (const auto& push : metadata_pushes) {
         script << push;
     }

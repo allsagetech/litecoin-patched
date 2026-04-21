@@ -69,8 +69,8 @@ bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType)
     } else if (whichType == TxoutType::NULL_DATA &&
                (!fAcceptDatacarrier || scriptPubKey.size() > nMaxDatacarrierBytes)) {
           return false;
-    } else if (whichType == TxoutType::DRIVECHAIN &&
-               scriptPubKey.size() > MAX_DRIVECHAIN_RELAY) {
+    } else if (whichType == TxoutType::SIDECHAIN &&
+               scriptPubKey.size() > MAX_SIDECHAIN_RELAY) {
           return false;
     }
 

@@ -13,7 +13,6 @@
 #include <amount.h>
 #include <coins.h>
 #include <crypto/common.h> // for ReadLE64
-#include <drivechain/state.h>
 #include <fs.h>
 #include <optional.h>
 #include <policy/feerate.h>
@@ -320,17 +319,6 @@ bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& pa
 /** Check whether MWEB (LIPs 002-004) has activated. */
 bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
 
-bool IsDrivechainEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params);
-struct DrivechainStateCacheStats
-{
-    uint64_t cache_entries{0};
-    uint64_t max_entries{0};
-    uint64_t cache_hits{0};
-    uint64_t cache_misses{0};
-    uint64_t recompute_fallbacks{0};
-    uint64_t snapshots_written{0};
-};
-DrivechainStateCacheStats GetDrivechainStateCacheStats();
 struct ValiditySidechainStateCacheStats
 {
     uint64_t cache_entries{0};
@@ -341,11 +329,6 @@ struct ValiditySidechainStateCacheStats
     uint64_t snapshots_written{0};
 };
 ValiditySidechainStateCacheStats GetValiditySidechainStateCacheStats();
-bool CheckDrivechainTxForCurrentState(
-    const CTransaction& tx,
-    const CChainParams& chainparams,
-    const CBlockIndex* pindexPrev,
-    TxValidationState& state);
 
 /** Update uncommitted block structures (currently: only the witness reserved value). This is safe for submitted blocks. */
 void UpdateUncommittedBlockStructures(CBlock& block, const CBlockIndex* pindexPrev, const Consensus::Params& consensusParams);
@@ -615,9 +598,6 @@ public:
     //! @see CChain, CBlockIndex.
     CChain m_chain;
 
-    //! Drivechain state tracked for this specific chainstate/tip.
-    DrivechainState m_drivechain_state;
-
     //! Validity-sidechain scaffold state tracked for this specific chainstate/tip.
     ValiditySidechainState m_validitysidechain_state;
 
@@ -646,16 +626,6 @@ public:
     CCoinsViewDB& CoinsDB() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     {
         return m_coins_views->m_dbview;
-    }
-
-    const DrivechainState& GetDrivechainState() const EXCLUSIVE_LOCKS_REQUIRED(cs_main)
-    {
-        return m_drivechain_state;
-    }
-
-    DrivechainState& GetDrivechainState() EXCLUSIVE_LOCKS_REQUIRED(cs_main)
-    {
-        return m_drivechain_state;
     }
 
     const ValiditySidechainState& GetValiditySidechainState() const EXCLUSIVE_LOCKS_REQUIRED(cs_main)
@@ -743,8 +713,7 @@ public:
     bool DisconnectTip(
         BlockValidationState& state,
         const CChainParams& chainparams,
-        DisconnectedBlockTransactions* disconnectpool,
-        bool fRecomputeDrivechain = true) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_mempool.cs);
+        DisconnectedBlockTransactions* disconnectpool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_mempool.cs);
 
     // Manual block validity manipulation:
     bool PreciousBlock(BlockValidationState& state, const CChainParams& params, CBlockIndex* pindex) LOCKS_EXCLUDED(cs_main);
