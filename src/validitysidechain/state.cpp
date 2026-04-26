@@ -202,6 +202,30 @@ static bool ValidateExperimentalRealProfileReclaimTransition(
         error);
 }
 
+static bool ValidateForceExitAppendAgainstCommittedQueueWitnessLimit(
+    const ValiditySidechain& sidechain,
+    std::string* error)
+{
+    const uint32_t committed_queue_witness_limit =
+        GetValiditySidechainBatchCommittedQueueWitnessLimit(sidechain.config);
+    if (committed_queue_witness_limit == 0) {
+        return true;
+    }
+    if (sidechain.queue_state.pending_message_count >= committed_queue_witness_limit) {
+        if (error != nullptr) {
+            *error = "current profile cannot append a force-exit request beyond the committed queue witness limit of " +
+                     std::to_string(committed_queue_witness_limit);
+        }
+        return false;
+    }
+    return true;
+}
+
+static bool HasEscapeExitRecoveryStarted(const ValiditySidechain& sidechain)
+{
+    return sidechain.executed_escape_exit_count != 0;
+}
+
 static void RefreshQueueState(ValiditySidechain& sidechain, int height)
 {
     sidechain.queue_state.pending_message_count = 0;
@@ -681,10 +705,18 @@ static bool ValidateBatchPublicInputsAgainstQueueState(
     if (!ValidateConsumedQueueMessageCount(public_inputs.consumed_queue_messages, error)) {
         return false;
     }
-    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config) &&
-        public_inputs.consumed_queue_messages > 1) {
+    const uint32_t committed_queue_witness_limit =
+        GetValiditySidechainBatchCommittedQueueWitnessLimit(sidechain.config);
+    if (committed_queue_witness_limit != 0 &&
+        public_inputs.consumed_queue_messages > committed_queue_witness_limit) {
         if (error != nullptr) {
-            *error = "experimental real profile currently supports at most one consumed queue message";
+            if (IsValiditySidechainSingleEntryExperimentalQueueProfile(sidechain.config)) {
+                *error = "experimental real profile currently supports at most one consumed queue message";
+            } else {
+                *error = "current profile supports at most " +
+                         std::to_string(committed_queue_witness_limit) +
+                         " consumed queue messages";
+            }
         }
         return false;
     }
@@ -1005,6 +1037,12 @@ bool ValiditySidechainState::AddDeposit(
         }
         return false;
     }
+    if (HasEscapeExitRecoveryStarted(*sidechain)) {
+        if (error != nullptr) {
+            *error = "cannot add new deposits after escape exits have started";
+        }
+        return false;
+    }
     if (sidechain->pending_deposits.count(deposit.deposit_id) != 0) {
         if (error != nullptr) {
             *error = "deposit id already pending";
@@ -1074,6 +1112,12 @@ bool ValiditySidechainState::AddForceExitRequest(
         }
         return false;
     }
+    if (HasEscapeExitRecoveryStarted(*sidechain)) {
+        if (error != nullptr) {
+            *error = "cannot request new force exits after escape exits have started";
+        }
+        return false;
+    }
     if (!AllowsValiditySidechainForceExitRequests(sidechain->config)) {
         if (error != nullptr) {
             *error = "force-exit requests are not implemented for this profile";
@@ -1086,6 +1130,9 @@ bool ValiditySidechainState::AddForceExitRequest(
         if (error != nullptr) {
             *error = "force-exit request already pending";
         }
+        return false;
+    }
+    if (!ValidateForceExitAppendAgainstCommittedQueueWitnessLimit(*sidechain, error)) {
         return false;
     }
 
@@ -1202,6 +1249,12 @@ bool ValiditySidechainState::AcceptBatch(
     if (sidechain == nullptr || !sidechain->is_active) {
         if (error != nullptr) {
             *error = "unknown validity sidechain";
+        }
+        return false;
+    }
+    if (HasEscapeExitRecoveryStarted(*sidechain)) {
+        if (error != nullptr) {
+            *error = "cannot accept new batches after escape exits have started";
         }
         return false;
     }
@@ -1367,11 +1420,13 @@ bool ValiditySidechainState::ExecuteWithdrawals(
             }
             return false;
         }
-        const bool executed_in_same_batch =
-            sidechain->executed_withdrawal_batch_keys.count(batch_key) != 0 ||
-            new_batch_keys.count(batch_key) != 0;
-        if (sidechain->executed_withdrawal_ids.count(withdrawal.withdrawal_id) != 0 &&
-            !executed_in_same_batch) {
+        if (!new_ids.insert(withdrawal.withdrawal_id).second) {
+            if (error != nullptr) {
+                *error = "duplicate withdrawal id in execution";
+            }
+            return false;
+        }
+        if (sidechain->executed_withdrawal_ids.count(withdrawal.withdrawal_id) != 0) {
             if (error != nullptr) {
                 *error = "withdrawal id already executed";
             }
@@ -1383,7 +1438,6 @@ bool ValiditySidechainState::ExecuteWithdrawals(
             }
             return false;
         }
-        new_ids.insert(withdrawal.withdrawal_id);
         new_batch_keys.insert(batch_key);
         total_amount += withdrawal.amount;
     }

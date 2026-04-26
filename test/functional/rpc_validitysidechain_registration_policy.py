@@ -59,17 +59,23 @@ class ValiditySidechainRegistrationPolicyTest(BitcoinTestFramework):
         self.sync_all()
 
         info = node_plain.getvaliditysidechaininfo()
-        assert_equal(info["canonical_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(info["canonical_profile_name"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(info["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(info["migration_profile_registration_requires_opt_in"], True)
 
-        canonical = get_supported_profile(node_plain, "groth16_bls12_381_poseidon_v2")
+        canonical = get_supported_profile(node_plain, "groth16_bls12_381_poseidon_v3")
+        legacy_v2 = get_supported_profile(node_plain, "groth16_bls12_381_poseidon_v2")
         migration = get_supported_profile(node_plain, "scaffold_onchain_da_v1")
         assert_equal(canonical["registration_default_allowed"], True)
+        assert_equal(canonical["recommended_for_new_registrations"], True)
         assert_equal(canonical["registration_requires_explicit_opt_in"], False)
+        assert_equal(legacy_v2["registration_default_allowed"], False)
+        assert_equal(legacy_v2["recommended_for_new_registrations"], False)
+        assert_equal(legacy_v2["registration_requires_explicit_opt_in"], True)
         assert_equal(migration["registration_default_allowed"], False)
         assert_equal(migration["registration_requires_explicit_opt_in"], True)
 
-        self.log.info("Canonical v2 registration should work without any migration-profile opt-in.")
+        self.log.info("Canonical v3 registration should work without any migration-profile opt-in.")
         canonical_res = node_plain.sendvaliditysidechainregister(41, build_register_config(canonical))
         assert_equal(canonical_res["sidechain_id"], 41)
         assert_equal(canonical_res["canonical_target"], True)
@@ -78,18 +84,25 @@ class ValiditySidechainRegistrationPolicyTest(BitcoinTestFramework):
         node_plain.generate(1)
         self.sync_all()
 
-        self.log.info("Migration-only registration should fail without the explicit node opt-in.")
+        self.log.info("Legacy v2 registration should fail without the explicit node opt-in.")
         assert_raises_rpc_error(
             -8,
             "retained only for migration/testing",
             node_plain.sendvaliditysidechainregister,
             42,
-            build_register_config(migration),
+            build_register_config(legacy_v2),
         )
 
-        self.log.info("Migration-only registration should succeed when the node opts in explicitly.")
-        migration_res = node_opt_in.sendvaliditysidechainregister(42, build_register_config(migration))
-        assert_equal(migration_res["sidechain_id"], 42)
+        self.log.info("Legacy v2 registration should succeed when the node opts in explicitly.")
+        legacy_v2_res = node_opt_in.sendvaliditysidechainregister(42, build_register_config(legacy_v2))
+        assert_equal(legacy_v2_res["sidechain_id"], 42)
+        assert_equal(legacy_v2_res["canonical_target"], False)
+        assert_equal(legacy_v2_res["migration_only"], True)
+        assert_equal(legacy_v2_res["profile_lifecycle"], "real_migration")
+
+        self.log.info("Migration-only scaffold registration should still require opt-in.")
+        migration_res = node_opt_in.sendvaliditysidechainregister(43, build_register_config(migration))
+        assert_equal(migration_res["sidechain_id"], 43)
         assert_equal(migration_res["canonical_target"], False)
         assert_equal(migration_res["migration_only"], True)
         assert_equal(migration_res["profile_lifecycle"], "scaffold_migration")

@@ -172,7 +172,6 @@ void File::Write(const size_t startIndex, const std::vector<uint8_t>& bytes, con
     if (!Exists()) {
         Create();
     }
-
     if (!bytes.empty()) {
         std::fstream file(m_path.m_path, std::ios::in | std::ios::out | std::ios::binary);
         if (!file.is_open()) {

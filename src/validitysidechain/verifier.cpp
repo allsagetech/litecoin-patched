@@ -94,6 +94,53 @@ static bool IsPoseidonProfile(const SupportedValiditySidechainConfig& supported)
     return IsPoseidonProfileName(supported.profile_name);
 }
 
+static ValiditySidechainConfig BuildProfileTupleOnlyConfig(const SupportedValiditySidechainConfig& supported)
+{
+    ValiditySidechainConfig config;
+    config.version = supported.version;
+    config.proof_system_id = supported.proof_system_id;
+    config.circuit_family_id = supported.circuit_family_id;
+    config.verifier_id = supported.verifier_id;
+    config.public_input_version = supported.public_input_version;
+    config.state_root_format = supported.state_root_format;
+    config.deposit_message_format = supported.deposit_message_format;
+    config.withdrawal_leaf_format = supported.withdrawal_leaf_format;
+    config.balance_leaf_format = supported.balance_leaf_format;
+    config.data_availability_mode = supported.data_availability_mode;
+    return config;
+}
+
+static uint32_t GetExpectedGroth16CommitmentExtensionCount(const ValiditySidechainConfig& config)
+{
+    if (AreValiditySidechainBatchQueueBindingsProvenInCircuit(config) ||
+        AreValiditySidechainBatchWithdrawalBindingsProvenInCircuit(config) ||
+        AreValiditySidechainBatchDataBindingsProvenInCircuit(config)) {
+        return 1;
+    }
+    return 0;
+}
+
+static uint32_t GetExpectedGroth16CommitmentExtensionCount(const SupportedValiditySidechainConfig& supported)
+{
+    return GetExpectedGroth16CommitmentExtensionCount(BuildProfileTupleOnlyConfig(supported));
+}
+
+static bool ValidateGroth16CommitmentExtensionAgainstProfile(
+    const ValiditySidechainConfig& config,
+    const ValiditySidechainGroth16VerificationKey& verifying_key,
+    const ValiditySidechainGroth16Proof* proof,
+    std::string* error)
+{
+    const size_t expected_count = GetExpectedGroth16CommitmentExtensionCount(config);
+    if (verifying_key.commitment_keys.size() != expected_count) {
+        return FailValidation(error, "Groth16 verifying key commitment extension count does not match supported profile");
+    }
+    if (proof != nullptr && proof->commitments_g1.size() != expected_count) {
+        return FailValidation(error, "Groth16 proof commitment extension count does not match supported profile");
+    }
+    return true;
+}
+
 static void AppendUint256(std::vector<unsigned char>& out, const uint256& value)
 {
     out.insert(out.end(), value.begin(), value.end());
@@ -158,6 +205,19 @@ static bool ValidatePublishedBatchDataInternal(
     if (public_inputs.data_size > config.max_batch_data_bytes) {
         return FailValidation(error, "data size exceeds configured limit");
     }
+    const uint32_t committed_data_chunk_witness_limit =
+        GetValiditySidechainBatchCommittedDataChunkWitnessLimit(config);
+    if (committed_data_chunk_witness_limit != 0 &&
+        data_chunks.size() > committed_data_chunk_witness_limit) {
+        if (error != nullptr) {
+            const char* witness_label =
+                committed_data_chunk_witness_limit == 1 ? "witness" : "witnesses";
+            *error = "current profile supports at most " +
+                     std::to_string(committed_data_chunk_witness_limit) +
+                     " data chunk " + witness_label;
+        }
+        return false;
+    }
     if (data_chunks.size() > MAX_VALIDITY_SIDECHAIN_BATCH_DATA_CHUNKS) {
         return FailValidation(error, "batch data chunk count exceeds consensus limit");
     }
@@ -166,9 +226,23 @@ static bool ValidatePublishedBatchDataInternal(
     }
 
     uint64_t total_data_size = 0;
-    for (const auto& chunk : data_chunks) {
+    for (size_t chunk_index = 0; chunk_index < data_chunks.size(); ++chunk_index) {
+        const auto& chunk = data_chunks[chunk_index];
         if (chunk.empty()) {
             return FailValidation(error, "data chunk must be non-empty");
+        }
+        if (committed_data_chunk_witness_limit != 0) {
+            if (chunk.size() > VALIDITY_SIDECHAIN_COMMITTED_DATA_WITNESS_MAX_CHUNK_BYTES) {
+                return FailValidation(error, "current profile supports data chunk witnesses of at most 64 bytes");
+            }
+            if (chunk_index + 1 < data_chunks.size() &&
+                chunk.size() != VALIDITY_SIDECHAIN_COMMITTED_DATA_WITNESS_MAX_CHUNK_BYTES) {
+                if (error != nullptr) {
+                    *error = "data_chunks[" + std::to_string(chunk_index) +
+                             "] must be exactly 64 bytes when followed by another chunk";
+                }
+                return false;
+            }
         }
         total_data_size += chunk.size();
         if (total_data_size > std::numeric_limits<uint32_t>::max()) {
@@ -445,6 +519,10 @@ static bool PopulateVerifierAssetsStatus(
     out_status.requires_external_assets = supported.requires_external_verifier_assets;
     out_status.artifact_name = supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name;
     out_status.backend_name = supported.verifier_backend == nullptr ? "" : supported.verifier_backend;
+    out_status.expected_groth16_commitment_extension_count =
+        GetExpectedGroth16CommitmentExtensionCount(supported);
+    out_status.groth16_commitment_extension_matches_profile =
+        out_status.expected_groth16_commitment_extension_count == 0;
     if (supported.verifier_backend != nullptr &&
         std::string(supported.verifier_backend) == "native_blst_groth16") {
         ValiditySidechainNativeBlstBackendStatus native_backend_status;
@@ -636,6 +714,22 @@ static bool PopulateVerifierAssetsStatus(
                     &key_error)) {
                 out_status.assets_present = false;
                 out_status.prover_assets_present = false;
+                out_status.status = key_error;
+                return true;
+            }
+            out_status.verifying_key_groth16_commitment_extension_count =
+                static_cast<uint64_t>(verifying_key.commitment_keys.size());
+            out_status.groth16_commitment_extension_matches_profile =
+                out_status.verifying_key_groth16_commitment_extension_count ==
+                out_status.expected_groth16_commitment_extension_count;
+            if (!ValidateGroth16CommitmentExtensionAgainstProfile(
+                    BuildProfileTupleOnlyConfig(supported),
+                    verifying_key,
+                    /* proof= */ nullptr,
+                    &key_error)) {
+                out_status.assets_present = false;
+                out_status.prover_assets_present = false;
+                out_status.backend_ready = false;
                 out_status.status = key_error;
                 return true;
             }
@@ -1002,9 +1096,19 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
     if (consumed_queue_entries.size() != public_inputs.consumed_queue_messages) {
         return FailValidation(error, "consumed_queue_entries length does not match consumed_queue_messages for external prover");
     }
-    if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config) &&
-        consumed_queue_entries.size() > 1) {
-        return FailValidation(error, "experimental real profile supports at most one consumed queue entry for auto prover");
+    const uint32_t committed_queue_witness_limit =
+        GetValiditySidechainBatchCommittedQueueWitnessLimit(config);
+    if (committed_queue_witness_limit != 0 &&
+        consumed_queue_entries.size() > committed_queue_witness_limit) {
+        if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
+            return FailValidation(error, "experimental real profile supports at most one consumed queue entry for auto prover");
+        }
+        if (error != nullptr) {
+            *error = "current profile supports at most " +
+                     std::to_string(committed_queue_witness_limit) +
+                     " consumed queue entry witnesses for auto prover";
+        }
+        return false;
     }
     if (IsValiditySidechainSingleEntryExperimentalQueueProfile(config)) {
         for (const auto& entry : consumed_queue_entries) {
@@ -1013,9 +1117,19 @@ bool BuildValiditySidechainBatchProofWithExternalProver(
             }
         }
     }
-    if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config) &&
-        withdrawal_leaves.size() > 1) {
-        return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");
+    const uint32_t committed_withdrawal_witness_limit =
+        GetValiditySidechainBatchCommittedWithdrawalWitnessLimit(config);
+    if (committed_withdrawal_witness_limit != 0 &&
+        withdrawal_leaves.size() > committed_withdrawal_witness_limit) {
+        if (IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(config)) {
+            return FailValidation(error, "experimental real profile supports at most one withdrawal leaf witness for auto prover");
+        }
+        if (error != nullptr) {
+            *error = "current profile supports at most " +
+                     std::to_string(committed_withdrawal_witness_limit) +
+                     " withdrawal leaf witnesses for auto prover";
+        }
+        return false;
     }
     if (!withdrawal_leaves.empty() &&
         ComputeValiditySidechainWithdrawalRoot(withdrawal_leaves) != public_inputs.withdrawal_root) {
@@ -1271,6 +1385,12 @@ bool VerifyValiditySidechainBatch(
                 error)) {
             return false;
         }
+        if (!ValidateGroth16CommitmentExtensionAgainstProfile(config, verifying_key, /* proof= */ nullptr, error)) {
+            return false;
+        }
+        if (!ValidateGroth16CommitmentExtensionAgainstProfile(config, verifying_key, &proof, error)) {
+            return false;
+        }
         return VerifyValiditySidechainGroth16Proof(
             verifying_key,
             proof,
@@ -1310,6 +1430,12 @@ bool VerifyValiditySidechainBatch(
                 static_cast<uint32_t>(expected_public_inputs.size()),
                 verifying_key,
                 error)) {
+            return false;
+        }
+        if (!ValidateGroth16CommitmentExtensionAgainstProfile(config, verifying_key, /* proof= */ nullptr, error)) {
+            return false;
+        }
+        if (!ValidateGroth16CommitmentExtensionAgainstProfile(config, verifying_key, &proof, error)) {
             return false;
         }
         return VerifyValiditySidechainGroth16Proof(

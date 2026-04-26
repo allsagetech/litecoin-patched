@@ -463,6 +463,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         self.extra_args = [[
             "-acceptnonstdtxn=1",
             f"-validityartifactsdir={artifact_root}",
+            "-validityallowmigrationprofiles=1",
         ]]
 
     def skip_test_if_missing_module(self):
@@ -493,7 +494,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
 
         info = node.getvaliditysidechaininfo()
         assert_equal(info["implementation_status"], "scaffolding")
-        assert_equal(info["canonical_profile_name"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(info["canonical_profile_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(info["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(info["migration_profiles_retained"], True)
         assert_equal(info["migration_profile_registration_requires_opt_in"], True)
@@ -547,14 +548,14 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["migration_only"], True)
         assert_equal(real_supported["registration_default_allowed"], False)
         assert_equal(real_supported["registration_requires_explicit_opt_in"], True)
-        assert_equal(real_v2_supported["profile_lifecycle"], "canonical_target")
-        assert_equal(real_v2_supported["canonical_target"], True)
+        assert_equal(real_v2_supported["profile_lifecycle"], "real_migration")
+        assert_equal(real_v2_supported["canonical_target"], False)
         assert_equal(real_v2_supported["recommended_for_new_registrations"], False)
-        assert_equal(real_v2_supported["migration_only"], False)
-        assert_equal(real_v2_supported["registration_default_allowed"], True)
-        assert_equal(real_v2_supported["registration_requires_explicit_opt_in"], False)
-        assert_equal(real_v3_supported["profile_lifecycle"], "recommended_successor")
-        assert_equal(real_v3_supported["canonical_target"], False)
+        assert_equal(real_v2_supported["migration_only"], True)
+        assert_equal(real_v2_supported["registration_default_allowed"], False)
+        assert_equal(real_v2_supported["registration_requires_explicit_opt_in"], True)
+        assert_equal(real_v3_supported["profile_lifecycle"], "canonical_target")
+        assert_equal(real_v3_supported["canonical_target"], True)
         assert_equal(real_v3_supported["recommended_for_new_registrations"], True)
         assert_equal(real_v3_supported["migration_only"], False)
         assert_equal(real_v3_supported["registration_default_allowed"], True)
@@ -647,6 +648,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_supported["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_supported["verifier_assets"]["native_backend_self_test_passed"], True)
         assert_greater_than(real_supported["verifier_assets"]["native_backend_pairing_context_bytes"], 0)
+        assert_equal(real_supported["verifier_assets"]["groth16_commitment_extension_matches_profile"], True)
+        assert_equal(real_supported["verifier_assets"]["expected_groth16_commitment_extension_count"], 0)
+        assert_equal(real_supported["verifier_assets"]["verifying_key_groth16_commitment_extension_count"], 0)
         if real_supported["verifier_assets"]["profile_manifest_parsed"]:
             assert_equal(real_supported["verifier_assets"]["profile_manifest_name_matches"], True)
             assert_equal(real_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
@@ -684,6 +688,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_v2_supported["verifier_assets"]["native_backend_self_test_passed"], True)
         assert_greater_than(real_v2_supported["verifier_assets"]["native_backend_pairing_context_bytes"], 0)
+        assert_equal(real_v2_supported["verifier_assets"]["groth16_commitment_extension_matches_profile"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["expected_groth16_commitment_extension_count"], 0)
+        assert_equal(real_v2_supported["verifier_assets"]["verifying_key_groth16_commitment_extension_count"], 0)
         if real_v2_supported["verifier_assets"]["profile_manifest_parsed"]:
             assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_name_matches"], True)
             assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
@@ -732,6 +739,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v3_supported["verifier_assets"]["backend_ready"], True)
         assert_equal(real_v3_supported["verifier_assets"]["native_backend_available"], True)
         assert_equal(real_v3_supported["verifier_assets"]["native_backend_self_test_passed"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["groth16_commitment_extension_matches_profile"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["expected_groth16_commitment_extension_count"], 1)
+        assert_equal(real_v3_supported["verifier_assets"]["verifying_key_groth16_commitment_extension_count"], 1)
         if real_v3_supported["verifier_assets"]["profile_manifest_parsed"]:
             assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_name_matches"], True)
             assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_backend_matches"], True)
@@ -751,16 +761,30 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_v2_register_res = node.sendvaliditysidechainregister(real_v2_sidechain_id, real_v2_config)
         node.generate(1)
         real_v2_sidechain = get_sidechain_info(node, real_v2_sidechain_id)
-        assert_equal(real_v2_register_res["profile_lifecycle"], "canonical_target")
-        assert_equal(real_v2_register_res["canonical_target"], True)
-        assert_equal(real_v2_register_res["migration_only"], False)
+        assert_equal(real_v2_register_res["profile_lifecycle"], "real_migration")
+        assert_equal(real_v2_register_res["canonical_target"], False)
+        assert_equal(real_v2_register_res["migration_only"], True)
         assert_equal(real_v2_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
-        assert_equal(real_v2_sidechain["profile_lifecycle"], "canonical_target")
-        assert_equal(real_v2_sidechain["canonical_target"], True)
-        assert_equal(real_v2_sidechain["migration_only"], False)
+        assert_equal(real_v2_sidechain["profile_lifecycle"], "real_migration")
+        assert_equal(real_v2_sidechain["canonical_target"], False)
+        assert_equal(real_v2_sidechain["migration_only"], True)
+        assert_equal(real_v2_sidechain["recommended_for_new_registrations"], False)
+        assert_equal(real_v2_sidechain["registration_default_allowed"], False)
+        assert_equal(real_v2_sidechain["registration_requires_explicit_opt_in"], True)
         assert_equal(real_v2_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v2")
+        assert_equal(real_v2_sidechain["derived_public_input_mode"], "helper_derives_queue_withdrawal_and_da_bindings")
+        assert_equal(real_v2_sidechain["external_prover_request_mode"], "current_chainstate_bound_explicit_witness_vectors")
+        assert_equal(real_v2_sidechain["external_prover_requires_current_chainstate"], True)
+        assert_equal(real_v2_sidechain["external_prover_requires_explicit_witness_vectors"], True)
+        assert_equal(real_v2_sidechain["queue_binding_proven_in_circuit"], False)
+        assert_equal(real_v2_sidechain["withdrawal_binding_proven_in_circuit"], False)
+        assert_equal(real_v2_sidechain["data_binding_proven_in_circuit"], False)
+        assert_equal(real_v2_sidechain["in_circuit_binding_blocker"], "superseded_by_canonical_v3_target")
         assert_equal(real_v2_sidechain["batch_queue_binding_mode"], "local_prefix_consensus_committed_public_inputs")
         assert_equal(real_v2_sidechain["batch_withdrawal_binding_mode"], "accepted_root_generic_public_input")
+        assert_equal(real_v2_sidechain["committed_queue_witness_limit"], 0)
+        assert_equal(real_v2_sidechain["committed_withdrawal_witness_limit"], 0)
+        assert_equal(real_v2_sidechain["committed_data_chunk_witness_limit"], 0)
         assert_equal(real_v2_sidechain["escape_exit_mode"], "account_balance_state_proof_claims")
         assert_equal(real_v2_sidechain["escape_exit_execution_mode"], "account_balance_state_proof_claims")
         assert_equal(real_v2_sidechain["escape_exit_rpc_input_mode"], "explicit_state_proofs")
@@ -768,7 +792,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v2_sidechain["force_exit_request_mode"], "enabled_local_queue_consensus")
         assert_raises_rpc_error(
             -8,
-            "canonical profile withdrawal_root changes require withdrawal_leaves witness",
+            "current profile withdrawal_root changes require withdrawal_leaves witness",
             node.sendvaliditybatch,
             real_v2_sidechain_id,
             {
@@ -808,16 +832,30 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         real_v3_register_res = node.sendvaliditysidechainregister(real_v3_sidechain_id, real_v3_config)
         node.generate(1)
         real_v3_sidechain = get_sidechain_info(node, real_v3_sidechain_id)
-        assert_equal(real_v3_register_res["profile_lifecycle"], "recommended_successor")
-        assert_equal(real_v3_register_res["canonical_target"], False)
+        assert_equal(real_v3_register_res["profile_lifecycle"], "canonical_target")
+        assert_equal(real_v3_register_res["canonical_target"], True)
         assert_equal(real_v3_register_res["migration_only"], False)
         assert_equal(real_v3_register_res["recommended_profile_name"], "groth16_bls12_381_poseidon_v3")
-        assert_equal(real_v3_sidechain["profile_lifecycle"], "recommended_successor")
-        assert_equal(real_v3_sidechain["canonical_target"], False)
+        assert_equal(real_v3_sidechain["profile_lifecycle"], "canonical_target")
+        assert_equal(real_v3_sidechain["canonical_target"], True)
         assert_equal(real_v3_sidechain["migration_only"], False)
+        assert_equal(real_v3_sidechain["recommended_for_new_registrations"], True)
+        assert_equal(real_v3_sidechain["registration_default_allowed"], True)
+        assert_equal(real_v3_sidechain["registration_requires_explicit_opt_in"], False)
         assert_equal(real_v3_sidechain["batch_verifier_mode"], "groth16_bls12_381_poseidon_v3")
+        assert_equal(real_v3_sidechain["derived_public_input_mode"], "helper_derives_queue_withdrawal_and_da_bindings")
+        assert_equal(real_v3_sidechain["external_prover_request_mode"], "current_chainstate_bound_explicit_witness_vectors")
+        assert_equal(real_v3_sidechain["external_prover_requires_current_chainstate"], True)
+        assert_equal(real_v3_sidechain["external_prover_requires_explicit_witness_vectors"], True)
+        assert_equal(real_v3_sidechain["queue_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_sidechain["withdrawal_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_sidechain["data_binding_proven_in_circuit"], True)
+        assert_equal(real_v3_sidechain["in_circuit_binding_blocker"], "none")
         assert_equal(real_v3_sidechain["batch_queue_binding_mode"], "bounded_in_circuit_committed_public_inputs_experimental")
         assert_equal(real_v3_sidechain["batch_withdrawal_binding_mode"], "bounded_in_circuit_committed_public_input_experimental")
+        assert_equal(real_v3_sidechain["committed_queue_witness_limit"], 2)
+        assert_equal(real_v3_sidechain["committed_withdrawal_witness_limit"], 2)
+        assert_equal(real_v3_sidechain["committed_data_chunk_witness_limit"], 2)
         assert_equal(real_v3_sidechain["verified_withdrawal_execution_mode"], "withdrawal_root_merkle_inclusion")
         assert_equal(real_v3_sidechain["escape_exit_mode"], "account_balance_state_proof_claims")
         assert_equal(real_v3_sidechain["escape_exit_execution_mode"], "account_balance_state_proof_claims")
@@ -883,6 +921,18 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
                     real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_lo"],
                     real_v3_valid_vector["public_inputs"]["queue_prefix_commitment_hi"],
                 ),
+            )
+        if len(real_v3_queue_entries) >= real_v3_supported["committed_queue_witness_limit"]:
+            assert_raises_rpc_error(
+                -26,
+                "current profile cannot append a force-exit request beyond the committed queue witness limit of 2",
+                node.sendforceexitrequest,
+                real_v3_sidechain_id,
+                "dd" * 32,
+                "ee" * 32,
+                Decimal("0.01"),
+                {"script": build_script_destination(node)},
+                1,
             )
 
         real_v3_public_inputs = {
@@ -1037,6 +1087,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_v3_sidechain["current_withdrawal_root"], real_v3_public_inputs["withdrawal_root"])
         assert_equal(real_v3_sidechain["current_data_root"], real_v3_public_inputs["data_root"])
         assert_equal(real_v3_sidechain["accepted_batches"][0]["proof_size"], len(bytes.fromhex(real_v3_valid_vector["proof_bytes_hex"])))
+        assert_equal(real_v3_sidechain["accepted_batches"][0]["proof_parsed_as_groth16"], True)
+        assert_equal(real_v3_sidechain["accepted_batches"][0]["proof_commitment_extension_count"], 1)
+        assert_equal(real_v3_sidechain["accepted_batches"][0]["proof_commitment_extension_matches_profile"], True)
         assert_equal(real_v3_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_v3_data_chunks))
         assert_equal(real_v3_sidechain["accepted_batches"][0]["published_data_bytes"], real_v3_public_inputs["data_size"])
         assert_equal(real_v3_sidechain["queue_state"]["head_index"], len(real_v3_queue_entries))
@@ -1725,7 +1778,7 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         canonical_account_proof = canonical_escape_fixture["account_proof"]
         canonical_state_root = canonical_escape_fixture["state_root"]
         canonical_escape_config = build_register_config(
-            real_v2_supported,
+            real_v3_supported,
             initial_state_root=canonical_state_root,
             initial_withdrawal_root="00" * 32,
         )
@@ -1788,6 +1841,38 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         canonical_escape_sidechain = get_sidechain_info(node, canonical_escape_sidechain_id)
         assert_equal(canonical_escape_sidechain["executed_escape_exit_count"], 1)
         assert_equal(canonical_escape_sidechain["escrow_balance"], 0)
+        assert_raises_rpc_error(
+            -8,
+            "cannot accept new batches after escape exits have started",
+            node.sendvaliditybatch,
+            canonical_escape_sidechain_id,
+            {
+                "batch_number": 1,
+                "new_state_root": canonical_state_root,
+                "consumed_queue_messages": 0,
+            },
+            "00",
+        )
+        assert_raises_rpc_error(
+            -26,
+            "cannot add new deposits after escape exits have started",
+            node.sendvaliditydeposit,
+            canonical_escape_sidechain_id,
+            "ab" * 32,
+            {"address": node.getnewaddress()},
+            Decimal("0.01"),
+        )
+        assert_raises_rpc_error(
+            -26,
+            "cannot request new force exits after escape exits have started",
+            node.sendforceexitrequest,
+            canonical_escape_sidechain_id,
+            "cd" * 32,
+            "ef" * 32,
+            Decimal("0.01"),
+            {"address": node.getnewaddress()},
+            5,
+        )
 
         self.log.info("Registering the proposed Groth16 profile and replaying committed native proof vectors.")
         real_config = build_register_config(
@@ -2018,6 +2103,9 @@ class ValiditySidechainWalletTest(BitcoinTestFramework):
         assert_equal(real_sidechain["current_withdrawal_root"], real_public_inputs["withdrawal_root"])
         assert_equal(real_sidechain["current_data_root"], real_public_inputs["data_root"])
         assert_equal(real_sidechain["accepted_batches"][0]["proof_size"], len(bytes.fromhex(real_valid_vector["proof_bytes_hex"])))
+        assert_equal(real_sidechain["accepted_batches"][0]["proof_parsed_as_groth16"], True)
+        assert_equal(real_sidechain["accepted_batches"][0]["proof_commitment_extension_count"], 0)
+        assert_equal(real_sidechain["accepted_batches"][0]["proof_commitment_extension_matches_profile"], True)
         assert_equal(real_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_data_chunks))
         assert_equal(real_sidechain["accepted_batches"][0]["published_data_bytes"], real_public_inputs["data_size"])
         assert_equal(real_sidechain["queue_state"]["head_index"], len(real_queue_entries))

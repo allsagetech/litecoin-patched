@@ -227,6 +227,7 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
             && block.GetHash() == consensus_params.mweb_input_metadata_grandfather_blockhash;
 
         for (const auto& input : block.mweb_block.m_block->GetInputs()) {
+            // Verify that none of the MWEB inputs are spending frozen MWEB outputs.
             for (const uint256& frozen_output_id : consensus_params.frozen_mweb_output_ids) {
                 if (uint256(input.GetOutputID().vec()) == frozen_output_id) {
                     return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "frozen-mweb-output-spent",

@@ -63,6 +63,7 @@ class ValiditySidechainDecomposedProfileReclaimReorg(BitcoinTestFramework):
         self.common_args = [
             "-acceptnonstdtxn=1",
             f"-validityartifactsdir={self.artifact_root}",
+            "-validityallowmigrationprofiles=1",
         ]
         self.extra_args = [self.common_args, self.common_args]
 

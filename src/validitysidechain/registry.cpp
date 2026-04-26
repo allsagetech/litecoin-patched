@@ -63,7 +63,7 @@ static bool IsCanonicalTargetGroth16PoseidonProfile(const SupportedValiditySidec
     return IsRealGroth16PoseidonProfile(supported) &&
            UsesDecomposedPoseidonPublicInputs(supported) &&
            supported.profile_name != nullptr &&
-           std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v2";
+           std::string(supported.profile_name) == "groth16_bls12_381_poseidon_v3";
 }
 
 static bool IsCommitmentAwareSuccessorGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
@@ -76,7 +76,7 @@ static bool IsCommitmentAwareSuccessorGroth16PoseidonProfile(const SupportedVali
 
 static bool IsRecommendedNewRegistrationGroth16PoseidonProfile(const SupportedValiditySidechainConfig& supported)
 {
-    return IsCommitmentAwareSuccessorGroth16PoseidonProfile(supported);
+    return IsCanonicalTargetGroth16PoseidonProfile(supported);
 }
 
 static bool IsToyProfile(const SupportedValiditySidechainConfig& supported)
@@ -476,15 +476,13 @@ const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConf
 bool RequiresValiditySidechainExternalProverCurrentChainstate(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
-    return IsCanonicalValiditySidechainProfile(config) ||
-           (supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
+    return supported != nullptr && UsesDecomposedPoseidonPublicInputs(*supported);
 }
 
 bool RequiresValiditySidechainExternalProverExplicitWitnessVectors(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
-    return IsCanonicalValiditySidechainProfile(config) ||
-           (supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
+    return supported != nullptr && UsesDecomposedPoseidonPublicInputs(*supported);
 }
 
 const char* GetValiditySidechainDerivedPublicInputMode(const ValiditySidechainConfig& config)
@@ -496,10 +494,7 @@ const char* GetValiditySidechainDerivedPublicInputMode(const ValiditySidechainCo
     if (supported->scaffolding_only) {
         return "caller_supplied_scaffold";
     }
-    if (IsCanonicalValiditySidechainProfile(config)) {
-        return "helper_derives_queue_withdrawal_and_da_bindings";
-    }
-    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+    if (UsesDecomposedPoseidonPublicInputs(*supported)) {
         return "helper_derives_queue_withdrawal_and_da_bindings";
     }
     if (supported->supports_external_prover) {
@@ -517,10 +512,7 @@ const char* GetValiditySidechainExternalProverRequestMode(const ValiditySidechai
     if (!supported->supports_external_prover) {
         return "not_supported";
     }
-    if (IsCanonicalValiditySidechainProfile(config)) {
-        return "current_chainstate_bound_explicit_witness_vectors";
-    }
-    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+    if (UsesDecomposedPoseidonPublicInputs(*supported)) {
         return "current_chainstate_bound_explicit_witness_vectors";
     }
     return "optional_current_chainstate_context";
@@ -553,11 +545,12 @@ const char* GetValiditySidechainInCircuitBindingBlocker(const ValiditySidechainC
     if (supported->scaffolding_only) {
         return "scaffold_transition_only";
     }
-    if (IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
+    if (IsCanonicalValiditySidechainProfile(config) ||
+        IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported)) {
         return "none";
     }
-    if (IsCanonicalValiditySidechainProfile(config)) {
-        return "commitment_aware_successor_profile_pending";
+    if (UsesDecomposedPoseidonPublicInputs(*supported)) {
+        return "superseded_by_canonical_v3_target";
     }
     return "not_yet_implemented";
 }
@@ -661,8 +654,7 @@ const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySi
 bool RequiresValiditySidechainEscapeExitStateProofs(const ValiditySidechainConfig& config)
 {
     const SupportedValiditySidechainConfig* supported = FindSupportedValiditySidechainConfig(config);
-    return IsCanonicalValiditySidechainProfile(config) ||
-           (supported != nullptr && IsCommitmentAwareSuccessorGroth16PoseidonProfile(*supported));
+    return supported != nullptr && UsesDecomposedPoseidonPublicInputs(*supported);
 }
 
 const char* GetValiditySidechainEscapeExitExecutionMode(const ValiditySidechainConfig& config)

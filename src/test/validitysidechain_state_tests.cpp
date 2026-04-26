@@ -10,6 +10,7 @@
 #include <primitives/transaction.h>
 #include <script/script.h>
 #include <test/util/setup_common.h>
+#include <univalue.h>
 #include <uint256.h>
 #include <util/strencodings.h>
 #include <util/system.h>
@@ -21,6 +22,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <iterator>
 #include <string>
 
 namespace {
@@ -97,6 +99,24 @@ fs::path FindRepoPath(const fs::path& relative)
 void ConfigureVerifierArtifactsDirForTests()
 {
     gArgs.ForceSetArg("-validityartifactsdir", FindRepoPath("artifacts").string());
+}
+
+std::vector<unsigned char> LoadProofBytesFromVectorFile(const fs::path& relative)
+{
+    const fs::path path = FindRepoPath(relative);
+    fsbridge::ifstream file(path);
+    BOOST_REQUIRE(file.is_open());
+
+    const std::string json_text{
+        std::istreambuf_iterator<char>(file),
+        std::istreambuf_iterator<char>()};
+    UniValue root(UniValue::VOBJ);
+    BOOST_REQUIRE(root.read(json_text));
+    BOOST_REQUIRE(root.isObject());
+
+    const UniValue& proof_hex = find_value(root, "proof_bytes_hex");
+    BOOST_REQUIRE(proof_hex.isStr());
+    return ParseHex(proof_hex.get_str());
 }
 
 ValiditySidechainDepositData MakeDeposit(const uint256& deposit_id, const CScript& refund_script, CAmount amount = 5 * COIN)
@@ -356,7 +376,7 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
     BOOST_REQUIRE_EQUAL(supported_configs.size(), 7U);
     BOOST_REQUIRE(canonical != nullptr);
     BOOST_REQUIRE(recommended != nullptr);
-    BOOST_CHECK_EQUAL(std::string(canonical->profile_name), "groth16_bls12_381_poseidon_v2");
+    BOOST_CHECK_EQUAL(std::string(canonical->profile_name), "groth16_bls12_381_poseidon_v3");
     BOOST_CHECK_EQUAL(std::string(recommended->profile_name), "groth16_bls12_381_poseidon_v3");
     BOOST_CHECK_EQUAL(std::string(supported_configs.front().profile_name), "scaffold_onchain_da_v1");
     BOOST_CHECK(supported_configs.front().scaffolding_only);
@@ -420,16 +440,16 @@ BOOST_AUTO_TEST_CASE(supported_registry_accepts_scaffold_profile)
         "experimental_real_migration");
     BOOST_CHECK_EQUAL(
         std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 5))),
-        "canonical_target");
+        "real_migration");
     BOOST_CHECK_EQUAL(
         std::string(GetValiditySidechainProfileLifecycle(MakeSupportedConfig(/* supported_index= */ 6))),
-        "recommended_successor");
+        "canonical_target");
     BOOST_CHECK(!IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 4)));
-    BOOST_CHECK(IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 5)));
-    BOOST_CHECK(!IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 6)));
+    BOOST_CHECK(!IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 5)));
+    BOOST_CHECK(IsCanonicalValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 6)));
     BOOST_CHECK(!IsRecommendedValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 5)));
     BOOST_CHECK(IsRecommendedValiditySidechainProfile(MakeSupportedConfig(/* supported_index= */ 6)));
-    BOOST_CHECK(IsValiditySidechainRegistrationDefaultAllowedProfile(MakeSupportedConfig(/* supported_index= */ 5)));
+    BOOST_CHECK(!IsValiditySidechainRegistrationDefaultAllowedProfile(MakeSupportedConfig(/* supported_index= */ 5)));
     BOOST_CHECK(IsValiditySidechainRegistrationDefaultAllowedProfile(MakeSupportedConfig(/* supported_index= */ 6)));
     BOOST_CHECK(!IsValiditySidechainRegistrationDefaultAllowedProfile(MakeSupportedConfig(/* supported_index= */ 4)));
 }
@@ -473,6 +493,9 @@ BOOST_AUTO_TEST_CASE(real_profile_reports_native_backend_ready_when_assets_exist
     BOOST_CHECK(status.backend_ready);
     BOOST_CHECK(status.native_backend_available);
     BOOST_CHECK(status.native_backend_self_test_passed);
+    BOOST_CHECK_EQUAL(status.expected_groth16_commitment_extension_count, 0U);
+    BOOST_CHECK_EQUAL(status.verifying_key_groth16_commitment_extension_count, 0U);
+    BOOST_CHECK(status.groth16_commitment_extension_matches_profile);
     BOOST_CHECK_GT(status.native_backend_pairing_context_bytes, 0U);
     BOOST_CHECK_EQUAL(status.native_backend_status, "native blst backend available");
     BOOST_CHECK_EQUAL(status.artifact_name, "groth16_bls12_381_poseidon_v1");
@@ -505,6 +528,9 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_native_backend_ready_wh
     BOOST_CHECK(status.backend_ready);
     BOOST_CHECK(status.native_backend_available);
     BOOST_CHECK(status.native_backend_self_test_passed);
+    BOOST_CHECK_EQUAL(status.expected_groth16_commitment_extension_count, 0U);
+    BOOST_CHECK_EQUAL(status.verifying_key_groth16_commitment_extension_count, 0U);
+    BOOST_CHECK(status.groth16_commitment_extension_matches_profile);
     BOOST_CHECK_EQUAL(status.artifact_name, "groth16_bls12_381_poseidon_v2");
     BOOST_CHECK(status.profile_manifest_parsed);
     BOOST_CHECK(status.profile_manifest_name_matches);
@@ -515,6 +541,36 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_reports_native_backend_ready_wh
     BOOST_CHECK(status.valid_proof_vectors_present);
     BOOST_CHECK(status.invalid_proof_vectors_present);
     BOOST_CHECK_EQUAL(status.profile_manifest_name, "groth16_bls12_381_poseidon_v2");
+    BOOST_CHECK_GE(status.valid_proof_vector_count, 1U);
+    BOOST_CHECK_GE(status.invalid_proof_vector_count, 1U);
+    BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 16U);
+    BOOST_CHECK_EQUAL(status.status, "native blst Groth16 verifier ready");
+}
+
+BOOST_AUTO_TEST_CASE(commitment_poseidon_profile_reports_expected_groth16_commitment_extension)
+{
+    ConfigureVerifierArtifactsDirForTests();
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    ValiditySidechainVerifierAssetsStatus status;
+    BOOST_CHECK(GetValiditySidechainVerifierAssetsStatus(config, status));
+    BOOST_CHECK(status.requires_external_assets);
+    BOOST_CHECK(status.assets_present);
+    BOOST_CHECK(status.backend_ready);
+    BOOST_CHECK(status.native_backend_available);
+    BOOST_CHECK(status.native_backend_self_test_passed);
+    BOOST_CHECK_EQUAL(status.artifact_name, "groth16_bls12_381_poseidon_v3");
+    BOOST_CHECK_EQUAL(status.expected_groth16_commitment_extension_count, 1U);
+    BOOST_CHECK_EQUAL(status.verifying_key_groth16_commitment_extension_count, 1U);
+    BOOST_CHECK(status.groth16_commitment_extension_matches_profile);
+    BOOST_CHECK(status.profile_manifest_parsed);
+    BOOST_CHECK(status.profile_manifest_name_matches);
+    BOOST_CHECK(status.profile_manifest_backend_matches);
+    BOOST_CHECK(status.profile_manifest_key_layout_matches);
+    BOOST_CHECK(status.profile_manifest_tuple_matches);
+    BOOST_CHECK(status.profile_manifest_public_inputs_match);
+    BOOST_CHECK(status.valid_proof_vectors_present);
+    BOOST_CHECK(status.invalid_proof_vectors_present);
+    BOOST_CHECK_EQUAL(status.profile_manifest_name, "groth16_bls12_381_poseidon_v3");
     BOOST_CHECK_GE(status.valid_proof_vector_count, 1U);
     BOOST_CHECK_GE(status.invalid_proof_vector_count, 1U);
     BOOST_CHECK_EQUAL(status.profile_manifest_public_input_count, 16U);
@@ -669,7 +725,7 @@ BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_uses_generic_queue_and_withdraw
     BOOST_CHECK(!AreValiditySidechainBatchDataBindingsProvenInCircuit(config));
     BOOST_CHECK_EQUAL(
         std::string(GetValiditySidechainInCircuitBindingBlocker(config)),
-        "commitment_aware_successor_profile_pending");
+        "superseded_by_canonical_v3_target");
     BOOST_CHECK_EQUAL(std::string(GetValiditySidechainDepositAdmissionMode(config)), "enabled_local_queue_consensus");
     BOOST_CHECK(!IsValiditySidechainSingleEntryExperimentalQueueProfile(config));
     BOOST_CHECK(AllowsValiditySidechainForceExitRequests(config));
@@ -1374,6 +1430,37 @@ BOOST_AUTO_TEST_CASE(real_profile_rejects_force_exit_requests)
     BOOST_CHECK_EQUAL(error, "force-exit requests are not implemented for this profile");
 }
 
+BOOST_AUTO_TEST_CASE(commitment_poseidon_profile_rejects_force_exit_request_beyond_committed_queue_witness_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 33, /* registration_height= */ 710, config));
+
+    const CScript refund_script = CScript() << OP_TRUE << OP_DROP;
+    const ValiditySidechainDepositData first_deposit = MakeDeposit(
+        uint256S("6161616161616161616161616161616161616161616161616161616161616161"),
+        refund_script,
+        COIN);
+    const ValiditySidechainDepositData second_deposit = MakeDeposit(
+        uint256S("6262626262626262626262626262626262626262626262626262626262626262"),
+        refund_script,
+        COIN);
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 33, /* deposit_height= */ 711, first_deposit));
+    BOOST_REQUIRE(state.AddDeposit(/* sidechain_id= */ 33, /* deposit_height= */ 712, second_deposit));
+
+    const CScript destination_script = CScript() << OP_5;
+    const ValiditySidechainForceExitData request = MakeForceExitRequest(
+        uint256S("6363636363636363636363636363636363636363636363636363636363636363"),
+        destination_script,
+        COIN);
+
+    std::string error;
+    BOOST_CHECK(!state.AddForceExitRequest(/* sidechain_id= */ 33, /* request_height= */ 713, request, &error));
+    BOOST_CHECK_EQUAL(
+        error,
+        "current profile cannot append a force-exit request beyond the committed queue witness limit of 2");
+}
+
 BOOST_AUTO_TEST_CASE(real_profile_withdrawal_execution_rejects_more_than_one_leaf)
 {
     ValiditySidechainState state;
@@ -1624,6 +1711,231 @@ BOOST_AUTO_TEST_CASE(accept_batch_rejects_queue_consumption_above_consensus_limi
     BOOST_CHECK_EQUAL(error, "consumed queue message count exceeds consensus limit");
 }
 
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_v3_queue_witness_count_above_profile_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 28, /* registration_height= */ 620, config));
+
+    const CScript refund_script = CScript() << OP_TRUE;
+    for (uint64_t i = 0; i < 3; ++i) {
+        const uint256 deposit_id = uint256S(HexStr(std::vector<unsigned char>(32, static_cast<unsigned char>(0x80 + i))));
+        BOOST_REQUIRE(state.AddDeposit(
+            /* sidechain_id= */ 28,
+            /* deposit_height= */ 621 + static_cast<int>(i),
+            MakeDeposit(deposit_id, refund_script, 1 * COIN)));
+    }
+
+    const ValiditySidechain* sidechain = state.GetSidechain(28);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.consumed_queue_messages = 3;
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 28, /* accepted_height= */ 624, public_inputs, {0x01}, {}, &error));
+    BOOST_CHECK_EQUAL(error, "current profile supports at most 2 consumed queue messages");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_v3_data_chunk_count_above_profile_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 29, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(29);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const std::vector<std::vector<unsigned char>> data_chunks{
+        {0x01},
+        {0x02},
+        {0x03},
+    };
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.data_root = ComputeValiditySidechainDataRoot(data_chunks);
+    public_inputs.data_size = 3;
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 29, /* accepted_height= */ 621, public_inputs, {0x01}, data_chunks, &error));
+    BOOST_CHECK_EQUAL(error, "current profile supports at most 2 data chunk witnesses");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_v3_non_final_data_chunk_without_full_witness_width)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 30, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(30);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const std::vector<std::vector<unsigned char>> data_chunks{
+        std::vector<unsigned char>(63, 0x41),
+        std::vector<unsigned char>(1, 0x42),
+    };
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.data_root = ComputeValiditySidechainDataRoot(data_chunks);
+    public_inputs.data_size = 64;
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(/* sidechain_id= */ 30, /* accepted_height= */ 621, public_inputs, {0x01}, data_chunks, &error));
+    BOOST_CHECK_EQUAL(error, "data_chunks[0] must be exactly 64 bytes when followed by another chunk");
+}
+
+BOOST_AUTO_TEST_CASE(external_prover_rejects_v3_queue_witness_count_above_profile_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 31, /* registration_height= */ 620, config));
+
+    const CScript refund_script = CScript() << OP_TRUE;
+    for (uint64_t i = 0; i < 3; ++i) {
+        const uint256 deposit_id = uint256S(HexStr(std::vector<unsigned char>(32, static_cast<unsigned char>(0x90 + i))));
+        BOOST_REQUIRE(state.AddDeposit(
+            /* sidechain_id= */ 31,
+            /* deposit_height= */ 621 + static_cast<int>(i),
+            MakeDeposit(deposit_id, refund_script, 1 * COIN)));
+    }
+
+    const ValiditySidechain* sidechain = state.GetSidechain(31);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    std::vector<ValiditySidechainQueueEntry> consumed_queue_entries;
+    consumed_queue_entries.reserve(3);
+    for (uint64_t queue_index = sidechain->queue_state.head_index;
+         queue_index < sidechain->queue_state.head_index + 3;
+         ++queue_index) {
+        const auto it = sidechain->queue_entries.find(queue_index);
+        BOOST_REQUIRE(it != sidechain->queue_entries.end());
+        consumed_queue_entries.push_back(it->second);
+    }
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.consumed_queue_messages = 3;
+    public_inputs.l1_message_root_after = ComputeConsumedQueueRootForTest(*sidechain, /* sidechain_id= */ 31, /* consumed_queue_messages= */ 3);
+    public_inputs.queue_prefix_commitment = ComputeQueuePrefixCommitmentForTest(*sidechain, /* sidechain_id= */ 31, /* consumed_queue_messages= */ 3);
+
+    std::vector<unsigned char> proof_bytes;
+    std::string error;
+    BOOST_CHECK(!BuildValiditySidechainBatchProofWithExternalProver(
+        config,
+        /* sidechain_id= */ 31,
+        public_inputs,
+        sidechain->current_state_root,
+        sidechain->current_withdrawal_root,
+        sidechain->current_data_root,
+        sidechain->queue_state.root,
+        consumed_queue_entries,
+        /* withdrawal_leaves_supplied= */ false,
+        {},
+        {},
+        proof_bytes,
+        &error));
+    BOOST_CHECK_EQUAL(error, "current profile supports at most 2 consumed queue entry witnesses for auto prover");
+    BOOST_CHECK(proof_bytes.empty());
+}
+
+BOOST_AUTO_TEST_CASE(external_prover_rejects_v3_withdrawal_witness_count_above_profile_limit)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 32, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(32);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const std::vector<ValiditySidechainWithdrawalLeaf> withdrawal_leaves{
+        MakeWithdrawalLeaf(
+            uint256S("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"),
+            CScript() << OP_1,
+            1 * COIN),
+        MakeWithdrawalLeaf(
+            uint256S("b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"),
+            CScript() << OP_2,
+            2 * COIN),
+        MakeWithdrawalLeaf(
+            uint256S("c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"),
+            CScript() << OP_3,
+            3 * COIN),
+    };
+
+    ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    public_inputs.withdrawal_root = ComputeValiditySidechainWithdrawalRoot(withdrawal_leaves);
+
+    std::vector<unsigned char> proof_bytes;
+    std::string error;
+    BOOST_CHECK(!BuildValiditySidechainBatchProofWithExternalProver(
+        config,
+        /* sidechain_id= */ 32,
+        public_inputs,
+        sidechain->current_state_root,
+        sidechain->current_withdrawal_root,
+        sidechain->current_data_root,
+        sidechain->queue_state.root,
+        {},
+        /* withdrawal_leaves_supplied= */ true,
+        withdrawal_leaves,
+        {},
+        proof_bytes,
+        &error));
+    BOOST_CHECK_EQUAL(error, "current profile supports at most 2 withdrawal leaf witnesses for auto prover");
+    BOOST_CHECK(proof_bytes.empty());
+}
+
+BOOST_AUTO_TEST_CASE(commitment_poseidon_profile_rejects_groth16_proof_without_commitment_extension)
+{
+    ConfigureVerifierArtifactsDirForTests();
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 6);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 33, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(33);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const std::vector<unsigned char> proof_bytes = LoadProofBytesFromVectorFile(
+        "artifacts/validitysidechain/groth16_bls12_381_poseidon_v2/valid/valid_proof.json");
+    BOOST_REQUIRE(!proof_bytes.empty());
+
+    const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(
+        /* sidechain_id= */ 33,
+        /* accepted_height= */ 621,
+        public_inputs,
+        proof_bytes,
+        {},
+        &error));
+    BOOST_CHECK_EQUAL(error, "Groth16 proof commitment extension count does not match supported profile");
+}
+
+BOOST_AUTO_TEST_CASE(decomposed_poseidon_profile_rejects_groth16_proof_with_unexpected_commitment_extension)
+{
+    ConfigureVerifierArtifactsDirForTests();
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig(/* supported_index= */ 5);
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 34, /* registration_height= */ 620, config));
+
+    const ValiditySidechain* sidechain = state.GetSidechain(34);
+    BOOST_REQUIRE(sidechain != nullptr);
+
+    const std::vector<unsigned char> proof_bytes = LoadProofBytesFromVectorFile(
+        "artifacts/validitysidechain/groth16_bls12_381_poseidon_v3/valid/valid_proof.json");
+    BOOST_REQUIRE(!proof_bytes.empty());
+
+    const ValiditySidechainBatchPublicInputs public_inputs = MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+
+    std::string error;
+    BOOST_CHECK(!state.AcceptBatch(
+        /* sidechain_id= */ 34,
+        /* accepted_height= */ 621,
+        public_inputs,
+        proof_bytes,
+        {},
+        &error));
+    BOOST_CHECK_EQUAL(error, "Groth16 proof commitment extension count does not match supported profile");
+}
+
 BOOST_AUTO_TEST_CASE(accept_batch_consumes_queue_prefix_and_clears_pending_records)
 {
     ValiditySidechainState state;
@@ -1765,7 +2077,7 @@ BOOST_AUTO_TEST_CASE(execute_withdrawals_marks_ids_and_reduces_escrow)
     BOOST_CHECK_EQUAL(error, "withdrawal claim already executed");
 }
 
-BOOST_AUTO_TEST_CASE(execute_withdrawals_allows_duplicate_ids_within_same_batch)
+BOOST_AUTO_TEST_CASE(execute_withdrawals_rejects_duplicate_ids_within_same_execution)
 {
     ValiditySidechainState state;
     const ValiditySidechainConfig config = MakeSupportedConfig();
@@ -1791,31 +2103,18 @@ BOOST_AUTO_TEST_CASE(execute_withdrawals_allows_duplicate_ids_within_same_batch)
         BuildWithdrawalProofsForTest(withdrawals);
 
     std::string error;
-    BOOST_REQUIRE(state.ExecuteWithdrawals(
-        /* sidechain_id= */ 32,
-        accepted_batch_id,
-        {withdrawal_proofs[0]},
-        &error));
-    BOOST_CHECK(error.empty());
-    BOOST_REQUIRE(state.ExecuteWithdrawals(
-        /* sidechain_id= */ 32,
-        accepted_batch_id,
-        {withdrawal_proofs[1]},
-        &error));
-    BOOST_CHECK(error.empty());
-
-    sidechain = state.GetSidechain(32);
-    BOOST_REQUIRE(sidechain != nullptr);
-    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 5 * COIN);
-    BOOST_CHECK_EQUAL(sidechain->executed_withdrawal_count, 2U);
-    BOOST_CHECK(state.HasExecutedWithdrawal(32, shared_withdrawal_id));
-
     BOOST_CHECK(!state.ExecuteWithdrawals(
         /* sidechain_id= */ 32,
         accepted_batch_id,
-        {withdrawal_proofs[0]},
+        withdrawal_proofs,
         &error));
-    BOOST_CHECK_EQUAL(error, "withdrawal claim already executed");
+    BOOST_CHECK_EQUAL(error, "duplicate withdrawal id in execution");
+
+    sidechain = state.GetSidechain(32);
+    BOOST_REQUIRE(sidechain != nullptr);
+    BOOST_CHECK_EQUAL(sidechain->escrow_balance, 10 * COIN);
+    BOOST_CHECK_EQUAL(sidechain->executed_withdrawal_count, 0U);
+    BOOST_CHECK(!state.HasExecutedWithdrawal(32, shared_withdrawal_id));
 }
 
 BOOST_AUTO_TEST_CASE(execute_withdrawals_rejects_invalid_merkle_proof)
@@ -1957,6 +2256,92 @@ BOOST_AUTO_TEST_CASE(execute_escape_exits_requires_halt_and_tracks_replay)
 
     BOOST_CHECK(!state.ExecuteEscapeExits(/* sidechain_id= */ 12, /* execution_height= */ 400 + config.escape_hatch_delay, escape_root, exit_proofs, &error));
     BOOST_CHECK_EQUAL(error, "escape-exit id already executed");
+}
+
+BOOST_AUTO_TEST_CASE(accept_batch_rejects_new_progress_after_escape_exits_start)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 34, /* registration_height= */ 410, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(34);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 3 * COIN;
+
+    const CScript payout = CScript() << OP_10;
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        MakeEscapeExitLeaf(uint256S("3434343434343434343434343434343434343434343434343434343434343434"), payout, 2 * COIN),
+    };
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    const std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
+    sidechain->current_state_root = escape_root;
+
+    std::string error;
+    BOOST_REQUIRE(state.ExecuteEscapeExits(
+        /* sidechain_id= */ 34,
+        /* execution_height= */ 410 + config.escape_hatch_delay,
+        escape_root,
+        exit_proofs,
+        &error));
+    BOOST_CHECK(error.empty());
+
+    sidechain = state.GetSidechain(34);
+    BOOST_REQUIRE(sidechain != nullptr);
+    const ValiditySidechainBatchPublicInputs public_inputs =
+        MakeNoopBatchPublicInputs(*sidechain, /* batch_number= */ 1);
+    const std::vector<unsigned char> proof_bytes =
+        BuildScaffoldBatchProofForTest(/* sidechain_id= */ 34, *sidechain, public_inputs);
+
+    BOOST_CHECK(!state.AcceptBatch(
+        /* sidechain_id= */ 34,
+        /* accepted_height= */ 410 + config.escape_hatch_delay + 1,
+        public_inputs,
+        proof_bytes,
+        {},
+        &error));
+    BOOST_CHECK_EQUAL(error, "cannot accept new batches after escape exits have started");
+}
+
+BOOST_AUTO_TEST_CASE(post_escape_exit_sidechain_rejects_new_deposits_and_force_exits)
+{
+    ValiditySidechainState state;
+    const ValiditySidechainConfig config = MakeSupportedConfig();
+    BOOST_REQUIRE(state.RegisterSidechain(/* id= */ 36, /* registration_height= */ 430, config));
+
+    ValiditySidechain* sidechain = state.GetSidechain(36);
+    BOOST_REQUIRE(sidechain != nullptr);
+    sidechain->escrow_balance = 4 * COIN;
+
+    const CScript payout = CScript() << OP_11;
+    const std::vector<ValiditySidechainEscapeExitLeaf> exits{
+        MakeEscapeExitLeaf(uint256S("3636363636363636363636363636363636363636363636363636363636363636"), payout, 2 * COIN),
+    };
+    const uint256 escape_root = ComputeValiditySidechainEscapeExitRoot(exits);
+    const std::vector<ValiditySidechainEscapeExitProof> exit_proofs = BuildEscapeExitProofsForTest(exits);
+    sidechain->current_state_root = escape_root;
+
+    std::string error;
+    BOOST_REQUIRE(state.ExecuteEscapeExits(
+        /* sidechain_id= */ 36,
+        /* execution_height= */ 430 + config.escape_hatch_delay,
+        escape_root,
+        exit_proofs,
+        &error));
+    BOOST_CHECK(error.empty());
+
+    const ValiditySidechainDepositData deposit = MakeDeposit(
+        uint256S("3737373737373737373737373737373737373737373737373737373737373737"),
+        CScript() << OP_TRUE,
+        COIN);
+    BOOST_CHECK(!state.AddDeposit(/* sidechain_id= */ 36, /* deposit_height= */ 431 + config.escape_hatch_delay, deposit, &error));
+    BOOST_CHECK_EQUAL(error, "cannot add new deposits after escape exits have started");
+
+    const ValiditySidechainForceExitData request = MakeForceExitRequest(
+        uint256S("3838383838383838383838383838383838383838383838383838383838383838"),
+        payout,
+        COIN);
+    BOOST_CHECK(!state.AddForceExitRequest(/* sidechain_id= */ 36, /* request_height= */ 431 + config.escape_hatch_delay, request, &error));
+    BOOST_CHECK_EQUAL(error, "cannot request new force exits after escape exits have started");
 }
 
 BOOST_AUTO_TEST_CASE(connect_block_handles_escape_exit_execution)

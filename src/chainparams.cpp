@@ -64,7 +64,6 @@ static CBlock CreateSignetGenesisBlock()
     // dedicated public signet bootstrap block under scrypt PoW.
     return CreateGenesisBlock(1486949366, 293345, 0x1e0ffff0, 1, 50 * COIN);
 }
-
 static std::vector<uint256> GetFrozenMWEBOutputIDs()
 {
     return {
@@ -141,7 +140,6 @@ static CChainParams::Options BuildChainOptions(const ArgsManager& args, const st
 
     return options;
 }
-
 /**
  * Main network
  */
@@ -492,7 +490,6 @@ public:
 
         consensus.nMinimumChainWork = uint256{};
         consensus.defaultAssumeValid = uint256{};
-
         pchMessageStart[0] = 0xfa;
         pchMessageStart[1] = 0xbf;
         pchMessageStart[2] = 0xb5;
