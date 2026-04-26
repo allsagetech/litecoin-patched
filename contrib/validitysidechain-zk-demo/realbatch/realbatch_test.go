@@ -83,7 +83,7 @@ func TestValidateProofRequestContractV2RejectsMissingCurrentStateRoot(t *testing
 	if err == nil {
 		t.Fatal("ValidateProofRequestContract succeeded without current_state_root")
 	}
-	if err.Error() != "current_state_root is required for canonical v2 proof requests" {
+	if err.Error() != "current_state_root is required for legacy v2 proof requests" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -96,7 +96,7 @@ func TestValidateProofRequestContractV2RejectsImplicitDataChunksVector(t *testin
 	if err == nil {
 		t.Fatal("ValidateProofRequestContract succeeded without explicit data_chunks_hex")
 	}
-	if err.Error() != "data_chunks_hex must be provided explicitly for canonical v2 proof requests" {
+	if err.Error() != "data_chunks_hex must be provided explicitly for legacy v2 proof requests" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -416,7 +416,7 @@ func TestValidateDerivedRequestV3RejectsMultipleDataChunkWitnesses(t *testing.T)
 	if err == nil {
 		t.Fatal("ValidateDerivedRequest succeeded for oversized data chunk witnesses")
 	}
-	if err.Error() != "commitment-aware successor profile supports at most 2 data chunk witnesses" {
+	if err.Error() != "canonical v3 profile supports at most 2 data chunk witnesses" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -429,7 +429,7 @@ func TestValidateProofRequestContractV3RejectsMissingCurrentStateRoot(t *testing
 	if err == nil {
 		t.Fatal("ValidateProofRequestContract succeeded without current_state_root")
 	}
-	if err.Error() != "current_state_root is required for commitment-aware v3 proof requests" {
+	if err.Error() != "current_state_root is required for canonical v3 proof requests" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -470,7 +470,7 @@ func TestValidateDerivedRequestV3RejectsMoreThanTwoQueueWitnessEntries(t *testin
 	if err == nil {
 		t.Fatal("ValidateDerivedRequest succeeded for oversized queue witness")
 	}
-	if err.Error() != "commitment-aware successor profile supports at most 2 consumed queue entries" {
+	if err.Error() != "canonical v3 profile supports at most 2 consumed queue entries" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -490,7 +490,7 @@ func TestValidateDerivedRequestV3RejectsMoreThanTwoWithdrawalLeafWitnesses(t *te
 	if err == nil {
 		t.Fatal("ValidateDerivedRequest succeeded for oversized withdrawal witness")
 	}
-	if err.Error() != "commitment-aware successor profile supports at most 2 withdrawal leaf witnesses" {
+	if err.Error() != "canonical v3 profile supports at most 2 withdrawal leaf witnesses" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -503,7 +503,7 @@ func TestValidateDerivedRequestV3RejectsOversizedDataChunkWitness(t *testing.T) 
 	if err == nil {
 		t.Fatal("ValidateDerivedRequest succeeded for oversized data chunk witness")
 	}
-	expected := "data_chunks_hex[0] exceeds the commitment-aware successor witness limit of 64 bytes"
+	expected := "data_chunks_hex[0] exceeds the canonical v3 witness limit of 64 bytes"
 	if err.Error() != expected {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestValidateDerivedRequestV3RejectsNonFinalChunkShorterThanWitnessWidth(t *
 	if err == nil {
 		t.Fatal("ValidateDerivedRequest succeeded for a short non-final data chunk witness")
 	}
-	expected := "data_chunks_hex[0] must be exactly 64 bytes when followed by another chunk in the commitment-aware successor profile"
+	expected := "data_chunks_hex[0] must be exactly 64 bytes when followed by another chunk in the canonical v3 profile"
 	if err.Error() != expected {
 		t.Fatalf("unexpected error: %v", err)
 	}

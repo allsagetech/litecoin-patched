@@ -252,33 +252,30 @@ This means:
   helper and Litecoin consensus checks rather than proven in-circuit, while
   `groth16_bls12_381_poseidon_v1` remains explicitly single-entry and
   single-leaf
-- the canonical `groth16_bls12_381_poseidon_v2` helper contract is now also
+- the legacy `groth16_bls12_381_poseidon_v2` helper contract is now also
   explicitly chainstate-bound: `derive-batch` / `prove-batch` require
   `current_state_root`, `current_withdrawal_root`, `current_data_root`, and
   `current_l1_message_root`, plus explicit queue / withdrawal / DA witness
   vectors, and the helper now derives `l1_message_root_after`,
   `queue_prefix_commitment`, `data_root`, and `data_size` from that witness
   surface instead of trusting caller-supplied placeholders
-- `getvaliditysidechaininfo` now also reports that those canonical `v2`
+- `getvaliditysidechaininfo` now also reports that those legacy `v2`
   queue / withdrawal / DA bindings are still not proven in-circuit and calls
-  out the current blocker as
-  `commitment_aware_successor_profile_pending`: the native bundle format and
-  C++ verifier now carry Groth16 commitment metadata, but wiring the
-  SHA-based witness gadgets directly into the canonical circuit would still
-  change the committed public-witness contract, so that work needs a
-  successor profile instead of silently mutating `groth16_bls12_381_poseidon_v2`
-- that successor profile now exists as
-  `groth16_bls12_381_poseidon_v3`: it keeps the 16 decomposed public inputs,
-  uses the commitment-aware native Groth16 path, and proves a bounded
-  in-circuit contract for up to two consumed queue entries, up to two
-  withdrawal leaves, and up to two published data chunks, where any
-  non-final DA chunk must occupy the full 64-byte witness width so the
-  bounded witness layout still hashes to the real published `data_root`
+  out the blocker as `superseded_by_canonical_v3_target`: the bounded
+  commitment-aware contract now lives in canonical `v3`, while `v2` is kept
+  only as decomposed-input migration coverage instead of waiting on a future
+  successor
+- the canonical `groth16_bls12_381_poseidon_v3` profile keeps the 16
+  decomposed public inputs, uses the commitment-aware native Groth16 path,
+  and proves a bounded in-circuit contract for up to two consumed queue
+  entries, up to two withdrawal leaves, and up to two published data chunks,
+  where any non-final DA chunk must occupy the full 64-byte witness width so
+  the bounded witness layout still hashes to the real published `data_root`
   while leaving the broader `v2` contract unchanged
-- the same `groth16_bls12_381_poseidon_v3` successor path now also requires
+- the same canonical `groth16_bls12_381_poseidon_v3` path now also requires
   explicit account / balance state proofs for `EXECUTE_ESCAPE_EXIT`, so it no
   longer advertises the legacy current-state-root leaf-list escape path
-- the same `groth16_bls12_381_poseidon_v3` helper contract is now also
+- the same canonical `groth16_bls12_381_poseidon_v3` helper contract is now also
   current-chainstate-bound like `v2`: proof requests require the current
   state, withdrawal, data, and L1 message roots, and omitting
   `withdrawal_leaves` now preserves the current withdrawal root instead of
@@ -319,15 +316,14 @@ This means:
   and auto-picks a compatible nonce when callers omit one, instead of leaving
   operators to trial-and-error random nonces against mempool rejection
 - `sendvaliditysidechainregister` now treats non-canonical proof profiles as
-  migration-only registration targets: scaffold, toy, and legacy Poseidon
-  tuples require `-validityallowmigrationprofiles=1`, while both
-  `groth16_bls12_381_poseidon_v2` and the stronger bounded successor
-  `groth16_bls12_381_poseidon_v3` remain available without any extra node
-  opt-in and `v3` is now the recommended profile for new registrations
-- `sendvaliditybatch` now treats canonical `groth16_bls12_381_poseidon_v2`
+  migration-only registration targets: scaffold, toy, experimental, and
+  legacy Poseidon tuples require `-validityallowmigrationprofiles=1`, while
+  canonical `groth16_bls12_381_poseidon_v3` remains available without any
+  extra node opt-in and is the recommended profile for new registrations
+- `sendvaliditybatch` now treats legacy decomposed `groth16_bls12_381_poseidon_v2`
   withdrawal-root changes as witness-backed operator actions: the wallet
   rejects non-current `withdrawal_root` values unless callers also provide
-  matching `withdrawal_leaves`, so canonical batches no longer present
+  matching `withdrawal_leaves`, so supported batches no longer present
   free-form withdrawal roots through the supported RPC path
 - the remaining trustless blocker is no longer the generic pairing equation;
   it is the absence of the final sidechain proof semantics for the intended
