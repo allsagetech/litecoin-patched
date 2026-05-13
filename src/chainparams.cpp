@@ -65,6 +65,13 @@ static CBlock CreateSignetGenesisBlock()
     return CreateGenesisBlock(1486949366, 293345, 0x1e0ffff0, 1, 50 * COIN);
 }
 
+static std::vector<uint256> GetFrozenMWEBOutputIDs()
+{
+    return {
+        uint256S("0x2f3a08d9f5ef5f388386c11efe935394b14b524220cff4ec5c81942b82e694f7"),
+    };
+}
+
 static const std::vector<uint8_t>& DefaultSignetChallenge()
 {
     static const std::vector<uint8_t> challenge = ParseHex("512103ad5e0edad18cb1f0fc0d28a3d4f1f3e445640337489abb10404f2d1e086be430210359ef5021964fe22d6f8e05b2463c9540ce96883fe3b278760f048f5189f2e6c452ae");
@@ -177,6 +184,8 @@ public:
 
         consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000146878abee06fa883e0a");
         consensus.defaultAssumeValid = uint256S("0x80cdb35c080484df5bf384b311fde3c4694d3405765bc0f596e9eb369ff286e5"); // 2772730
+        consensus.mweb_input_metadata_grandfather_blockhash = uint256S("0xd1695b5d115f86927a9763768218118ba88b315844e1a0681fa08f6f008be622");
+        consensus.frozen_mweb_output_ids = GetFrozenMWEBOutputIDs();
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.

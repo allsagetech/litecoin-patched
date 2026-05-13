@@ -328,7 +328,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         self.real_v3_invalid_corrupt_vector_path = self.real_v3_artifact_dir / "invalid" / "corrupt_proof.json"
         self.have_go = shutil.which("go") is not None
 
-        base_args = ["-acceptnonstdtxn=1"]
+        base_args = ["-acceptnonstdtxn=1", "-validityallowmigrationprofiles=1"]
         if self.have_go:
             base_args.extend([
                 f"-validityartifactsdir={self.artifact_root}",
@@ -475,9 +475,12 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
         assert_equal(real_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
         assert_equal(real_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+        assert_equal(real_supported["verifier_assets"]["groth16_commitment_extension_matches_profile"], True)
         assert_equal(real_supported["verifier_assets"]["profile_manifest_name"], "groth16_bls12_381_poseidon_v1")
         assert_equal(real_supported["verifier_assets"]["profile_manifest_backend"], "native_blst_groth16")
         assert_equal(real_supported["verifier_assets"]["profile_manifest_public_input_count"], 11)
+        assert_equal(real_supported["verifier_assets"]["expected_groth16_commitment_extension_count"], 0)
+        assert_equal(real_supported["verifier_assets"]["verifying_key_groth16_commitment_extension_count"], 0)
         assert_equal(real_supported["verifier_assets"]["valid_proof_vectors_present"], True)
         assert_equal(real_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_supported["verifier_assets"]["valid_proof_vector_count"], 1)
@@ -496,7 +499,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["queue_binding_proven_in_circuit"], False)
         assert_equal(real_v2_supported["withdrawal_binding_proven_in_circuit"], False)
         assert_equal(real_v2_supported["data_binding_proven_in_circuit"], False)
-        assert_equal(real_v2_supported["in_circuit_binding_blocker"], "commitment_aware_successor_profile_pending")
+        assert_equal(real_v2_supported["in_circuit_binding_blocker"], "superseded_by_canonical_v3_target")
         assert_equal(
             real_v2_supported["batch_queue_binding_mode"],
             "local_prefix_consensus_committed_public_inputs",
@@ -518,9 +521,12 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
         assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
         assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+        assert_equal(real_v2_supported["verifier_assets"]["groth16_commitment_extension_matches_profile"], True)
         assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_name"], "groth16_bls12_381_poseidon_v2")
         assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_backend"], "native_blst_groth16")
         assert_equal(real_v2_supported["verifier_assets"]["profile_manifest_public_input_count"], 16)
+        assert_equal(real_v2_supported["verifier_assets"]["expected_groth16_commitment_extension_count"], 0)
+        assert_equal(real_v2_supported["verifier_assets"]["verifying_key_groth16_commitment_extension_count"], 0)
         assert_equal(real_v2_supported["verifier_assets"]["valid_proof_vectors_present"], True)
         assert_equal(real_v2_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_v2_supported["verifier_assets"]["valid_proof_vector_count"], 1)
@@ -564,9 +570,12 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_key_layout_matches"], True)
         assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_tuple_matches"], True)
         assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_public_inputs_match"], True)
+        assert_equal(real_v3_supported["verifier_assets"]["groth16_commitment_extension_matches_profile"], True)
         assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_name"], "groth16_bls12_381_poseidon_v3")
         assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_backend"], "native_blst_groth16")
         assert_equal(real_v3_supported["verifier_assets"]["profile_manifest_public_input_count"], 16)
+        assert_equal(real_v3_supported["verifier_assets"]["expected_groth16_commitment_extension_count"], 1)
+        assert_equal(real_v3_supported["verifier_assets"]["verifying_key_groth16_commitment_extension_count"], 1)
         assert_equal(real_v3_supported["verifier_assets"]["valid_proof_vectors_present"], True)
         assert_equal(real_v3_supported["verifier_assets"]["invalid_proof_vectors_present"], True)
         assert_equal(real_v3_supported["verifier_assets"]["valid_proof_vector_count"], 1)
@@ -689,7 +698,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
         assert_equal(real_v2_verify_mismatch_result["ok"], False)
         assert real_v2_verify_mismatch_result["error"]
 
-        self.log.info("Replaying the committed commitment-aware real vector through the external verify helper too.")
+        self.log.info("Replaying the committed canonical v3 real vector through the external verify helper too.")
         real_v3_verify_request = {
             "profile_name": "groth16_bls12_381_poseidon_v3",
             "artifact_dir": str(self.real_v3_artifact_dir),
@@ -1316,6 +1325,9 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_sidechain["queue_state"]["head_index"], len(real_queue_entries))
             assert_equal(real_sidechain["queue_state"]["pending_message_count"], 0)
             assert real_sidechain["accepted_batches"][0]["proof_size"] > 0
+            assert_equal(real_sidechain["accepted_batches"][0]["proof_parsed_as_groth16"], True)
+            assert_equal(real_sidechain["accepted_batches"][0]["proof_commitment_extension_count"], 0)
+            assert_equal(real_sidechain["accepted_batches"][0]["proof_commitment_extension_matches_profile"], True)
             assert_equal(real_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_data_chunks))
             assert_equal(real_sidechain["accepted_batches"][0]["published_data_bytes"], real_public_inputs["data_size"])
         else:
@@ -1433,7 +1445,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             del missing_real_v2_context_request["current_state_root"]
             missing_real_v2_context = self.run_tool("derive", missing_real_v2_context_request)
             assert_equal(missing_real_v2_context["ok"], False)
-            assert "current_state_root is required for canonical v2 proof requests" in missing_real_v2_context["error"]
+            assert "current_state_root is required for legacy v2 proof requests" in missing_real_v2_context["error"]
 
             real_v2_preserve_request = {
                 "profile_name": "groth16_bls12_381_poseidon_v2",
@@ -1539,12 +1551,15 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_v2_auto_sidechain["queue_state"]["head_index"], len(real_v2_queue_entries))
             assert_equal(real_v2_auto_sidechain["queue_state"]["pending_message_count"], 0)
             assert real_v2_auto_sidechain["accepted_batches"][0]["proof_size"] > 0
+            assert_equal(real_v2_auto_sidechain["accepted_batches"][0]["proof_parsed_as_groth16"], True)
+            assert_equal(real_v2_auto_sidechain["accepted_batches"][0]["proof_commitment_extension_count"], 0)
+            assert_equal(real_v2_auto_sidechain["accepted_batches"][0]["proof_commitment_extension_matches_profile"], True)
         else:
             self.log.info("Skipping decomposed real auto-prover coverage because the committed proving key is not available in-tree.")
 
         real_v3_auto_prover_ready = toy_external_backend_ready and real_v3_supported["verifier_assets"]["prover_assets_present"]
         if real_v3_auto_prover_ready:
-            self.log.info("Auto-building a native-verified commitment-aware real-profile proof with bounded queue, withdrawal, and data witnesses.")
+            self.log.info("Auto-building a native-verified canonical v3 real-profile proof with bounded queue, withdrawal, and data witnesses.")
             real_v3_auto_sidechain_id = 59
             real_v3_auto_initial_root = hex_uint(4400)
             real_v3_auto_initial_withdrawal_root = "ab" * 32
@@ -1720,7 +1735,7 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             del missing_real_v3_context_request["current_state_root"]
             missing_real_v3_context = self.run_tool("derive", missing_real_v3_context_request)
             assert_equal(missing_real_v3_context["ok"], False)
-            assert "current_state_root is required for commitment-aware v3 proof requests" in missing_real_v3_context["error"]
+            assert "current_state_root is required for canonical v3 proof requests" in missing_real_v3_context["error"]
 
             real_v3_public_inputs = dict(real_v3_derived["public_inputs"])
             for field_name in (
@@ -1793,10 +1808,13 @@ class ValiditySidechainToyProofProfileTest(BitcoinTestFramework):
             assert_equal(real_v3_auto_sidechain["queue_state"]["head_index"], len(real_v3_queue_entries))
             assert_equal(real_v3_auto_sidechain["queue_state"]["pending_message_count"], 0)
             assert real_v3_auto_sidechain["accepted_batches"][0]["proof_size"] > 0
+            assert_equal(real_v3_auto_sidechain["accepted_batches"][0]["proof_parsed_as_groth16"], True)
+            assert_equal(real_v3_auto_sidechain["accepted_batches"][0]["proof_commitment_extension_count"], 1)
+            assert_equal(real_v3_auto_sidechain["accepted_batches"][0]["proof_commitment_extension_matches_profile"], True)
             assert_equal(real_v3_auto_sidechain["accepted_batches"][0]["published_data_chunk_count"], len(real_v3_data_chunks))
             assert_equal(real_v3_auto_sidechain["accepted_batches"][0]["published_data_bytes"], real_v3_public_inputs["data_size"])
         else:
-            self.log.info("Skipping commitment-aware real auto-prover coverage because the committed proving key is not available in-tree.")
+            self.log.info("Skipping canonical v3 real auto-prover coverage because the committed proving key is not available in-tree.")
 
 
 if __name__ == "__main__":

@@ -7,8 +7,11 @@
 
 #include <validitysidechain/state.h>
 
+#include <cstddef>
 #include <string>
 #include <vector>
+
+static constexpr size_t VALIDITY_SIDECHAIN_COMMITTED_DATA_WITNESS_MAX_CHUNK_BYTES = 64;
 
 struct SupportedValiditySidechainConfig
 {
@@ -43,11 +46,15 @@ const SupportedValiditySidechainConfig* FindSupportedValiditySidechainConfig(con
 bool ValidateValiditySidechainConfig(const ValiditySidechainConfig& config, std::string* error = nullptr);
 bool IsValiditySidechainScaffoldingOnlyProfile(const ValiditySidechainConfig& config);
 const SupportedValiditySidechainConfig* GetCanonicalValiditySidechainConfig();
+const SupportedValiditySidechainConfig* GetRecommendedValiditySidechainConfig();
 bool IsCanonicalValiditySidechainProfile(const ValiditySidechainConfig& config);
+bool IsRecommendedValiditySidechainProfile(const ValiditySidechainConfig& config);
+bool IsValiditySidechainRegistrationDefaultAllowedProfile(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainProfileLifecycle(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainDepositAdmissionMode(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleEntryBoundedQueueWitnessProfile(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleEntryExperimentalQueueProfile(const ValiditySidechainConfig& config);
+uint32_t GetValiditySidechainBatchCommittedQueueWitnessLimit(const ValiditySidechainConfig& config);
 bool AllowsValiditySidechainForceExitRequests(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainForceExitRequestMode(const ValiditySidechainConfig& config);
 bool RequiresValiditySidechainExternalProverCurrentChainstate(const ValiditySidechainConfig& config);
@@ -61,6 +68,8 @@ const char* GetValiditySidechainInCircuitBindingBlocker(const ValiditySidechainC
 const char* GetValiditySidechainBatchQueueBindingMode(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleLeafBoundedWithdrawalWitnessProfile(const ValiditySidechainConfig& config);
 bool IsValiditySidechainSingleLeafExperimentalWithdrawalProfile(const ValiditySidechainConfig& config);
+uint32_t GetValiditySidechainBatchCommittedWithdrawalWitnessLimit(const ValiditySidechainConfig& config);
+uint32_t GetValiditySidechainBatchCommittedDataChunkWitnessLimit(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainBatchWithdrawalBindingMode(const ValiditySidechainConfig& config);
 const char* GetValiditySidechainVerifiedWithdrawalExecutionMode(const ValiditySidechainConfig& config);
 bool RequiresValiditySidechainEscapeExitStateProofs(const ValiditySidechainConfig& config);

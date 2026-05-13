@@ -33,6 +33,7 @@
 #include <util/strencodings.h>
 #include <util/system.h>
 #include <util/translation.h>
+#include <validitysidechain/groth16.h>
 #include <validitysidechain/registry.h>
 #include <validitysidechain/script.h>
 #include <validitysidechain/state.h>
@@ -606,7 +607,8 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
         mweb_weight.pushKV("descendant", (int)e.GetMWEBWeightWithDescendants());
         mweb_info.pushKV("weight", mweb_weight);
 
-        mweb_info.pushKV("fee", ValueFromAmount(tx.mweb_tx.GetFee()));
+        const auto mweb_fee = tx.mweb_tx.GetFee();
+        mweb_info.pushKV("fee", mweb_fee ? ValueFromAmount(*mweb_fee) : UniValue(UniValue::VNULL));
         mweb_info.pushKV("lock_height", tx.mweb_tx.GetLockHeight());
 
         // Pegins
@@ -1603,6 +1605,7 @@ static UniValue ValiditySidechainVerifierAssetsToJSON(const ValiditySidechainVer
     result.pushKV("profile_manifest_key_layout_matches", status.profile_manifest_key_layout_matches);
     result.pushKV("profile_manifest_tuple_matches", status.profile_manifest_tuple_matches);
     result.pushKV("profile_manifest_public_inputs_match", status.profile_manifest_public_inputs_match);
+    result.pushKV("groth16_commitment_extension_matches_profile", status.groth16_commitment_extension_matches_profile);
     result.pushKV("valid_proof_vectors_present", status.valid_proof_vectors_present);
     result.pushKV("invalid_proof_vectors_present", status.invalid_proof_vectors_present);
     result.pushKV("artifact_name", status.artifact_name);
@@ -1619,6 +1622,12 @@ static UniValue ValiditySidechainVerifierAssetsToJSON(const ValiditySidechainVer
     result.pushKV("valid_proof_vector_count", static_cast<int64_t>(status.valid_proof_vector_count));
     result.pushKV("invalid_proof_vector_count", static_cast<int64_t>(status.invalid_proof_vector_count));
     result.pushKV("profile_manifest_public_input_count", static_cast<int64_t>(status.profile_manifest_public_input_count));
+    result.pushKV(
+        "expected_groth16_commitment_extension_count",
+        static_cast<int64_t>(status.expected_groth16_commitment_extension_count));
+    result.pushKV(
+        "verifying_key_groth16_commitment_extension_count",
+        static_cast<int64_t>(status.verifying_key_groth16_commitment_extension_count));
     result.pushKV("profile_manifest_public_inputs", manifest_public_inputs);
     result.pushKV("valid_proof_vector_paths", valid_vectors);
     result.pushKV("invalid_proof_vector_paths", invalid_vectors);
@@ -1652,10 +1661,10 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("profile_name", supported.profile_name);
     result.pushKV("profile_lifecycle", GetValiditySidechainProfileLifecycle(config));
     result.pushKV("canonical_target", IsCanonicalValiditySidechainProfile(config));
-    result.pushKV("recommended_for_new_registrations", IsCanonicalValiditySidechainProfile(config));
-    result.pushKV("migration_only", !IsCanonicalValiditySidechainProfile(config));
-    result.pushKV("registration_default_allowed", IsCanonicalValiditySidechainProfile(config));
-    result.pushKV("registration_requires_explicit_opt_in", !IsCanonicalValiditySidechainProfile(config));
+    result.pushKV("recommended_for_new_registrations", IsRecommendedValiditySidechainProfile(config));
+    result.pushKV("migration_only", !IsValiditySidechainRegistrationDefaultAllowedProfile(config));
+    result.pushKV("registration_default_allowed", IsValiditySidechainRegistrationDefaultAllowedProfile(config));
+    result.pushKV("registration_requires_explicit_opt_in", !IsValiditySidechainRegistrationDefaultAllowedProfile(config));
     result.pushKV("verifier_artifact_name", supported.verifier_artifact_name == nullptr ? "" : supported.verifier_artifact_name);
     result.pushKV("verifier_backend", supported.verifier_backend == nullptr ? "" : supported.verifier_backend);
     result.pushKV("scaffolding_only", supported.scaffolding_only);
@@ -1705,6 +1714,15 @@ static UniValue SupportedValiditySidechainConfigToJSON(const SupportedValiditySi
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(config));
+    result.pushKV(
+        "committed_queue_witness_limit",
+        static_cast<int64_t>(GetValiditySidechainBatchCommittedQueueWitnessLimit(config)));
+    result.pushKV(
+        "committed_withdrawal_witness_limit",
+        static_cast<int64_t>(GetValiditySidechainBatchCommittedWithdrawalWitnessLimit(config)));
+    result.pushKV(
+        "committed_data_chunk_witness_limit",
+        static_cast<int64_t>(GetValiditySidechainBatchCommittedDataChunkWitnessLimit(config)));
     result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(config));
     result.pushKV("verified_withdrawal_rpc_input_mode", GetValiditySidechainVerifiedWithdrawalRpcInputMode());
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(config));
@@ -1734,9 +1752,20 @@ struct ValidityAcceptedBatchPublication
     size_t published_data_chunk_count{0};
     size_t published_data_bytes{0};
     size_t proof_size{0};
+    bool proof_parsed_as_groth16{false};
+    size_t proof_commitment_extension_count{0};
+    bool proof_commitment_extension_matches_profile{false};
     uint256 txid;
     uint256 block_hash;
 };
+
+static bool IsNativeGroth16BatchVerifierMode(ValiditySidechainBatchVerifierMode mode)
+{
+    return mode == ValiditySidechainBatchVerifierMode::NATIVE_GROTH16_TOY_BATCH_TRANSITION_V1 ||
+           mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V1 ||
+           mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V2 ||
+           mode == ValiditySidechainBatchVerifierMode::GROTH16_BLS12_381_POSEIDON_V3;
+}
 
 static bool MatchesAcceptedBatchMetadata(
     const ValiditySidechainBatchPublicInputs& public_inputs,
@@ -1800,6 +1829,24 @@ static bool GetValidityAcceptedBatchPublication(
             out_publication.published_data_chunk_count = data_chunks.size();
             out_publication.published_data_bytes = total_data_bytes;
             out_publication.proof_size = proof_bytes.size();
+            const ValiditySidechainBatchVerifierMode mode = GetValiditySidechainBatchVerifierMode(sidechain.config);
+            out_publication.proof_commitment_extension_matches_profile = !IsNativeGroth16BatchVerifierMode(mode);
+            if (IsNativeGroth16BatchVerifierMode(mode)) {
+                ValiditySidechainGroth16Proof proof;
+                std::string proof_error;
+                if (ParseValiditySidechainGroth16Proof(proof_bytes, proof, &proof_error)) {
+                    out_publication.proof_parsed_as_groth16 = true;
+                    out_publication.proof_commitment_extension_count = proof.commitments_g1.size();
+                    const size_t expected_commitment_extension_count =
+                        (AreValiditySidechainBatchQueueBindingsProvenInCircuit(sidechain.config) ||
+                         AreValiditySidechainBatchWithdrawalBindingsProvenInCircuit(sidechain.config) ||
+                         AreValiditySidechainBatchDataBindingsProvenInCircuit(sidechain.config))
+                            ? 1
+                            : 0;
+                    out_publication.proof_commitment_extension_matches_profile =
+                        proof.commitments_g1.size() == expected_commitment_extension_count;
+                }
+            }
             out_publication.txid = tx->GetHash();
             out_publication.block_hash = pindex->GetBlockHash();
             return true;
@@ -1818,7 +1865,10 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("id", static_cast<int>(sidechain.id));
     result.pushKV("profile_lifecycle", GetValiditySidechainProfileLifecycle(sidechain.config));
     result.pushKV("canonical_target", IsCanonicalValiditySidechainProfile(sidechain.config));
-    result.pushKV("migration_only", !IsCanonicalValiditySidechainProfile(sidechain.config));
+    result.pushKV("recommended_for_new_registrations", IsRecommendedValiditySidechainProfile(sidechain.config));
+    result.pushKV("migration_only", !IsValiditySidechainRegistrationDefaultAllowedProfile(sidechain.config));
+    result.pushKV("registration_default_allowed", IsValiditySidechainRegistrationDefaultAllowedProfile(sidechain.config));
+    result.pushKV("registration_requires_explicit_opt_in", !IsValiditySidechainRegistrationDefaultAllowedProfile(sidechain.config));
     result.pushKV("registration_height", sidechain.registration_height);
     result.pushKV("is_active", sidechain.is_active);
     result.pushKV("escrow_balance", sidechain.escrow_balance);
@@ -1833,9 +1883,36 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
     result.pushKV("max_execution_fanout_limit", static_cast<int64_t>(MAX_VALIDITY_SIDECHAIN_EXECUTION_FANOUT));
     result.pushKV("deposit_admission_mode", GetValiditySidechainDepositAdmissionMode(sidechain.config));
     result.pushKV("force_exit_request_mode", GetValiditySidechainForceExitRequestMode(sidechain.config));
+    result.pushKV("derived_public_input_mode", GetValiditySidechainDerivedPublicInputMode(sidechain.config));
+    result.pushKV("external_prover_request_mode", GetValiditySidechainExternalProverRequestMode(sidechain.config));
+    result.pushKV(
+        "external_prover_requires_current_chainstate",
+        RequiresValiditySidechainExternalProverCurrentChainstate(sidechain.config));
+    result.pushKV(
+        "external_prover_requires_explicit_witness_vectors",
+        RequiresValiditySidechainExternalProverExplicitWitnessVectors(sidechain.config));
+    result.pushKV(
+        "queue_binding_proven_in_circuit",
+        AreValiditySidechainBatchQueueBindingsProvenInCircuit(sidechain.config));
+    result.pushKV(
+        "withdrawal_binding_proven_in_circuit",
+        AreValiditySidechainBatchWithdrawalBindingsProvenInCircuit(sidechain.config));
+    result.pushKV(
+        "data_binding_proven_in_circuit",
+        AreValiditySidechainBatchDataBindingsProvenInCircuit(sidechain.config));
+    result.pushKV("in_circuit_binding_blocker", GetValiditySidechainInCircuitBindingBlocker(sidechain.config));
     result.pushKV("batch_verifier_mode", ValiditySidechainBatchVerifierModeToString(GetValiditySidechainBatchVerifierMode(sidechain.config)));
     result.pushKV("batch_queue_binding_mode", GetValiditySidechainBatchQueueBindingMode(sidechain.config));
     result.pushKV("batch_withdrawal_binding_mode", GetValiditySidechainBatchWithdrawalBindingMode(sidechain.config));
+    result.pushKV(
+        "committed_queue_witness_limit",
+        static_cast<int64_t>(GetValiditySidechainBatchCommittedQueueWitnessLimit(sidechain.config)));
+    result.pushKV(
+        "committed_withdrawal_witness_limit",
+        static_cast<int64_t>(GetValiditySidechainBatchCommittedWithdrawalWitnessLimit(sidechain.config)));
+    result.pushKV(
+        "committed_data_chunk_witness_limit",
+        static_cast<int64_t>(GetValiditySidechainBatchCommittedDataChunkWitnessLimit(sidechain.config)));
     result.pushKV("verified_withdrawal_execution_mode", GetValiditySidechainVerifiedWithdrawalExecutionMode(sidechain.config));
     result.pushKV("verified_withdrawal_rpc_input_mode", GetValiditySidechainVerifiedWithdrawalRpcInputMode());
     result.pushKV("escape_exit_mode", GetValiditySidechainEscapeExitExecutionMode(sidechain.config));
@@ -1865,6 +1942,13 @@ static UniValue ValiditySidechainToJSON(const ValiditySidechain& sidechain)
             batch_obj.pushKV("published_data_chunk_count", static_cast<int64_t>(publication.published_data_chunk_count));
             batch_obj.pushKV("published_data_bytes", static_cast<int64_t>(publication.published_data_bytes));
             batch_obj.pushKV("proof_size", static_cast<int64_t>(publication.proof_size));
+            batch_obj.pushKV("proof_parsed_as_groth16", publication.proof_parsed_as_groth16);
+            batch_obj.pushKV(
+                "proof_commitment_extension_count",
+                static_cast<int64_t>(publication.proof_commitment_extension_count));
+            batch_obj.pushKV(
+                "proof_commitment_extension_matches_profile",
+                publication.proof_commitment_extension_matches_profile);
             batch_obj.pushKV("published_in_txid", publication.txid.GetHex());
             batch_obj.pushKV("published_in_block", publication.block_hash.GetHex());
         }
@@ -1908,6 +1992,7 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
         supported_configs.push_back(SupportedValiditySidechainConfigToJSON(supported));
     }
     const SupportedValiditySidechainConfig* canonical_supported = GetCanonicalValiditySidechainConfig();
+    const SupportedValiditySidechainConfig* recommended_supported = GetRecommendedValiditySidechainConfig();
 
     result.pushKV("implementation_status", "scaffolding");
     result.pushKV("trustless_enforced", false);
@@ -1919,8 +2004,8 @@ static UniValue getvaliditysidechaininfo(const JSONRPCRequest& request)
             : "");
     result.pushKV(
         "recommended_profile_name",
-        canonical_supported != nullptr && canonical_supported->profile_name != nullptr
-            ? canonical_supported->profile_name
+        recommended_supported != nullptr && recommended_supported->profile_name != nullptr
+            ? recommended_supported->profile_name
             : "");
     result.pushKV("migration_profiles_retained", true);
     result.pushKV("migration_profile_registration_requires_opt_in", true);

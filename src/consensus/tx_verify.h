@@ -6,6 +6,7 @@
 #define BITCOIN_CONSENSUS_TX_VERIFY_H
 
 #include <amount.h>
+#include <consensus/params.h>
 
 #include <stdint.h>
 #include <vector>
@@ -27,6 +28,7 @@ namespace Consensus {
 bool CheckTxInputs(
     const CTransaction& tx,
     TxValidationState& state,
+    const Consensus::Params& consensus_params,
     const CCoinsViewCache& inputs,
     int nSpendHeight,
     CAmount& txfee,

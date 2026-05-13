@@ -388,14 +388,19 @@ class ValiditySidechainLongRangeEscapeExitReorg(BitcoinTestFramework):
         if state_escape_txid in mempool:
             self.log.info("The original state-proof escape-exit transaction was restored to mempool after the reorg.")
         else:
-            state_escape_res = n0.sendescapeexit(
-                state_sidechain_id,
-                state_root,
-                [state_claim],
-            )
-            state_escape_txid = state_escape_res["txid"]
-        assert state_escape_txid in n0.getrawmempool()
-        n0.generatetoaddress(1, n0.getnewaddress())
+            state_tx = n0.gettransaction(state_escape_txid)
+            if state_tx["confirmations"] > 0:
+                self.log.info("The original state-proof escape-exit transaction was restored and mined with the previous block.")
+            else:
+                state_escape_res = n0.sendescapeexit(
+                    state_sidechain_id,
+                    state_root,
+                    [state_claim],
+                )
+                state_escape_txid = state_escape_res["txid"]
+        if n0.gettransaction(state_escape_txid)["confirmations"] <= 0:
+            assert state_escape_txid in n0.getrawmempool()
+            n0.generatetoaddress(1, n0.getnewaddress())
         self.sync_blocks()
 
         final_info = n0.getvaliditysidechaininfo()

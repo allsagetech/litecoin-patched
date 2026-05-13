@@ -1,4 +1,4 @@
-# Proposed ZK System: Validity Batch Proof V2
+# Proposed ZK System: Validity Batch Proof V3
 
 This file defines the canonical zk target for the validity-sidechain design in
 this branch.
@@ -46,13 +46,13 @@ This does require a circuit-specific trusted setup per circuit version.
 
 The canonical end-state profile should be a fixed registry entry:
 
-- `profile_name = "groth16_bls12_381_poseidon_v2"`
+- `profile_name = "groth16_bls12_381_poseidon_v3"`
 - `scaffolding_only = false`
 - `version = 1`
 - `proof_system_id = 2`
 - `circuit_family_id = 1`
 - `verifier_id = 1`
-- `public_input_version = 5`
+- `public_input_version = 6`
 - `state_root_format = 2`
 - `deposit_message_format = 1`
 - `withdrawal_leaf_format = 2`
@@ -65,8 +65,9 @@ as consensus.
 The current branch still carries `groth16_bls12_381_poseidon_v1` as a
 scalar-limited migration profile for committed vectors and compatibility work.
 That profile should be treated as transitional only. The intended final shape
-uses `v2` so full-width queue, withdrawal, and DA roots are decomposed into
-128-bit limbs as part of the public-input contract.
+uses `v3`: it keeps the decomposed 128-bit limb public-input contract from
+`v2`, but promotes the bounded queue, withdrawal, and DA witness commitments
+into the canonical profile instead of leaving them in a successor path.
 
 ## 4. State Commitments
 

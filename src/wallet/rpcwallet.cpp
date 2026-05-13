@@ -63,8 +63,6 @@ using interfaces::FoundBlock;
 
 static const std::string WALLET_ENDPOINT_BASE = "/wallet/";
 static const std::string HELP_REQUIRING_PASSPHRASE{"\nRequires wallet passphrase to be set with walletpassphrase call if wallet is encrypted.\n"};
-static constexpr size_t VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNKS = 1;
-static constexpr size_t VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNK_BYTES = 64;
 
 static inline bool GetAvoidReuseFlag(const CWallet* const pwallet, const UniValue& param) {
     bool can_avoid_reuse = pwallet->IsWalletFlagSet(WALLET_FLAG_AVOID_REUSE);
@@ -1105,7 +1103,7 @@ static RPCHelpMan sendvaliditysidechainregister()
         "sendvaliditysidechainregister",
         "Create, fund, sign and broadcast a validity-sidechain REGISTER transaction.\n"
         "The config must match one of the node's supported proof configuration profiles.\n"
-        "Migration-only profiles require -validityallowmigrationprofiles=1; new registrations should use the recommended groth16_bls12_381_poseidon_v3 profile.\n",
+        "Migration-only profiles require -validityallowmigrationprofiles=1; new registrations should use the canonical groth16_bls12_381_poseidon_v3 profile.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"config", RPCArg::Type::OBJ, RPCArg::Optional::NO, "Validity-sidechain config",
@@ -1212,7 +1210,8 @@ static RPCHelpMan sendvaliditydeposit()
         "sendvaliditydeposit",
         "Create, fund, sign and broadcast a validity-sidechain DEPOSIT transaction.\n"
         "If deposit_id or nonce are omitted, wallet-side randomness is used.\n"
-        "For the current experimental real profile, the wallet auto-picks a nonce that keeps the single pending deposit queue transition inside the native BLS12-381 scalar field.\n",
+        "For the current experimental real profile, the wallet auto-picks a nonce that keeps the single pending deposit queue transition inside the native BLS12-381 scalar field.\n"
+        "Once escape exits have started for a sidechain, new deposits are rejected by consensus.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"destination_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte sidechain destination commitment"},
@@ -1330,7 +1329,9 @@ static RPCHelpMan sendforceexitrequest()
     return RPCHelpMan{
         "sendforceexitrequest",
         "Create, fund, sign and broadcast a validity-sidechain REQUEST_FORCE_EXIT transaction.\n"
-        "The current experimental real profile does not support force-exit requests.\n",
+        "The current experimental real profile does not support force-exit requests.\n"
+        "Profiles with bounded committed queue witnesses also reject requests that would be appended deeper than that queue-witness limit.\n"
+        "Once escape exits have started for a sidechain, new force-exit requests are rejected by consensus.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"account_id", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "32-byte account identifier"},
@@ -1511,12 +1512,12 @@ static RPCHelpMan sendvaliditybatch()
                     {"new_state_root", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "New finalized state root"},
                     {"l1_message_root_before", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional queue root before batch consumption. If omitted, the wallet uses the active chainstate queue root."},
                     {"l1_message_root_after", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional queue root after batch consumption. If omitted, the wallet computes it from the active chainstate."},
-                    {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages. The scalar-limited experimental real profile supports at most one consumed deposit entry; the commitment-aware successor profile currently supports at most two witness-backed entries; the canonical decomposed-input profile may consume generic queue prefixes."},
+                    {"consumed_queue_messages", RPCArg::Type::NUM, RPCArg::Optional::NO, "Number of consumed queue messages. The scalar-limited experimental real profile supports at most one consumed deposit entry; the canonical groth16_bls12_381_poseidon_v3 profile currently supports at most two witness-backed entries; the legacy decomposed groth16_bls12_381_poseidon_v2 profile may consume generic queue prefixes."},
                     {"queue_prefix_commitment", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional commitment to the exact consumed queue prefix. If omitted, the wallet computes it from the active chainstate."},
                     {"withdrawal_root", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional withdrawal root. For scaffold queue-prefix-only batches the wallet uses the current accepted root; for current-chainstate-bound Poseidon profiles it preserves the current accepted root when withdrawal_leaves are omitted; other Poseidon profiles derive the root from withdrawal_leaves when omitted."},
                     {"data_root", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional data-availability root. If omitted, the wallet derives it from data_chunks when supported by the active profile."},
                     {"data_size", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Optional published data size in bytes. If omitted, the wallet derives it from data_chunks when supported by the active profile."},
-                    {"withdrawal_leaves", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional prover witness for real profiles. Ignored by consensus encoding. The scalar-limited experimental real profile supports at most one witness leaf; the commitment-aware successor profile currently supports at most two witness leaves; the canonical decomposed-input profile accepts generic withdrawal witness sets.",
+                    {"withdrawal_leaves", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional prover witness for real profiles. Ignored by consensus encoding. The scalar-limited experimental real profile supports at most one witness leaf; the canonical groth16_bls12_381_poseidon_v3 profile currently supports at most two witness leaves; the legacy decomposed groth16_bls12_381_poseidon_v2 profile accepts generic withdrawal witness sets.",
                         {
                             {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                                 {
@@ -1529,7 +1530,7 @@ static RPCHelpMan sendvaliditybatch()
                         }},
                 }},
             {"proof_bytes", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Optional proof bytes. Omit to auto-build the scaffold proof envelope when supported."},
-                    {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings. Limited to 256 chunks by consensus; the commitment-aware successor profile currently supports at most two in-circuit DA chunk witnesses.",
+                    {"data_chunks", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "Optional array of DA chunk hex strings. Limited to 256 chunks by consensus; the canonical groth16_bls12_381_poseidon_v3 profile currently supports at most two in-circuit DA chunk witnesses.",
                 {
                     {"chunk", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "Data chunk hex"},
                 }},
@@ -1667,13 +1668,13 @@ static RPCHelpMan sendvaliditybatch()
             if (committed_data_chunk_witness_limit != 0) {
                 for (size_t chunk_index = 0; chunk_index < data_chunks.size(); ++chunk_index) {
                     const auto& chunk = data_chunks[chunk_index];
-                    if (chunk.size() > VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNK_BYTES) {
+                    if (chunk.size() > VALIDITY_SIDECHAIN_COMMITTED_DATA_WITNESS_MAX_CHUNK_BYTES) {
                         throw JSONRPCError(
                             RPC_INVALID_PARAMETER,
                             "current profile supports data chunk witnesses of at most 64 bytes");
                     }
                     if (chunk_index + 1 < data_chunks.size() &&
-                        chunk.size() != VALIDITY_SIDECHAIN_COMMITMENT_DATA_WITNESS_MAX_CHUNK_BYTES) {
+                        chunk.size() != VALIDITY_SIDECHAIN_COMMITTED_DATA_WITNESS_MAX_CHUNK_BYTES) {
                         throw JSONRPCError(
                             RPC_INVALID_PARAMETER,
                             strprintf(
@@ -1897,7 +1898,7 @@ static RPCHelpMan sendverifiedwithdrawals()
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_VERIFIED_WITHDRAWALS transaction.\n"
         "Legacy callers may provide the full ordered withdrawal list, and the wallet will deterministically build Merkle proofs that must match the accepted batch tracked by this node.\n"
         "Callers that already have explicit Merkle proofs may instead provide proof objects directly.\n"
-        "For the current experimental real profile, only a single executed withdrawal leaf is supported.\n",
+        "The scalar-limited experimental real profile supports only a single executed withdrawal leaf; other supported real profiles use generic Merkle inclusion against the accepted withdrawal_root.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"batch_number", RPCArg::Type::NUM, RPCArg::Optional::NO, "Accepted batch number"},
@@ -2069,7 +2070,7 @@ static RPCHelpMan sendescapeexit()
         "Create, fund, sign and broadcast a validity-sidechain EXECUTE_ESCAPE_EXIT transaction.\n"
         "Legacy callers may provide an ordered list of escape-exit leaves, and the wallet will deterministically build Merkle proofs that must match the referenced state root.\n"
         "Callers that already have account/balance witnesses may instead provide explicit state-proof objects, which the wallet encodes directly and binds to a deterministic claim id.\n"
-        "Scaffold profiles use scaffold Merkle inclusion, migration profiles still accept the legacy current-state-root Merkle mode, and the canonical Groth16 v2 profile requires explicit account/balance state proofs.\n",
+        "Scaffold profiles use scaffold Merkle inclusion, non-decomposed migration profiles still accept the legacy current-state-root Merkle mode, and the decomposed Groth16 v2/v3 profiles require explicit account/balance state proofs.\n",
         {
             {"sidechain_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "Sidechain id (0-255)"},
             {"state_root_reference", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "Current finalized state root reference"},

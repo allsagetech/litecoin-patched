@@ -795,9 +795,9 @@ func DeriveRequest(request toybatch.CommandRequest) (toybatch.CommandRequest, er
 
 func ValidateProofRequestContract(request toybatch.CommandRequest) error {
 	if requiresCanonicalCurrentChainstateBinding(request.ProfileName) {
-		profileLabel := "canonical v2"
+		profileLabel := "legacy v2"
 		if request.ProfileName == CommitmentProfileName {
-			profileLabel = "commitment-aware v3"
+			profileLabel = "canonical v3"
 		}
 		if strings.TrimSpace(request.CurrentStateRoot) == "" {
 			return fmt.Errorf("current_state_root is required for %s proof requests", profileLabel)
@@ -814,24 +814,24 @@ func ValidateProofRequestContract(request toybatch.CommandRequest) error {
 	}
 	if requiresExplicitCanonicalWitnessVectors(request.ProfileName) {
 		if request.ConsumedQueueEntries == nil {
-			return fmt.Errorf("consumed_queue_entries must be provided explicitly for canonical v2 proof requests")
+			return fmt.Errorf("consumed_queue_entries must be provided explicitly for legacy v2 proof requests")
 		}
 		if request.WithdrawalLeaves == nil {
-			return fmt.Errorf("withdrawal_leaves must be provided explicitly for canonical v2 proof requests")
+			return fmt.Errorf("withdrawal_leaves must be provided explicitly for legacy v2 proof requests")
 		}
 		if request.DataChunksHex == nil {
-			return fmt.Errorf("data_chunks_hex must be provided explicitly for canonical v2 proof requests")
+			return fmt.Errorf("data_chunks_hex must be provided explicitly for legacy v2 proof requests")
 		}
 	}
 	if requiresExplicitCommittedWitnessVectors(request.ProfileName) {
 		if request.ConsumedQueueEntries == nil {
-			return fmt.Errorf("consumed_queue_entries must be provided explicitly for commitment-aware v3 proof requests")
+			return fmt.Errorf("consumed_queue_entries must be provided explicitly for canonical v3 proof requests")
 		}
 		if request.WithdrawalLeaves == nil {
-			return fmt.Errorf("withdrawal_leaves must be provided explicitly for commitment-aware v3 proof requests")
+			return fmt.Errorf("withdrawal_leaves must be provided explicitly for canonical v3 proof requests")
 		}
 		if request.DataChunksHex == nil {
-			return fmt.Errorf("data_chunks_hex must be provided explicitly for commitment-aware v3 proof requests")
+			return fmt.Errorf("data_chunks_hex must be provided explicitly for canonical v3 proof requests")
 		}
 	}
 	if err := validateCurrentChainstateBinding(request); err != nil {
@@ -933,20 +933,20 @@ func validateCommittedDataWitnessBounds(chunks [][]byte) error {
 			label = "witness"
 		}
 		return fmt.Errorf(
-			"commitment-aware successor profile supports at most %d data chunk %s",
+			"canonical v3 profile supports at most %d data chunk %s",
 			commitmentDataWitnessMaxChunks,
 			label)
 	}
 	for index, chunk := range chunks {
 		if len(chunk) > commitmentDataWitnessMaxChunkBytes {
 			return fmt.Errorf(
-				"data_chunks_hex[%d] exceeds the commitment-aware successor witness limit of %d bytes",
+				"data_chunks_hex[%d] exceeds the canonical v3 witness limit of %d bytes",
 				index,
 				commitmentDataWitnessMaxChunkBytes)
 		}
 		if index+1 < len(chunks) && len(chunk) != commitmentDataWitnessMaxChunkBytes {
 			return fmt.Errorf(
-				"data_chunks_hex[%d] must be exactly %d bytes when followed by another chunk in the commitment-aware successor profile",
+				"data_chunks_hex[%d] must be exactly %d bytes when followed by another chunk in the canonical v3 profile",
 				index,
 				commitmentDataWitnessMaxChunkBytes)
 		}
@@ -957,7 +957,7 @@ func validateCommittedDataWitnessBounds(chunks [][]byte) error {
 func validateCommittedQueueWitnessBounds(entries []toybatch.ConsumedQueueEntry) error {
 	if len(entries) > commitmentQueueWitnessMaxEntries {
 		return fmt.Errorf(
-			"commitment-aware successor profile supports at most %d consumed queue entries",
+			"canonical v3 profile supports at most %d consumed queue entries",
 			commitmentQueueWitnessMaxEntries)
 	}
 	return nil
@@ -966,7 +966,7 @@ func validateCommittedQueueWitnessBounds(entries []toybatch.ConsumedQueueEntry) 
 func validateCommittedWithdrawalWitnessBounds(leaves []toybatch.WithdrawalLeaf) error {
 	if len(leaves) > commitmentWithdrawalWitnessMaxLeaves {
 		return fmt.Errorf(
-			"commitment-aware successor profile supports at most %d withdrawal leaf witnesses",
+			"canonical v3 profile supports at most %d withdrawal leaf witnesses",
 			commitmentWithdrawalWitnessMaxLeaves)
 	}
 	return nil

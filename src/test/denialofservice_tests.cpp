@@ -9,6 +9,7 @@
 #include <chainparams.h>
 #include <net.h>
 #include <net_processing.h>
+#include <policy/policy.h>
 #include <pubkey.h>
 #include <script/sign.h>
 #include <script/signingprovider.h>
@@ -409,17 +410,13 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         tx.vout.resize(1);
         tx.vout[0].nValue = 1*CENT;
         tx.vout[0].scriptPubKey = GetScriptForDestination(PKHash(key.GetPubKey()));
-        tx.vin.resize(2777);
-        for (unsigned int j = 0; j < tx.vin.size(); j++)
-        {
-            tx.vin[j].prevout.n = j;
-            tx.vin[j].prevout.hash = txPrev->GetHash();
-        }
-        BOOST_CHECK(SignSignature(keystore, *txPrev, tx, 0, SIGHASH_ALL));
-        // Re-use same signature for other inputs
-        // (they don't have to be valid for this test)
-        for (unsigned int j = 1; j < tx.vin.size(); j++)
-            tx.vin[j].scriptSig = tx.vin[0].scriptSig;
+        tx.vin.resize(1);
+        tx.vin[0].prevout.n = 0;
+        tx.vin[0].prevout.hash = txPrev->GetHash();
+        const std::vector<unsigned char> oversized_script(
+            (MAX_STANDARD_TX_WEIGHT / WITNESS_SCALE_FACTOR) + 1,
+            OP_TRUE);
+        tx.vin[0].scriptSig = CScript(oversized_script.begin(), oversized_script.end());
 
         BOOST_CHECK(!AddOrphanTx(MakeTransactionRef(tx), i));
     }

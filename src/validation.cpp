@@ -1987,7 +1987,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (!ComputeSidechainTxInputCredit(tx, sidechain_input_credit)) {
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "sidechain-credit-invalid");
     }
-    if (!Consensus::CheckTxInputs(tx, state, m_view, GetSpendHeight(m_view), nFees, sidechain_input_credit)) {
+    if (!Consensus::CheckTxInputs(tx, state, args.m_chainparams.GetConsensus(), m_view, GetSpendHeight(m_view), nFees, sidechain_input_credit)) {
         return false; // state filled in by CheckTxInputs
     }
 
@@ -3111,7 +3111,7 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
         try {
             view.GetMWEBCacheView()->UndoBlock(blockUndo.mwundo);
         } catch (const std::exception& e) {
-            error("DisconnectBlock(): Failed to disconnect MWEB block");
+            error("DisconnectBlock(): Failed to disconnect MWEB block: %s", e.what());
             return DISCONNECT_FAILED;
         }
     }
@@ -3490,7 +3490,7 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
                 return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "sidechain-credit-invalid");
             }
             TxValidationState tx_state;
-            if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, txfee, sidechain_input_credit)) {
+            if (!Consensus::CheckTxInputs(tx, tx_state, chainparams.GetConsensus(), view, pindex->nHeight, txfee, sidechain_input_credit)) {
                 // Any transaction validation failure in ConnectBlock is a block consensus failure
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                             tx_state.GetRejectReason(), tx_state.GetDebugMessage());
@@ -4027,8 +4027,14 @@ bool CChainState::ConnectTip(BlockValidationState& state, const CChainParams& ch
         bool rv = ConnectBlock(blockConnecting, state, pindexNew, view, chainparams);
         GetMainSignals().BlockChecked(blockConnecting, state);
         if (!rv) {
-            if (state.IsInvalid())
+            if (state.IsInvalid()) {
                 InvalidBlockFound(pindexNew, state);
+                if (state.GetResult() == BlockValidationResult::BLOCK_MUTATED) {
+                    // The same block hash may be valid with different
+                    // non-committed data, so do not retain these bytes.
+                    EraseBlockData(pindexNew);
+                }
+            }
             return error("%s: ConnectBlock %s failed, %s", __func__, pindexNew->GetBlockHash().ToString(), state.ToString());
         }
         nTime3 = GetTimeMicros(); nTimeConnectTotal += nTime3 - nTime2;
@@ -4230,7 +4236,7 @@ bool CChainState::ActivateBestChainStep(BlockValidationState& state, const CChai
         // any disconnected transactions back to the mempool.
         UpdateMempoolForReorg(m_mempool, disconnectpool, true);
     }
-    m_mempool.check(&CoinsTip());
+    m_mempool.check(&CoinsTip(), chainparams.GetConsensus());
 
     // Callbacks/notifications for a new best chain.
     if (fInvalidFound)

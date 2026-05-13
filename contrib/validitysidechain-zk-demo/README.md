@@ -57,14 +57,14 @@ derives `l1_message_root_after`, `queue_prefix_commitment`, `withdrawal_root`,
 caller-supplied values.
 
 The native bundle encoder and C++ verifier now carry Groth16 commitment
-metadata. The shipped successor profile `groth16_bls12_381_poseidon_v3` uses
+metadata. The canonical profile `groth16_bls12_381_poseidon_v3` uses
 that path for an explicitly bounded contract: up to two consumed queue
 entries, up to two withdrawal leaves, and up to two published data chunks are
 bound in-circuit, with any non-final DA chunk fixed at 64 bytes so the bounded
 witness layout still hashes to the real published `data_root`. The node now
-treats `v3` as the recommended profile for new registrations while leaving
-canonical `v2` in place until the successor contract is generalized, and the
-`v3` helper request is now current-chainstate-bound like `v2`.
+treats `v3` as the canonical profile for new registrations, retains `v2` only
+as legacy decomposed-input migration coverage, and keeps the `v3` helper
+request current-chainstate-bound like `v2`.
 
 `verify-batch` now supports both the toy external profile and the experimental
 native real bundles `groth16_bls12_381_poseidon_v1` and

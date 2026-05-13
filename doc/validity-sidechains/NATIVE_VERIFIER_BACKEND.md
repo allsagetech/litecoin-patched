@@ -36,6 +36,9 @@ the pairing/curve backend, not the full circuit-specific Groth16 integration.
 - currently interprets each batch public input as one BLS12-381 scalar field
   element, which means the final real profile must keep those values
   field-sized or move to a decomposed-input profile version
+- the branch now treats `groth16_bls12_381_poseidon_v3` as the canonical
+  end-state target, while retaining `groth16_bls12_381_poseidon_v2` as a
+  migration profile for decomposed-input compatibility coverage
 
 ## What This Does Not Solve
 
@@ -50,10 +53,11 @@ remain:
 
 ## Intended Next Steps
 
-1. Finalize the canonical `groth16_bls12_381_poseidon_v2` artifact bundle with
+1. Finalize the canonical `groth16_bls12_381_poseidon_v3` artifact bundle with
    the intended end-state `batch_vk.bin` and production-semantics proof
-   vectors. Treat `v1` as scalar-limited migration coverage only.
-2. Wire the final circuit/public-input semantics to the canonical `v2` assets.
+   vectors. Treat `v1` as scalar-limited migration coverage only and `v2` as
+   legacy decomposed-input migration coverage.
+2. Wire the final circuit/public-input semantics to the canonical `v3` assets.
 3. Replace the remaining scaffold state-transition and exit semantics with the
    final proof-backed path.
 

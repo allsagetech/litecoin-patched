@@ -1192,19 +1192,23 @@ void CTxMemPool::clear()
     _clear();
 }
 
-static void CheckInputsAndUpdateCoins(const CTransaction& tx, CCoinsViewCache& mempoolDuplicate, const int64_t spendheight)
+static void CheckInputsAndUpdateCoins(
+    const CTransaction& tx,
+    const Consensus::Params& consensus_params,
+    CCoinsViewCache& mempoolDuplicate,
+    const int64_t spendheight)
 {
     TxValidationState dummy_state; // Not used. CheckTxInputs() should always pass
     CAmount txfee = 0;
     CAmount input_credit = 0;
     bool fCheckCredit = ComputeSidechainTxInputCredit(tx, input_credit);
     assert(fCheckCredit);
-    bool fCheckResult = tx.IsCoinBase() || Consensus::CheckTxInputs(tx, dummy_state, mempoolDuplicate, spendheight, txfee, input_credit);
+    bool fCheckResult = tx.IsCoinBase() || Consensus::CheckTxInputs(tx, dummy_state, consensus_params, mempoolDuplicate, spendheight, txfee, input_credit);
     assert(fCheckResult);
     UpdateCoins(tx, mempoolDuplicate, std::numeric_limits<int>::max());
 }
 
-void CTxMemPool::check(const CCoinsViewCache *pcoins) const
+void CTxMemPool::check(const CCoinsViewCache *pcoins, const Consensus::Params& consensus_params) const
 {
     LOCK(cs);
     if (nCheckFrequency == 0)
@@ -1297,7 +1301,7 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
         if (fDependsWait)
             waitingOnDependants.push_back(&(*it));
         else {
-            CheckInputsAndUpdateCoins(tx, mempoolDuplicate, spendheight);
+            CheckInputsAndUpdateCoins(tx, consensus_params, mempoolDuplicate, spendheight);
         }
     }
     unsigned int stepsSinceLastRemove = 0;
@@ -1309,7 +1313,7 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
             stepsSinceLastRemove++;
             assert(stepsSinceLastRemove < waitingOnDependants.size());
         } else {
-            CheckInputsAndUpdateCoins(entry->GetTx(), mempoolDuplicate, spendheight);
+            CheckInputsAndUpdateCoins(entry->GetTx(), consensus_params, mempoolDuplicate, spendheight);
             stepsSinceLastRemove = 0;
         }
     }
