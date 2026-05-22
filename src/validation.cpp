@@ -478,6 +478,55 @@ namespace {
         return IsValiditySidechainTransport(spk);
     }
 
+    static bool DecodeLip005TreasuryScript(const CScript& spk, uint8_t& out_sidechain_id)
+    {
+        CScript::const_iterator pc = spk.begin();
+        opcodetype opcode;
+        std::vector<unsigned char> sidechain_id;
+
+        if (!spk.GetOp(pc, opcode) || opcode != OP_SIDECHAIN) {
+            return false;
+        }
+        if (!spk.GetOp(pc, opcode, sidechain_id) || sidechain_id.size() != 1) {
+            return false;
+        }
+        if (!spk.GetOp(pc, opcode) || opcode != OP_TRUE) {
+            return false;
+        }
+        if (pc != spk.end()) {
+            return false;
+        }
+
+        out_sidechain_id = sidechain_id[0];
+        return true;
+    }
+
+    static bool IsLip005TreasuryExecutionSpend(const CTransaction& tx, const CCoinsViewCache& inputs)
+    {
+        if (tx.IsCoinBase() || tx.vin.empty() || tx.vout.empty()) {
+            return false;
+        }
+
+        uint8_t output_sidechain_id = 0;
+        if (!DecodeLip005TreasuryScript(tx.vout[0].scriptPubKey, output_sidechain_id)) {
+            return false;
+        }
+
+        for (const auto& txin : tx.vin) {
+            const Coin& coin = inputs.AccessCoin(txin.prevout);
+            uint8_t input_sidechain_id = 0;
+            if (
+                coin.IsSpent() ||
+                !DecodeLip005TreasuryScript(coin.out.scriptPubKey, input_sidechain_id) ||
+                input_sidechain_id != output_sidechain_id
+            ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     static uint256 ComputeScriptCommitment(const CScript& script)
     {
         return Hash(script);
@@ -3531,7 +3580,8 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
             std::vector<CScriptCheck> vChecks;
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
             TxValidationState tx_state;
-            if (fScriptChecks && !CheckInputScripts(tx, tx_state, view, flags, fCacheResults, fCacheResults, txsdata[i], g_parallel_script_checks ? &vChecks : nullptr)) {
+            const bool skip_lip005_treasury_script_checks = IsLip005TreasuryExecutionSpend(tx, view);
+            if (fScriptChecks && !skip_lip005_treasury_script_checks && !CheckInputScripts(tx, tx_state, view, flags, fCacheResults, fCacheResults, txsdata[i], g_parallel_script_checks ? &vChecks : nullptr)) {
                 // Any transaction validation failure in ConnectBlock is a block consensus failure
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                               tx_state.GetRejectReason(), tx_state.GetDebugMessage());
